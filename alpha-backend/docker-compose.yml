@@ -13,10 +13,17 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - QDRANT_HOST=qdrant
       - POSTGRES_URI=postgresql://alphauser:alphapassword@postgres:5432/alphadb
+      - OMP_NUM_THREADS=4
+      - MKL_NUM_THREADS=4
     depends_on:
       - postgres
       - qdrant
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '3.5'
+          memory: 12G
 
   postgres:
     image: postgres:15

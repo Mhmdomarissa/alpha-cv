@@ -135,7 +135,7 @@ export const useAppStore = create<AppState>()(
           },
         })),
 
-      getLoadingState: (operation) => {
+      getLoadingState: () => {
         // This will be accessed through the store hook
         return { isLoading: false, error: null };
       },

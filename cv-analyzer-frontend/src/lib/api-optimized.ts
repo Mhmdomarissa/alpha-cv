@@ -134,7 +134,7 @@ export const optimizedApiMethods = {
   },
 
   // Run performance benchmark
-  benchmarkPerformance: async (): Promise<any> => {
+  benchmarkPerformance: async (): Promise<unknown> => {
     console.log('🏃 Running performance benchmark...');
     
     try {
@@ -151,7 +151,7 @@ export const optimizedApiMethods = {
   },
 
   // Optimized CV standardization
-  standardizeCVOptimized: async (cv_text: string): Promise<any> => {
+  standardizeCVOptimized: async (cv_text: string): Promise<unknown> => {
     try {
       const response = await optimizedApi.post('/api/optimized/standardize-cv-optimized', {
         cv_text
@@ -164,7 +164,7 @@ export const optimizedApiMethods = {
   },
 
   // Optimized JD standardization
-  standardizeJDOptimized: async (jd_text: string): Promise<any> => {
+  standardizeJDOptimized: async (jd_text: string): Promise<unknown> => {
     try {
       const response = await optimizedApi.post('/api/optimized/standardize-jd-optimized', {
         jd_text

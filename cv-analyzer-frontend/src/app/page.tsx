@@ -44,6 +44,9 @@ const AppContent = memo(function AppContent() {
         status: 'operational',
         timestamp: new Date().toISOString(),
         system_stats: {
+          cpu_usage: 0,
+          memory_usage: 0,
+          disk_usage: 0,
           total_cvs: 0,
           total_jds: 0,
           processed_cvs: 0,
@@ -61,8 +64,8 @@ const AppContent = memo(function AppContent() {
           },
         },
         performance: {
-          avg_response_time: 0,
-          uptime: '100%',
+          average_response_time: 0,
+          requests_per_minute: 0,
         },
       });
       
@@ -72,9 +75,9 @@ const AppContent = memo(function AppContent() {
       setSystemStatus({
         status: 'error',
         timestamp: new Date().toISOString(),
-        system_stats: { total_cvs: 0, total_jds: 0, processed_cvs: 0, processed_jds: 0 },
+        system_stats: { cpu_usage: 0, memory_usage: 0, disk_usage: 0, total_cvs: 0, total_jds: 0, processed_cvs: 0, processed_jds: 0 },
         services: { qdrant: { status: 'error', collections: 0, total_vectors: 0 }, openai: { status: 'error', model: 'gpt-4' } },
-        performance: { avg_response_time: 0, uptime: '0%' },
+        performance: { average_response_time: 0, requests_per_minute: 0 },
       });
     } finally {
       setLoading(false);

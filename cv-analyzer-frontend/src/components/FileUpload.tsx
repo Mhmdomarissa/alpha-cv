@@ -14,7 +14,7 @@ import { Progress } from './ui/Progress';
 import { Badge } from './ui/Badge';
 import { formatFileSize } from '@/lib/utils';
 import { config } from '@/lib/config';
-import { useLoadingState } from '@/hooks/useLoadingState';
+// import { useLoadingState } from '@/hooks/useLoadingState';
 import toast from 'react-hot-toast';
 
 interface FileWithPreview extends File {
@@ -66,8 +66,8 @@ const FileUpload = ({
   uploadProgress = {},
   uploadStatus = {},
   className = '',
-  validateFiles = true,
-  customValidation = [],
+  // validateFiles = true,
+  // customValidation = [],
 }: FileUploadProps) => {
   const [files, setFiles] = useState<FileWithPreview[]>([]);
 

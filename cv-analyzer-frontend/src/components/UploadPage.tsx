@@ -83,20 +83,20 @@ const UploadPage = () => {
     }
     
     // If it's a react-dropzone enhanced object, try to create a proper File
-    if (file && typeof file === 'object' && file.name && file.size !== undefined && file.type !== undefined) {
+    if (file && typeof file === 'object' && 'name' in file && 'size' in file && 'type' in file) {
       // Check if it has the core File properties and methods
-      if (typeof file.stream === 'function' && typeof file.arrayBuffer === 'function') {
+      if ('stream' in file && typeof file.stream === 'function' && 'arrayBuffer' in file && typeof file.arrayBuffer === 'function') {
         // It's likely a File-like object that can be used directly
         return file as File;
       }
       
       // Try to create a new File object if we have the raw data
       if (file.constructor && file.constructor.name === 'File') {
-        return file;
+        return file as File;
       }
     }
     
-    throw new Error(`Invalid file object: ${file?.name || 'unknown'}`);
+    throw new Error(`Invalid file object: ${typeof file === 'object' && file && 'name' in file ? String(file.name) : 'unknown'}`);
   };
 
   // Helper function to chunk array for parallel processing
@@ -109,6 +109,7 @@ const UploadPage = () => {
   // Optimized parallel CV upload function
   const uploadCVsInParallel = async (files: File[], maxConcurrency: number = 3) => {
     const results: Array<Record<string, unknown>> = [];
+    const failedUploads: Array<{ filename: string; error: string; isOpenAIError: boolean; isRetryable: boolean }> = [];
     const chunks = chunk(files, maxConcurrency);
     
     console.log(`🚀 Processing ${files.length} CVs in ${chunks.length} parallel chunks`);
@@ -124,14 +125,14 @@ const UploadPage = () => {
         
         try {
           const properFile = getFileForReading(file);
-          const result = await apiMethods.uploadCV(properFile);
+          const result = await apiMethods.uploadCV(properFile instanceof File ? properFile : new File([properFile], 'cv.pdf', { type: properFile.type }));
           console.log(`✅ CV ${globalIndex + 1} uploaded:`, result);
           return result;
         } catch (error) {
           console.error(`❌ Failed to upload CV ${globalIndex + 1}:`, error);
           
           // Handle different types of upload errors (same logic as before)
-          const errorDetails = { filename: file.name, error: 'Unknown error' };
+          const errorDetails: Record<string, unknown> = { filename: file.name, error: 'Unknown error' };
           if (error && typeof error === 'object') {
             const errorObj = error as Record<string, unknown>;
             errorDetails.error = (errorObj.message as string) || 'Upload failed';
@@ -139,21 +140,21 @@ const UploadPage = () => {
             errorDetails.isRetryable = (errorObj.isRetryable as boolean) || false;
             
             // For OpenAI errors, we can still use extracted text if available
-            if (error.extractedText && error.filename) {
+            if ((error as Record<string, unknown>).extractedText && (error as Record<string, unknown>).filename) {
               console.log(`⚠️ Using extracted text for ${file.name} despite GPT failure`);
               return {
                 cv_id: `fallback-${Date.now()}-${globalIndex}`,
-                filename: error.filename,
+                filename: (error as Record<string, unknown>).filename as string,
                 status: 'partial_success',
                 standardized_data: null,
-                extracted_text: error.extractedText,
+                extracted_text: (error as Record<string, unknown>).extractedText as string,
                 warning: 'AI processing failed, using basic text extraction'
               };
             }
           }
           
           // Re-throw error for handling in the main loop
-          throw { ...error, globalIndex, filename: file.name };
+          throw { ...(error as Record<string, unknown>), globalIndex, filename: file.name };
         }
       });
       
@@ -164,7 +165,7 @@ const UploadPage = () => {
       for (let i = 0; i < chunkResults.length; i++) {
         const result = chunkResults[i];
         if (result.status === 'fulfilled') {
-          results.push(result.value);
+          results.push(result.value as Record<string, unknown>);
         } else {
           // Handle rejected promises (failed uploads)
           const error = result.reason;
@@ -186,7 +187,7 @@ const UploadPage = () => {
       setAnalysisProgress(12.5 + (chunkIndex + 1) * progressIncrement);
     }
     
-    return results;
+    return { results, failedUploads };
   };
 
   const realAnalysis = async (files: File[]) => {
@@ -212,8 +213,7 @@ const UploadPage = () => {
         name: f?.name, 
         size: f?.size, 
         type: f?.type, 
-        isFile: f instanceof File,
-        size: f?.size 
+        isFile: f instanceof File
       })));
       
       // Step 1: Upload CVs to backend if not already uploaded
@@ -224,26 +224,17 @@ const UploadPage = () => {
       const validFiles = uploadedFiles.filter((file, index) => {
         // Check if it's a valid file-like object
         // React-dropzone files are spread with additional properties, so check for File properties
-        const isValid = file && 
-                        typeof file === 'object' && 
-                        file.name && 
-                        typeof file.name === 'string' &&
-                        file.size !== undefined && 
-                        typeof file.size === 'number' &&
-                        file.type !== undefined &&
-                        typeof file.type === 'string' &&
-                        // Check if it has File methods or is a Blob/File instance
-                        (file instanceof File || 
-                         file instanceof Blob || 
-                         (typeof file.stream === 'function' && typeof file.arrayBuffer === 'function'));
+        const isValid = file instanceof File;
         
         if (!isValid) {
+          // Type-safe logging for debugging invalid files
+          const fileObj = file as unknown as Record<string, unknown>;
           console.warn(`⚠️ Filtering out invalid file at index ${index}:`, {
-            name: file?.name,
-            size: file?.size,
-            type: file?.type,
-            hasStreamMethod: typeof file?.stream === 'function',
-            hasArrayBufferMethod: typeof file?.arrayBuffer === 'function',
+            name: fileObj?.name,
+            size: fileObj?.size,
+            type: fileObj?.type,
+            hasStreamMethod: typeof fileObj?.stream === 'function',
+            hasArrayBufferMethod: typeof fileObj?.arrayBuffer === 'function',
             instanceOfFile: file instanceof File,
             instanceOfBlob: file instanceof Blob
           });
@@ -260,8 +251,14 @@ const UploadPage = () => {
       if (validFiles.length > 0) {
         try {
           // Use optimized parallel processing
-          const results = await uploadCVsInParallel(validFiles, 3); // Process 3 CVs simultaneously
+          const { results, failedUploads: parallelFailures } = await uploadCVsInParallel(validFiles, 3); // Process 3 CVs simultaneously
           cvUploadResults.push(...results);
+          failedUploads.push(...parallelFailures);
+          
+          // Log failed uploads for debugging
+          if (parallelFailures.length > 0) {
+            console.warn(`⚠️ ${parallelFailures.length} CV uploads failed in parallel processing:`, parallelFailures);
+          }
         } catch (error) {
           console.error('❌ Parallel processing failed, falling back to sequential:', error);
           // Fallback to original sequential processing if parallel fails

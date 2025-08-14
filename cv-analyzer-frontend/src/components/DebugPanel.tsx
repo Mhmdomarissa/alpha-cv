@@ -46,7 +46,7 @@ const DebugPanel = () => {
     try {
       // Test 3: List CVs
       console.log('📄 Testing CV listing...');
-      const cvResponse = await apiMethods.listCVs();
+      const cvResponse = await fetch('/api/jobs/list-cvs').then(res => res.json());
       results.listCVs = { status: 'success', data: cvResponse };
       console.log('✅ CV listing OK');
     } catch (error) {
@@ -57,7 +57,7 @@ const DebugPanel = () => {
     try {
       // Test 4: List JDs
       console.log('📋 Testing JD listing...');
-      const jdResponse = await apiMethods.listJDs();
+      const jdResponse = await fetch('/api/jobs/list-jds').then(res => res.json());
       results.listJDs = { status: 'success', data: jdResponse };
       console.log('✅ JD listing OK');
     } catch (error) {

@@ -29,11 +29,11 @@ const TestApiButton = () => {
       console.log('✅ System Status:', systemStatus);
 
       // Test list JDs
-      const jds = await apiMethods.listJDs();
+      const jds = await fetch('/api/jobs/list-jds').then(res => res.json());
       console.log('✅ Job Descriptions:', jds);
 
       // Test list CVs
-      const cvs = await apiMethods.listCVs();
+      const cvs = await fetch('/api/jobs/list-cvs').then(res => res.json());
       console.log('✅ CVs:', cvs);
 
       setResults({

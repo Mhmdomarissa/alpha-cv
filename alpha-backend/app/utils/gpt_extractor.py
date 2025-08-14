@@ -5,6 +5,7 @@ import logging
 import time
 from typing import Optional
 import re
+from app.core.cache import gpt_response_cache, get_gpt_cache_key
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +14,20 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # All mock functions have been removed - only real GPT-4o-mini analysis available
 
-def call_openai_api(messages: list, model: str = "gpt-4o-mini", max_tokens: int = 1500, temperature: float = 0.1) -> str:
-    """Call OpenAI API with error handling and retry logic."""
+def call_openai_api(messages: list, model: str = "gpt-4o-mini", max_tokens: int = 800, temperature: float = 0.1) -> str:
+    """Call OpenAI API with robust error handling, retry logic with exponential backoff, and caching."""
+    import time
+    
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise Exception("OPENAI_API_KEY environment variable is required")
+    
+    # Check cache first
+    cache_key = get_gpt_cache_key(str(messages), model)
+    cached_response = gpt_response_cache.get(cache_key)
+    if cached_response:
+        logger.info("💾 Using cached GPT response")
+        return cached_response
     
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -31,37 +41,89 @@ def call_openai_api(messages: list, model: str = "gpt-4o-mini", max_tokens: int 
         "temperature": temperature
     }
     
-    try:
-        logger.info(f"Making OpenAI API call with model: {model}")
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=120
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"OpenAI API error: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        
-        if 'choices' not in result or len(result['choices']) == 0:
-            raise Exception(f"Invalid OpenAI API response: {result}")
-        
-        content = result['choices'][0]['message']['content']
-        
-        if not content or len(content.strip()) == 0:
-            raise Exception("OpenAI returned empty response")
-        
-        logger.info("✅ OpenAI API call successful")
-        return content.strip()
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Network error calling OpenAI API: {str(e)}")
-        raise Exception(f"Failed to connect to OpenAI API: {str(e)}")
-    except Exception as e:
-        logger.error(f"Error calling OpenAI API: {str(e)}")
-        raise Exception(f"OpenAI API call failed: {str(e)}")
+    # Retry logic with exponential backoff
+    max_retries = 3
+    base_delay = 1  # Start with 1 second
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"🤖 Making OpenAI API call (attempt {attempt + 1}/{max_retries}) with model: {model}")
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=120
+            )
+            
+            # Handle different HTTP status codes
+            if response.status_code == 200:
+                result = response.json()
+                
+                if 'choices' not in result or len(result['choices']) == 0:
+                    raise Exception(f"Invalid OpenAI API response: {result}")
+                
+                content = result['choices'][0]['message']['content']
+                
+                if not content or len(content.strip()) == 0:
+                    raise Exception("OpenAI returned empty response")
+                
+                # Cache the response
+                gpt_response_cache.set(cache_key, content.strip())
+                
+                logger.info("✅ OpenAI API call successful")
+                return content.strip()
+                
+            elif response.status_code in [429, 503, 502, 504]:  # Rate limit or server errors
+                error_msg = f"OpenAI API error: {response.status_code} - {response.text}"
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"⏳ {error_msg}. Retrying in {delay}s...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    raise Exception(error_msg)
+            else:
+                raise Exception(f"OpenAI API error: {response.status_code} - {response.text}")
+                
+        except requests.exceptions.Timeout as e:
+            error_msg = f"Timeout calling OpenAI API: {str(e)}"
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logger.warning(f"⏳ {error_msg}. Retrying in {delay}s...")
+                time.sleep(delay)
+                continue
+            else:
+                logger.error(error_msg)
+                raise Exception(f"OpenAI API timeout after {max_retries} attempts: {str(e)}")
+                
+        except requests.exceptions.ConnectionError as e:
+            error_msg = f"Connection error calling OpenAI API: {str(e)}"
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logger.warning(f"⏳ {error_msg}. Retrying in {delay}s...")
+                time.sleep(delay)
+                continue
+            else:
+                logger.error(error_msg)
+                raise Exception(f"Failed to connect to OpenAI API after {max_retries} attempts: {str(e)}")
+                
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Network error calling OpenAI API: {str(e)}"
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logger.warning(f"⏳ {error_msg}. Retrying in {delay}s...")
+                time.sleep(delay)
+                continue
+            else:
+                logger.error(error_msg)
+                raise Exception(f"Network error after {max_retries} attempts: {str(e)}")
+                
+        except Exception as e:
+            logger.error(f"❌ Unexpected error calling OpenAI API: {str(e)}")
+            raise Exception(f"OpenAI API call failed: {str(e)}")
+    
+    # Should never reach here, but just in case
+    raise Exception(f"OpenAI API call failed after {max_retries} attempts")
 
 def analyze_cv_with_gpt(text: str, filename: str) -> dict:
     """
@@ -199,42 +261,21 @@ def standardize_job_description_with_gpt(text: str, filename: str) -> dict:
         raise Exception("OPENAI_API_KEY environment variable is required. No mock mode available.")
     
     try:
-        # 🚀 PERFORMANCE OPTIMIZATION: Enhanced JD Analysis Prompt for consistent output
-        prompt = f"""
-        Analyze this job description and output EXACTLY the following structure with consistent formatting:
+        # 🚀 USER'S EXACT JD PROMPT SPECIFICATION
+        prompt = f"""Take this job description and, without removing any original information, reformat it into the following standardized structure:
 
-        **JOB TITLE:**
-        [Extract the exact job title from the description]
+Skills: Provide a concise list (maximum 20 items) of only the specific technologies, platforms, or tools that the employee must be highly proficient in to perform this job at a very high level. Do not include general skills, soft skills, or experience references. If the job description is sparse, add relevant technologies based on industry standards for similar roles.
 
-        **SKILLS (EXACTLY 20 ITEMS):**
-        Extract exactly 20 technical skills required for this role. If the description mentions fewer than 20 skills, generate additional relevant skills based on the job requirements, industry standards, and role context. Each skill must be directly relevant to the position. Format: one skill per line with "- " prefix.
-        - [Skill 1 - must be mentioned in JD or highly relevant]
-        - [Skill 2 - must be mentioned in JD or highly relevant]
-        - [Skill 3 - must be mentioned in JD or highly relevant]
-        [... continue to exactly 20 skills, generating additional relevant ones if needed]
+Responsibilities: Summarize the experience the employee should already have in order to do the job very well upon joining. If the job description includes detailed responsibilities, use its style and content. If not, add relevant content based on industry standards. This section should be written in exactly 10 full sentences.
 
-        **RESPONSIBILITIES (EXACTLY 10 ITEMS):**
-        Extract exactly 10 key responsibilities from the job description. If fewer than 10 are explicitly stated, generate additional relevant responsibilities based on the role requirements and industry standards. Use clear, action-oriented language. Format: numbered list.
-        1. [Responsibility 1 - from JD or highly relevant]
-        2. [Responsibility 2 - from JD or highly relevant]
-        3. [Responsibility 3 - from JD or highly relevant]
-        [... continue to exactly 10 responsibilities]
+Years of Experience: Note any specific mention of required years of experience.
 
-        **YEARS OF EXPERIENCE:**
-        [Extract the required years of experience, or write "Not specified"]
+Job Title: Suggest a standard job title based on the description, unless a clear title is already mentioned—if so, retain it with at least 90% weighting.
 
-        **EDUCATION:**
-        [Extract education requirements, or write "Not specified"]
+JOB DESCRIPTION:
+{text[:4000]}"""
 
-        **SUMMARY:**
-        [Provide a brief summary of the role and key requirements]
-
-        ---
-        INPUT JOB DESCRIPTION:
-        {text[:4000]}
-        """
-
-        content = call_openai_api([{"role": "user", "content": prompt}], model="gpt-4o-mini", max_tokens=2500, temperature=0.05)
+        content = call_openai_api([{"role": "user", "content": prompt}], model="gpt-4o-mini", max_tokens=800, temperature=0.05)
         
         if not content or len(content.strip()) == 0:
             raise Exception(f"GPT-4o-mini returned empty response for {filename}")
@@ -274,41 +315,21 @@ def standardize_cv_with_gpt(text: str, filename: str) -> dict:
         raise Exception("OPENAI_API_KEY environment variable is required. No mock mode available.")
     
     try:
-        # 🚀 PERFORMANCE OPTIMIZATION: Enhanced CV Analysis Prompt for consistent output
-        prompt = f"""
-        Analyze this CV and output EXACTLY the following structure with consistent formatting:
+        # 🚀 USER'S EXACT CV PROMPT SPECIFICATION
+        prompt = f"""Review this CV and extract the following information in a structured format:
 
-        **PERSONAL INFORMATION:**
-        - Full Name: [Extract the candidate's exact full name from the CV]
-        - Email: [Extract email address if provided, or write "Not provided"]
-        - Phone: [Extract phone number if provided, or write "Not provided"]
+Skills: List the clearly mentioned skills that are directly supported by the candidate's described experience. Only include skills with a strong correlation (95%+) to the actual work done. Write each skill in full-word format (e.g., Java Script instead of JS, .Net instead of Dot Net). Limit to a maximum of 20 relevant skills.
 
-        **SKILLS (EXACTLY 20 ITEMS):**
-        Extract exactly 20 technical skills. If the CV contains fewer than 20 real skills, generate additional relevant skills based on the candidate's experience, industry context, and role requirements. Each skill must be directly related to the candidate's background. Format: one skill per line with "- " prefix.
-        - [Skill 1 - must be a real skill from CV]
-        - [Skill 2 - must be a real skill from CV]
-        - [Skill 3 - must be a real skill from CV]
-        [... continue to exactly 20 skills, generating additional relevant ones if needed]
+Experience: Review the most recent two jobs in the CV. Write a numbered list of exactly 10 responsibilities that describe what the candidate did in these roles, focusing more on the most recent one. Do not include any introduction or summary text before the list. Use clear, concise job-description style language that highlights technical expertise, leadership, or ownership when visible.
 
-        **EXPERIENCE (EXACTLY 10 ITEMS):**
-        Review the most recent two jobs in the CV. Write a numbered list of exactly 10 responsibilities that describe what the candidate did in these roles, focusing more on the most recent one. Do not include any introduction or summary text before the list. Use clear, concise job-description style language that highlights technical expertise, leadership, or ownership when visible.
-        1. [Responsibility 1 - specific action from CV]
-        2. [Responsibility 2 - specific action from CV]
-        3. [Responsibility 3 - specific action from CV]
-        [... continue to exactly 10 responsibilities]
+Years of Experience: Calculate the total number of years of experience relevant to the most recent two roles. Do not count unrelated earlier roles.
 
-        **YEARS OF EXPERIENCE:**
-        Calculate the total number of years of experience relevant to the most recent two roles. Do not count unrelated earlier roles.
+Job Title: Suggest a clear, industry-standard job title based primarily on the most recent position and aligned with the extracted skills.
 
-        **JOB TITLE:**
-        Suggest a clear, industry-standard job title based primarily on the most recent position and aligned with the extracted skills.
+CV CONTENT:
+{text[:4000]}"""
 
-        ---
-        INPUT CV:
-        {text[:4000]}
-        """
-
-        content = call_openai_api([{"role": "user", "content": prompt}], model="gpt-4o-mini", max_tokens=2500, temperature=0.05)
+        content = call_openai_api([{"role": "user", "content": prompt}], model="gpt-4o-mini", max_tokens=800, temperature=0.05)
         
         if not content or len(content.strip()) == 0:
             raise Exception(f"GPT-4o-mini returned empty response for {filename}")
@@ -347,44 +368,82 @@ def parse_standardized_jd_response(content: str, filename: str) -> dict:
         # Extract sections using regex patterns
         import re
         
-        # Extract skills
-        skills_match = re.search(r'\*\*SKILLS:\*\*\s*\n(.*?)(?=\*\*RESPONSIBILITIES:\*\*|\*\*YEARS OF EXPERIENCE:\*\*|\*\*JOB TITLE:\*\*|\Z)', content, re.DOTALL)
-        skills_text = skills_match.group(1).strip() if skills_match else ""
-        skills = []
-        for line in skills_text.split('\n'):
-            line = line.strip()
-            if line.startswith('- '):
-                skill = line[2:].strip()
-                if skill and len(skill) > 1:
-                    skills.append(skill)
+        # NEW: Parse the user's exact prompt format (no ** markers)
         
-        # Extract responsibilities (parse as sentences)
-        resp_match = re.search(r'\*\*RESPONSIBILITIES:\*\*\s*\n(.*?)(?=\*\*YEARS OF EXPERIENCE:\*\*|\*\*JOB TITLE:\*\*|\Z)', content, re.DOTALL)
+        # Extract job title (new format: "Job Title: ...")
+        title_match = re.search(r'Job Title:\s*(.+?)(?=\n\n|\nSkills:|\nResponsibilities:|\Z)', content, re.DOTALL)
+        job_title = title_match.group(1).strip() if title_match else "Not specified"
+        
+        # Extract skills section (new format: "Skills: ...")
+        skills_match = re.search(r'Skills:\s*(.*?)(?=\n\nResponsibilities:|\nResponsibilities:|\nYears of Experience:|\Z)', content, re.DOTALL)
+        skills_text = skills_match.group(1).strip() if skills_match else ""
+        
+        # Parse skills - handle numbered list format from GPT (JD Parser)
+        skills = []
+        if skills_text:
+            # Clean up markdown formatting
+            skills_text = skills_text.replace('**', '').strip()
+            
+            # Try numbered list format first (most common with our prompt)
+            numbered_skills = re.findall(r'\d+\.\s*([^\d\n]+?)(?=\d+\.|$)', skills_text, re.DOTALL)
+            if numbered_skills:
+                for skill in numbered_skills:
+                    skill = skill.strip().replace('\n', ' ').strip()
+                    if skill and skill not in skills and len(skill) > 1:
+                        skills.append(skill)
+            else:
+                # Fallback to line-by-line parsing
+                for line in skills_text.split('\n'):
+                    line = line.strip()
+                    if line and not line.lower().startswith('skills:'):
+                        # Remove bullet points or numbers
+                        line = re.sub(r'^[-*•\d+\.\s]+', '', line).strip()
+                        if line and line not in skills and len(line) > 1:
+                            skills.append(line)
+        
+        # Extract responsibilities section (new format: "Responsibilities: ...")
+        resp_match = re.search(r'Responsibilities:\s*(.*?)(?=\n\nYears of Experience:|\nYears of Experience:|\nJob Title:|\Z)', content, re.DOTALL)
         responsibilities_text = resp_match.group(1).strip() if resp_match else ""
         
-        # Split into individual sentences/responsibilities
-        import re
-        responsibility_sentences = []
-        sentences = re.split(r'[.!?]+', responsibilities_text)
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if sentence and len(sentence) > 10:  # Minimum length filter
-                responsibility_sentences.append(sentence)
+        # Parse responsibilities - should be 10 full sentences
+        responsibilities = []
+        if responsibilities_text:
+            # Split by periods followed by space or newline, or by numbered items
+            sentences = re.split(r'(?<=\.)\s+(?=[A-Z])|(?<=\.)\n+|^\d+\.\s*', responsibilities_text)
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if sentence and len(sentence) > 10:  # Filter out very short fragments
+                    # Remove any leading numbers or bullets
+                    sentence = re.sub(r'^\d+\.\s*', '', sentence).strip()
+                    if sentence and sentence not in responsibilities:
+                        responsibilities.append(sentence)
         
-        responsibilities = responsibilities_text  # Keep original for backward compatibility
+        # For backward compatibility, also keep as text
+        if not responsibilities and responsibilities_text:
+            responsibilities = responsibilities_text
         
-        # Extract years of experience
-        years_match = re.search(r'\*\*YEARS OF EXPERIENCE:\*\*\s*\n(.*?)(?=\*\*JOB TITLE:\*\*|\Z)', content, re.DOTALL)
+        # Extract years of experience (new format: "Years of Experience: ...")
+        years_match = re.search(r'Years of Experience:\s*(.+?)(?=\n\n|\nJob Title:|\Z)', content, re.DOTALL)
         years_of_experience = years_match.group(1).strip() if years_match else "Not specified"
         
-        # Extract job title
-        title_match = re.search(r'\*\*JOB TITLE:\*\*\s*\n(.*?)(?=\Z)', content, re.DOTALL)
-        job_title = title_match.group(1).strip() if title_match else "Not specified"
+        # Clean up common formatting issues from markdown
+        if job_title.startswith('**') or job_title.endswith('**'):
+            job_title = job_title.replace('**', '').strip()
+        if job_title.lower() in ['not specified', 'not provided', 'n/a']:
+            job_title = "Not specified"
+        
+        # Clean years of experience
+        if years_of_experience.startswith('**') or years_of_experience.endswith('**'):
+            years_of_experience = years_of_experience.replace('**', '').strip()
+        
+        # Clean responsibilities text 
+        if isinstance(responsibilities, str):
+            responsibilities = responsibilities.replace('**', '').strip()
         
         return {
             "skills": skills,
             "responsibilities": responsibilities,
-            "responsibility_sentences": responsibility_sentences,  # Add parsed sentences
+            "responsibility_sentences": responsibilities,  # Same as responsibilities in new format
             "years_of_experience": years_of_experience,
             "job_title": job_title,
             "filename": filename,
@@ -403,69 +462,96 @@ def parse_standardized_cv_response(content: str, filename: str) -> dict:
         # Extract sections using regex patterns
         import re
         
-        # Extract personal information
-        personal_match = re.search(r'\*\*PERSONAL INFORMATION:\*\*\s*\n(.*?)(?=\*\*SKILLS:\*\*|\*\*EXPERIENCE:\*\*|\Z)', content, re.DOTALL)
-        personal_text = personal_match.group(1).strip() if personal_match else ""
+        # NEW: Parse the user's exact prompt format (no ** markers)
         
-        # Parse personal info
+        # Extract basic info from the free-form text (no specific sections expected)
         full_name = "Not provided in the CV"
-        email = "Not provided in the CV"
+        email = "Not provided in the CV" 
         phone = "Not provided in the CV"
         
-        for line in personal_text.split('\n'):
-            line = line.strip()
-            if line.startswith('- Full Name:'):
-                full_name = line.replace('- Full Name:', '').strip()
-                if full_name.startswith('[') and full_name.endswith(']'):
-                    full_name = full_name[1:-1].strip()
-                if not full_name or full_name.lower() in ['not provided', 'not available', 'n/a', '[extract the candidate\'s full name]']:
-                    full_name = "Not provided in the CV"
-            elif line.startswith('- Email:'):
-                email = line.replace('- Email:', '').strip()
-                if email.startswith('[') and email.endswith(']'):
-                    email = email[1:-1].strip()
-                if not email or email.lower() in ['not provided', 'not available', 'n/a', '[extract email address if provided]']:
-                    email = "Not provided in the CV"
-            elif line.startswith('- Phone:'):
-                phone = line.replace('- Phone:', '').strip()
-                if phone.startswith('[') and phone.endswith(']'):
-                    phone = phone[1:-1].strip()
-                if not phone or phone.lower() in ['not provided', 'not available', 'n/a', '[extract phone number if provided]']:
-                    phone = "Not provided in the CV"
+        # Try to extract name, email, phone from any format in the content
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', content)
+        if email_match:
+            email = email_match.group(0)
         
-        # Extract skills
-        skills_match = re.search(r'\*\*SKILLS:\*\*\s*\n(.*?)(?=\*\*EXPERIENCE:\*\*|\*\*YEARS OF EXPERIENCE:\*\*|\*\*JOB TITLE:\*\*|\Z)', content, re.DOTALL)
+        phone_match = re.search(r'[\+]?[\d\s\-\(\)]{10,}', content)
+        if phone_match:
+            phone = phone_match.group(0).strip()
+        
+        # Try to extract name from the beginning of content
+        lines = content.split('\n')
+        for line in lines[:5]:  # Check first 5 lines
+            line = line.strip()
+            if line and not line.lower().startswith(('skills:', 'experience:', 'years of experience:', 'job title:')):
+                # Likely the name
+                if len(line.split()) >= 2 and not '@' in line and not any(char.isdigit() for char in line):
+                    full_name = line
+                    break
+        
+        # Extract skills (new format: "Skills: ...")
+        skills_match = re.search(r'Skills:\s*(.*?)(?=\n\nExperience:|\nExperience:|\nYears of Experience:|\nJob Title:|\Z)', content, re.DOTALL)
         skills_text = skills_match.group(1).strip() if skills_match else ""
-        skills = []
-        for line in skills_text.split('\n'):
-            line = line.strip()
-            if line.startswith('- '):
-                skill = line[2:].strip()
-                if skill and len(skill) > 1:
-                    skills.append(skill)
         
-        # Extract experience (numbered responsibilities)
-        exp_match = re.search(r'\*\*EXPERIENCE:\*\*\s*\n(.*?)(?=\*\*YEARS OF EXPERIENCE:\*\*|\*\*JOB TITLE:\*\*|\Z)', content, re.DOTALL)
+        # Parse skills - handle numbered list format from GPT (CV Parser)
+        skills = []
+        if skills_text:
+            # Clean up markdown formatting
+            skills_text = skills_text.replace('**', '').strip()
+            
+            # Try numbered list format first (most common with our prompt)
+            numbered_skills = re.findall(r'\d+\.\s*([^\d\n]+?)(?=\d+\.|$)', skills_text, re.DOTALL)
+            if numbered_skills:
+                for skill in numbered_skills:
+                    skill = skill.strip().replace('\n', ' ').strip()
+                    if skill and skill not in skills and len(skill) > 1:
+                        skills.append(skill)
+            else:
+                # Fallback to line-by-line parsing
+                for line in skills_text.split('\n'):
+                    line = line.strip()
+                    if line and not line.lower().startswith('skills:'):
+                        # Remove bullet points or numbers
+                        line = re.sub(r'^[-*•\d+\.\s]+', '', line).strip()
+                        if line and line not in skills and len(line) > 1:
+                            skills.append(line)
+        
+        # Extract experience (new format: "Experience: ...")
+        exp_match = re.search(r'Experience:\s*(.*?)(?=\n\nYears of Experience:|\nYears of Experience:|\nJob Title:|\Z)', content, re.DOTALL)
         experience_text = exp_match.group(1).strip() if exp_match else ""
         
-        # Parse numbered responsibilities
+        # Parse experience as numbered responsibilities (exactly 10)
         responsibilities = []
-        for line in experience_text.split('\n'):
-            line = line.strip()
-            if re.match(r'^\d+\.\s+', line):
-                responsibility = re.sub(r'^\d+\.\s+', '', line).strip()
-                if responsibility and len(responsibility) > 5:
-                    responsibilities.append(responsibility)
+        if experience_text:
+            # Split by numbered items
+            numbered_items = re.findall(r'\d+\.\s*([^0-9]+?)(?=\d+\.|$)', experience_text, re.DOTALL)
+            for item in numbered_items:
+                item = item.strip()
+                if item and len(item) > 5:
+                    responsibilities.append(item)
         
         experience = experience_text  # Keep original for backward compatibility
         
-        # Extract years of experience
-        years_match = re.search(r'\*\*YEARS OF EXPERIENCE:\*\*\s*\n(.*?)(?=\*\*JOB TITLE:\*\*|\Z)', content, re.DOTALL)
+        # Extract years of experience (new format: "Years of Experience: ...")
+        years_match = re.search(r'Years of Experience:\s*(.+?)(?=\n\nJob Title:|\nJob Title:|\Z)', content, re.DOTALL)
         years_of_experience = years_match.group(1).strip() if years_match else "Not specified"
         
-        # Extract job title
-        title_match = re.search(r'\*\*JOB TITLE:\*\*\s*\n(.*?)(?=\Z)', content, re.DOTALL)
+        # Extract job title (new format: "Job Title: ...")
+        title_match = re.search(r'Job Title:\s*(.+?)(?=\n\n|\Z)', content, re.DOTALL)
         job_title = title_match.group(1).strip() if title_match else "Not specified"
+        
+        # Clean up common formatting issues from markdown (CV)
+        if job_title.startswith('**') or job_title.endswith('**'):
+            job_title = job_title.replace('**', '').strip()
+        if job_title.lower() in ['not specified', 'not provided', 'n/a']:
+            job_title = "Not specified"
+        
+        # Clean years of experience
+        if years_of_experience.startswith('**') or years_of_experience.endswith('**'):
+            years_of_experience = years_of_experience.replace('**', '').strip()
+        
+        # Clean experience text 
+        if isinstance(experience, str):
+            experience = experience.replace('**', '').strip()
         
         return {
             "full_name": full_name,

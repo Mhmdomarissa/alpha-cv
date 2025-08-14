@@ -49,12 +49,12 @@ export class UserFlowTester {
       
       logger.info(`Test passed: ${name}`, { duration });
       return result;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const duration = Date.now() - startTime;
       const result: TestResult = {
         name,
         success: false,
-        error: error.message || 'Unknown error',
+        error: error instanceof Error ? error.message : 'Unknown error',
         duration,
       };
       
@@ -118,8 +118,8 @@ export class UserFlowTester {
         // Test with invalid endpoint to trigger error handling
         await fetch('/api/invalid-endpoint');
         throw new Error('Expected error was not thrown');
-      } catch (error: any) {
-        if (error.message.includes('Expected error')) {
+      } catch (error: unknown) {
+        if (error instanceof Error && error.message.includes('Expected error')) {
           throw error;
         }
         // This is expected - error handling is working

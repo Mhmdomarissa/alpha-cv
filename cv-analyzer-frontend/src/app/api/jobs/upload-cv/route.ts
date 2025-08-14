@@ -34,20 +34,16 @@ export async function POST(request: NextRequest) {
     let extractedData = null;
     try {
       if (file.type === 'text/plain') {
-        const cvText = await file.text();
-        // For plain text, we still need to call the standardize-cv endpoint to get structured data
-        const textBlob = new Blob([cvText], { type: 'text/plain' });
-        const textFile = new File([textBlob], file.name, { type: 'text/plain' });
-        
-        const textFormData = new FormData();
-        textFormData.append('file', textFile);
+        // For plain text files, pass the file directly without recreating it
+        const backendFormData = new FormData();
+        backendFormData.append('file', file);
         
         const standardizeUrl = `${backendUrl}/api/jobs/standardize-cv`;
         console.log('📄 [CV UPLOAD] Standardizing text CV via backend:', standardizeUrl);
         
         const standardizeResponse = await fetch(standardizeUrl, {
           method: 'POST',
-          body: textFormData,
+          body: backendFormData,
           signal: AbortSignal.timeout(60000),
         });
         

@@ -21,6 +21,75 @@ import { formatFileSize, truncateText } from '@/lib/utils';
 import { CV, JobDescription } from '@/lib/api';
 import toast from 'react-hot-toast';
 
+// Helper function to extract data from structured_info
+const getStructuredValue = (item: any, field: string, fallback: string = 'Not specified') => {
+  // Try direct field access first
+  if (item[field] && item[field] !== 'Not specified') {
+    return item[field];
+  }
+  
+  // Try structured_info
+  if (item.structured_info) {
+    let structured = item.structured_info;
+    
+    // If structured_info is a string, try to parse it
+    if (typeof structured === 'string') {
+      try {
+        structured = JSON.parse(structured);
+      } catch {
+        return fallback;
+      }
+    }
+    
+    // Return the field value if it exists and is meaningful
+    const value = structured[field];
+    if (value && value !== 'Not specified' && value !== 'Not provided') {
+      return value;
+    }
+  }
+  
+  return fallback;
+};
+
+// Helper function to extract experience from combined years_of_experience field
+const getExperienceValue = (item: any, fallback: string = 'Not specified') => {
+  const combinedValue = getStructuredValue(item, 'years_of_experience', '');
+  
+  if (combinedValue && combinedValue !== 'Not specified') {
+    // Extract just the experience part (before any markdown headers)
+    const lines = combinedValue.split('\n');
+    const experienceLine = lines[0].trim();
+    
+    // Check if it looks like a valid experience value
+    if (experienceLine && !experienceLine.startsWith('**') && experienceLine.length > 0) {
+      return experienceLine;
+    }
+  }
+  
+  return fallback;
+};
+
+// Helper function to extract education from combined years_of_experience field
+const getEducationValue = (item: any, fallback: string = 'Not specified') => {
+  // First try direct education field
+  const directEducation = getStructuredValue(item, 'education', '');
+  if (directEducation && directEducation !== 'Not specified') {
+    return directEducation;
+  }
+  
+  // Then try to extract from years_of_experience field
+  const combinedValue = getStructuredValue(item, 'years_of_experience', '');
+  
+  if (combinedValue && combinedValue.includes('**EDUCATION:**')) {
+    const educationMatch = combinedValue.match(/\*\*EDUCATION:\*\*\s*\n([^*]+?)(?:\n\*\*|$)/);
+    if (educationMatch && educationMatch[1]) {
+      return educationMatch[1].trim();
+    }
+  }
+  
+  return fallback;
+};
+
 // Detailed Item Modal Component
 const DetailedItemModal = ({ item, onClose }: { item: CV | JobDescription, onClose: () => void }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'raw' | 'processed'>('overview');
@@ -91,8 +160,8 @@ const DetailedItemModal = ({ item, onClose }: { item: CV | JobDescription, onClo
               Raw Extracted Data
             </button>
           )}
-          {((isCV && (item as CV).structured_info && Object.keys((item as CV).structured_info).length > 0) || 
-            (!isCV && (item as JobDescription).structured_info && Object.keys((item as JobDescription).structured_info).length > 0)) && (
+                    {((isCV && (item as CV).structured_info && Object.keys((item as CV).structured_info || {}).length > 0) ||
+            (!isCV && (item as JobDescription).structured_info && Object.keys((item as JobDescription).structured_info || {}).length > 0)) && (
             <button
               onClick={() => setActiveTab('processed')}
               className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
@@ -116,36 +185,42 @@ const DetailedItemModal = ({ item, onClose }: { item: CV | JobDescription, onClo
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Personal Information</h3>
                   <div className="space-y-2">
-                    <div><strong>Name:</strong> {(item as CV).full_name || 'Not provided'}</div>
-                    <div><strong>Email:</strong> {(item as CV).email || 'Not provided'}</div>
-                    <div><strong>Phone:</strong> {(item as CV).phone || 'Not provided'}</div>
-                    <div><strong>Current Position:</strong> {(item as CV).job_title || 'Not specified'}</div>
-                    <div><strong>Experience:</strong> {(item as CV).years_of_experience || 'Not specified'}</div>
+                    <div><strong>Name:</strong> {getStructuredValue(item, 'full_name', 'Not provided')}</div>
+                    <div><strong>Email:</strong> {getStructuredValue(item, 'email', 'Not provided')}</div>
+                    <div><strong>Phone:</strong> {getStructuredValue(item, 'phone', 'Not provided')}</div>
+                    <div><strong>Current Position:</strong> {getStructuredValue(item, 'job_title')}</div>
+                    <div><strong>Experience:</strong> {getExperienceValue(item)}</div>
                   </div>
                 </div>
                 
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Professional Details</h3>
                   <div className="space-y-2">
-                    <div><strong>Education:</strong> {(item as CV).education || 'Not specified'}</div>
+                    <div><strong>Education:</strong> {getEducationValue(item)}</div>
                     <div><strong>Summary:</strong> 
                       <div className="mt-1 text-sm text-secondary-700">
-                        {(item as CV).summary || 'Not provided'}
+                        {getStructuredValue(item, 'summary', 'Not provided')}
                       </div>
                     </div>
                   </div>
                 </div>
                 
-                {(item as CV).skills && (item as CV).skills !== 'Not specified' && (
-                  <div className="md:col-span-2 space-y-4">
-                    <h3 className="font-semibold text-lg">Skills</h3>
-                    <div className="bg-secondary-50 rounded-lg p-4">
-                      <div className="text-sm text-secondary-700">
-                        {(item as CV).skills}
+                {(() => {
+                  const skills = getStructuredValue(item, 'skills', '');
+                  const skillsArray = Array.isArray(skills) ? skills : [];
+                  const skillsText = skillsArray.length > 0 ? skillsArray.join(', ') : skills;
+                  
+                  return skillsText && skillsText !== 'Not specified' && skillsText !== '' ? (
+                    <div className="md:col-span-2 space-y-4">
+                      <h3 className="font-semibold text-lg">Skills</h3>
+                      <div className="bg-secondary-50 rounded-lg p-4">
+                        <div className="text-sm text-secondary-700">
+                          {skillsText}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  ) : null;
+                })()}
               </div>
             ) : (
               // JD Overview
@@ -153,27 +228,33 @@ const DetailedItemModal = ({ item, onClose }: { item: CV | JobDescription, onClo
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Position Details</h3>
                   <div className="space-y-2">
-                    <div><strong>Job Title:</strong> {(item as JobDescription).job_title || 'Not specified'}</div>
-                    <div><strong>Experience Required:</strong> {(item as JobDescription).years_of_experience || 'Not specified'}</div>
-                    <div><strong>Education:</strong> {(item as JobDescription).education || 'Not specified'}</div>
+                    <div><strong>Job Title:</strong> {getStructuredValue(item, 'job_title')}</div>
+                    <div><strong>Experience Required:</strong> {getExperienceValue(item, 'Not specified in the JD')}</div>
+                    <div><strong>Education:</strong> {getEducationValue(item)}</div>
                     <div><strong>Summary:</strong> 
                       <div className="mt-1 text-sm text-secondary-700">
-                        {(item as JobDescription).summary || 'Not provided'}
+                        {getStructuredValue(item, 'summary', 'Not provided')}
                       </div>
                     </div>
                   </div>
                 </div>
                 
-                {(item as JobDescription).skills && (item as JobDescription).skills !== 'Not specified' && (
-                  <div className="space-y-4">
-                    <h3 className="font-semibold text-lg">Required Skills</h3>
-                    <div className="bg-secondary-50 rounded-lg p-4">
-                      <div className="text-sm text-secondary-700">
-                        {(item as JobDescription).skills}
+                {(() => {
+                  const skills = getStructuredValue(item, 'skills', '');
+                  const skillsArray = Array.isArray(skills) ? skills : [];
+                  const skillsText = skillsArray.length > 0 ? skillsArray.join(', ') : skills;
+                  
+                  return skillsText && skillsText !== 'Not specified' && skillsText !== '' ? (
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-lg">Required Skills</h3>
+                      <div className="bg-secondary-50 rounded-lg p-4">
+                        <div className="text-sm text-secondary-700">
+                          {skillsText}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  ) : null;
+                })()}
               </div>
             )}
           </div>
@@ -266,7 +347,7 @@ const DatabasePage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<'cvs' | 'jds'>('cvs');
   const [selectedItem, setSelectedItem] = useState<CV | JobDescription | null>(null);
-  const [showedToast] = useState(false);
+  // const [showedToast] = useState(false);
   const isLoadingRef = useRef(false);
 
 
@@ -276,7 +357,7 @@ const DatabasePage = () => {
     if (isLoadingRef.current) {
       console.log('🔄 Skipping loadData - already loading', {
         isLoadingRef: isLoadingRef.current,
-        hasLoadedData,
+        hasLoadedDatabaseData,
         isLoading
       });
       return;
@@ -380,7 +461,7 @@ const DatabasePage = () => {
       isLoadingRef.current = false;
       console.log('🔄 [LOAD DATA] Finally block executed - flags reset');
     }
-      }, [setCVs, setJobDescriptions, setLoading, setHasLoadedDatabaseData]); // Keep setter dependencies, exclude state variables
+      }, [setCVs, setJobDescriptions, setLoading, setHasLoadedDatabaseData, isLoading, hasLoadedDatabaseData]); // Keep setter dependencies, exclude state variables
 
 
 
@@ -403,7 +484,7 @@ const DatabasePage = () => {
         jdCount: jobDescriptions.length
       });
     }
-  }, []); // Empty dependency array for mount only
+  }, [cvs.length, hasLoadedDatabaseData, jobDescriptions.length, loadData]); // Empty dependency array for mount only
 
   // Listen for database refresh events from analysis completion
   useEffect(() => {
@@ -588,7 +669,7 @@ const DatabasePage = () => {
                         {cv.job_title || 'Position not specified'}
                       </div>
                       <div className="text-xs text-secondary-500">
-                        Experience: {cv.years_of_experience || 'Not specified'}
+                        Experience: {getExperienceValue(cv)}
                       </div>
                     </div>
 
@@ -680,7 +761,7 @@ const DatabasePage = () => {
                         {jd.job_title || 'Job title not extracted'}
                       </div>
                       <div className="text-xs text-secondary-500">
-                        Experience: {jd.years_of_experience || 'Not specified'}
+                        Experience: {getExperienceValue(jd)}
                       </div>
                     </div>
 

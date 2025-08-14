@@ -13,14 +13,11 @@ from PIL import Image
 import json
 import time
 from pydantic import BaseModel
-from fastapi import BackgroundTasks
-import asyncio
 
 from app.utils.gpt_extractor import standardize_job_description_with_gpt, standardize_cv_with_gpt
 from app.utils.qdrant_utils import save_jd_to_qdrant, list_jds, get_qdrant_client, save_cv_to_qdrant, list_cvs
 from app.services.granular_matching_service import get_granular_matching_service
 from app.utils.content_classifier import classify_document_content, validate_document_classification
-from app.services.granular_matching_service import GranularMatchingService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,8 +35,14 @@ class StandardizeAndMatchRequest(BaseModel):
     cv_text: str
 
 class BulkCVUploadRequest(BaseModel):
-    cv_text: str
+    cv_texts: List[str]
     filenames: Optional[List[str]] = None
+
+class BulkAnalysisRequest(BaseModel):
+    jd_text: str
+    cv_texts: List[str]
+    cv_filenames: Optional[List[str]] = None
+    jd_filename: Optional[str] = "job_description.txt"
 
 class CosineTopKMatchRequest(BaseModel):
     jd_id: str
@@ -107,9 +110,9 @@ def extract_text(file: UploadFile) -> str:
         logger.error(f"Text extraction failed for {file.filename}: {str(e)}")
         raise ValueError(f"Failed to extract text from {file.filename}: {str(e)}")
 
-# ============================================================================
+
 # CORE API ENDPOINTS (Only the ones being used by frontend)
-# ============================================================================
+
 
 @router.post("/standardize-jd")
 async def standardize_job_description(
@@ -181,13 +184,38 @@ async def standardize_cv(file: UploadFile = File(...)) -> JSONResponse:
                 detail=f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB"
             )
         
+        # Log file processing details
+        logger.info(f"📄 Processing CV file: {file.filename} (Size: {file_size:,} bytes)")
+        
         logger.info(f"🚀 Starting standardized CV processing for {file.filename}")
         
-        # Extract text
-        extracted_text = extract_text(file)
+        # Extract text with enhanced error handling
+        try:
+            logger.info(f"🔍 Extracting text from {file.filename}")
+            extracted_text = extract_text(file)
+            logger.info(f"✅ Text extraction successful: {len(extracted_text):,} characters")
+            
+            if len(extracted_text.strip()) < 50:
+                raise ValueError(f"Extracted text too short ({len(extracted_text)} chars). File may be corrupted or protected.")
+                
+        except Exception as e:
+            logger.error(f"❌ Text extraction failed for {file.filename}: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to extract text from {file.filename}: {str(e)}"
+            )
         
-        # Use the standardized GPT function
-        standardized_result = standardize_cv_with_gpt(extracted_text, file.filename)
+        # Use the standardized GPT function with enhanced error handling
+        try:
+            logger.info(f"🧠 Starting GPT processing for {file.filename}")
+            standardized_result = standardize_cv_with_gpt(extracted_text, file.filename)
+            logger.info(f"✅ GPT processing successful for {file.filename}")
+        except Exception as e:
+            logger.error(f"❌ GPT processing failed for {file.filename}: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"GPT processing failed for {file.filename}: {str(e)}"
+            )
         
         # Save to Qdrant with standardized data
         cv_id = save_cv_to_qdrant(extracted_text, json.dumps(standardized_result), file.filename)
@@ -238,201 +266,35 @@ async def list_cvs_endpoint() -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"Failed to list CVs: {str(e)}")
 
 @router.post("/standardize-and-match-text")
-async def standardize_and_match_text(
-    request: StandardizeAndMatchRequest,
-    background_tasks: BackgroundTasks
-):
+async def standardize_and_match_text(request: StandardizeAndMatchRequest) -> JSONResponse:
     """
-    🚀 PERFORMANCE OPTIMIZATION: Parallel CV processing endpoint
-    Standardize and match multiple CVs against a JD simultaneously.
+    Enhanced standardize JD and CV text inputs with granular skill and responsibility matching.
+    Uses all-mpnet-base-v2 embeddings for precise individual skill/responsibility matching.
     """
     try:
-        logger.info(f"🚀 Starting parallel CV analysis: {len(request.cv_texts)} CVs")
-        start_time = time.time()
+        jd_text = request.jd_text
+        cv_text = request.cv_text
         
-        # Validate inputs
-        if not request.jd_text or not request.cv_texts:
-            raise HTTPException(status_code=400, detail="JD text and CV texts are required")
+        if not jd_text.strip() or not cv_text.strip():
+            raise HTTPException(status_code=400, detail="Both jd_text and cv_text are required")
         
-        # 🚀 PERFORMANCE OPTIMIZATION: Process CVs in parallel batches
-        max_concurrency = 3  # Process 3 CVs simultaneously
-        results = []
+        logger.info(f"🚀 Starting enhanced granular standardize-and-match-text")
         
-        # Process CVs in batches for optimal performance
-        for i in range(0, len(request.cv_texts), max_concurrency):
-            batch = request.cv_texts[i:i + max_concurrency]
-            batch_start = time.time()
-            
-            logger.info(f"📦 Processing batch {i//max_concurrency + 1}: CVs {i+1}-{min(i+max_concurrency, len(request.cv_texts))}")
-            
-            # Process batch in parallel
-            batch_tasks = []
-            for j, cv_text in enumerate(batch):
-                cv_index = i + j
-                task = process_single_cv_parallel(
-                    cv_text=cv_text,
-                    jd_text=request.jd_text,
-                    cv_index=cv_index,
-                    total_cvs=len(request.cv_texts)
-                )
-                batch_tasks.append(task)
-            
-            # Wait for batch to complete
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-            
-            # Process batch results
-            for j, result in enumerate(batch_results):
-                if isinstance(result, Exception):
-                    logger.error(f"❌ CV {i+j+1} processing failed: {str(result)}")
-                    # Create fallback result to maintain workflow
-                    fallback_result = create_fallback_cv_result(
-                        cv_text=request.cv_texts[i+j],
-                        cv_index=i+j,
-                        error=str(result)
-                    )
-                    results.append(fallback_result)
-                else:
-                    results.append(result)
-            
-            batch_time = time.time() - batch_start
-            logger.info(f"✅ Batch {i//max_concurrency + 1} completed in {batch_time:.2f}s")
-        
-        total_time = time.time() - start_time
-        logger.info(f"🎉 All {len(request.cv_texts)} CVs processed in {total_time:.2f}s")
-        
-        return {
-            "success": True,
-            "results": results,
-            "processing_time": total_time,
-            "cv_count": len(request.cv_texts),
-            "optimization": "parallel_processing"
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Parallel CV analysis failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
-async def process_single_cv_parallel(
-    cv_text: str, 
-    jd_text: str, 
-    cv_index: int, 
-    total_cvs: int
-) -> Dict[str, Any]:
-    """
-    Process a single CV in parallel with optimized performance.
-    """
-    try:
-        logger.info(f"🔄 Processing CV {cv_index + 1}/{total_cvs}")
-        
-        # Standardize CV using GPT
-        cv_standardized = await standardize_cv_text_async(cv_text)
-        
-        # Standardize JD using GPT
-        jd_standardized = await standardize_jd_text_async(jd_text)
-        
-        # Calculate matching scores using optimized embedding service
-        matching_service = GranularMatchingService()
-        match_result = await matching_service.calculate_match_score_async(
-            jd_standardized, cv_standardized
+        # Use the granular matching service
+        granular_service = get_granular_matching_service()
+        result = granular_service.perform_enhanced_matching(
+            jd_text=jd_text,
+            cv_text=cv_text,
+            jd_filename="jd_text_input.txt",
+            cv_filename="cv_text_input.txt"
         )
         
-        # Add metadata
-        match_result["cv_index"] = cv_index + 1
-        match_result["total_cvs"] = total_cvs
-        match_result["processing_metadata"]["optimization"] = "parallel_processing"
-        
-        logger.info(f"✅ CV {cv_index + 1} processed successfully")
-        return match_result
+        return JSONResponse(result)
         
     except Exception as e:
-        logger.error(f"❌ CV {cv_index + 1} processing failed: {str(e)}")
-        raise e
-
-async def standardize_cv_text_async(cv_text: str) -> Dict[str, Any]:
-    """
-    Asynchronously standardize CV text using GPT.
-    """
-    try:
-        # Run GPT standardization in thread pool to avoid blocking
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, 
-            standardize_cv_with_gpt, 
-            cv_text, 
-            "cv_text_input.txt"
-        )
-        return result
-    except Exception as e:
-        logger.error(f"CV standardization failed: {str(e)}")
-        raise e
-
-async def standardize_jd_text_async(jd_text: str) -> Dict[str, Any]:
-    """
-    Asynchronously standardize JD text using GPT.
-    """
-    try:
-        # Run GPT standardization in thread pool to avoid blocking
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, 
-            standardize_job_description_with_gpt, 
-            jd_text, 
-            "jd_text_input.txt"
-        )
-        return result
-    except Exception as e:
-        logger.error(f"JD standardization failed: {str(e)}")
-        raise e
-
-def create_fallback_cv_result(cv_text: str, cv_index: int, error: str) -> Dict[str, Any]:
-    """
-    Create a fallback result when CV processing fails to maintain workflow continuity.
-    """
-    return {
-        "cv_id": f"fallback-{cv_index}-{int(time.time())}",
-        "cv_filename": f"cv_{cv_index + 1}.txt",
-        "overall_score": 0.0,
-        "skills_score": 0.0,
-        "experience_score": 0.0,
-        "education_score": 0.0,
-        "title_score": 0.0,
-        "standardized_cv": {
-            "skills": [],
-            "experience": "",
-            "responsibilities": [],
-            "years_of_experience": "Unknown",
-            "job_title": "Unknown",
-            "filename": f"cv_{cv_index + 1}.txt",
-            "standardization_method": "fallback",
-            "processing_metadata": {
-                "gpt_model_used": "none",
-                "processing_time": 0.0,
-                "extraction_method": "fallback",
-                "standardization_version": "2.0",
-                "error": error
-            }
-        },
-        "match_details": {
-            "overall_score": 0.0,
-            "breakdown": {
-                "skills_score": 0.0,
-                "experience_score": 0.0,
-                "title_score": 0.0,
-                "responsibility_score": 0.0
-            },
-            "explanation": f"Processing failed: {error}",
-            "jd_data": {},
-            "cv_data": {},
-            "detailed_analysis": {}
-        },
-        "cv_index": cv_index + 1,
-        "total_cvs": 1,
-        "processing_metadata": {
-            "optimization": "parallel_processing",
-            "status": "failed",
-            "error": error
-        }
-    }
+        logger.error(f"Enhanced standardize-and-match-text failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Enhanced matching failed: {str(e)}")
 
 @router.post("/bulk-upload-cvs")
 async def bulk_upload_cvs(request: BulkCVUploadRequest):
@@ -753,3 +615,169 @@ async def audit_document_classifications() -> JSONResponse:
             status_code=500,
             content={"error": f"Classification audit failed: {str(e)}"}
         )
+
+@router.post("/process-bulk-analysis")
+async def process_bulk_analysis(request: BulkAnalysisRequest):
+    """
+    Enhanced bulk analysis endpoint: Process one JD with multiple CVs in optimized batch mode.
+    Uses the exact prompt specifications provided by the user.
+    
+    This replaces the need for separate API calls - everything is processed in one optimized request.
+    """
+    try:
+        logger.info(f"🚀 Starting enhanced bulk analysis: 1 JD vs {len(request.cv_texts)} CVs")
+        
+        # Validate input
+        if not request.jd_text or not request.jd_text.strip():
+            raise HTTPException(status_code=400, detail="JD text cannot be empty")
+        
+        if not request.cv_texts or len(request.cv_texts) == 0:
+            raise HTTPException(status_code=400, detail="At least one CV text is required")
+        
+        if len(request.cv_texts) > 20:  # Reasonable limit
+            raise HTTPException(status_code=400, detail="Maximum 20 CVs per batch request")
+        
+        import time
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        from app.utils.gpt_extractor import standardize_job_description_with_gpt, standardize_cv_with_gpt
+        from app.services.granular_matching_service import GranularMatchingService
+        
+        start_time = time.time()
+        
+        # Step 1: Process JD once (shared across all CV matches)
+        logger.info("📋 Processing Job Description with updated prompt...")
+        jd_start = time.time()
+        
+        try:
+            jd_standardized = standardize_job_description_with_gpt(request.jd_text, request.jd_filename)
+            jd_processing_time = time.time() - jd_start
+            logger.info(f"✅ JD processed in {jd_processing_time:.2f}s")
+        except Exception as e:
+            logger.error(f"❌ JD processing failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"JD processing failed: {str(e)}")
+        
+        # Step 2: Process CVs in parallel batches (performance optimization)
+        logger.info(f"📄 Processing {len(request.cv_texts)} CVs in parallel...")
+        cv_start = time.time()
+        
+        def process_single_cv(cv_data):
+            cv_text, cv_index = cv_data
+            cv_filename = f"bulk_cv_{cv_index + 1}.txt"
+            if request.cv_filenames and cv_index < len(request.cv_filenames):
+                cv_filename = request.cv_filenames[cv_index]
+            
+            try:
+                logger.info(f"🔍 Processing CV {cv_index + 1}: {cv_filename}")
+                cv_standardized = standardize_cv_with_gpt(cv_text, cv_filename)
+                return {
+                    "index": cv_index,
+                    "filename": cv_filename,
+                    "standardized": cv_standardized,
+                    "status": "success"
+                }
+            except Exception as e:
+                logger.error(f"❌ CV {cv_index + 1} processing failed: {str(e)}")
+                return {
+                    "index": cv_index,
+                    "filename": cv_filename,
+                    "error": str(e),
+                    "status": "failed"
+                }
+        
+        # Process CVs in parallel using ThreadPoolExecutor
+        cv_data_list = [(cv_text, i) for i, cv_text in enumerate(request.cv_texts)]
+        
+        with ThreadPoolExecutor(max_workers=3) as executor:  # Limit parallel processing
+            cv_results = list(executor.map(process_single_cv, cv_data_list))
+        
+        cv_processing_time = time.time() - cv_start
+        logger.info(f"✅ All CVs processed in {cv_processing_time:.2f}s")
+        
+        # Step 3: Perform matching for all successful CV-JD pairs
+        logger.info("🔍 Starting CV-JD matching for all pairs...")
+        matching_start = time.time()
+        
+        matching_service = GranularMatchingService()
+        final_results = []
+        successful_cvs = [cv for cv in cv_results if cv["status"] == "success"]
+        failed_cvs = [cv for cv in cv_results if cv["status"] == "failed"]
+        
+        def perform_matching(cv_result):
+            try:
+                cv_text = request.cv_texts[cv_result["index"]]
+                
+                # Use the enhanced matching service
+                match_result = matching_service.perform_enhanced_matching(
+                    jd_text=request.jd_text,
+                    cv_text=cv_text,
+                    jd_filename=request.jd_filename,
+                    cv_filename=cv_result["filename"]
+                )
+                
+                return {
+                    "cv_filename": cv_result["filename"],
+                    "cv_index": cv_result["index"],
+                    "overall_score": match_result["match_result"]["overall_score"],
+                    "breakdown": match_result["match_result"]["breakdown"],
+                    "explanation": match_result["match_result"]["explanation"],
+                    "standardized_cv": cv_result["standardized"],
+                    "match_details": match_result["match_result"],
+                    "status": "success"
+                }
+            except Exception as e:
+                logger.error(f"❌ Matching failed for {cv_result['filename']}: {str(e)}")
+                return {
+                    "cv_filename": cv_result["filename"],
+                    "cv_index": cv_result["index"],
+                    "error": str(e),
+                    "status": "failed"
+                }
+        
+        # Perform matching in parallel
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            match_results = list(executor.map(perform_matching, successful_cvs))
+        
+        matching_time = time.time() - matching_start
+        total_time = time.time() - start_time
+        
+        # Step 4: Prepare comprehensive response
+        successful_matches = [result for result in match_results if result["status"] == "success"]
+        failed_matches = [result for result in match_results if result["status"] == "failed"]
+        
+        # Sort by overall score (highest first)
+        successful_matches.sort(key=lambda x: x["overall_score"], reverse=True)
+        
+        logger.info(f"🎉 Bulk analysis completed in {total_time:.2f}s")
+        logger.info(f"📊 Results: {len(successful_matches)} successful, {len(failed_matches + failed_cvs)} failed")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "summary": {
+                "total_cvs": len(request.cv_texts),
+                "successful_matches": len(successful_matches),
+                "failed_processing": len(failed_cvs),
+                "failed_matching": len(failed_matches),
+                "total_processing_time": round(total_time, 2),
+                "jd_processing_time": round(jd_processing_time, 2),
+                "cv_processing_time": round(cv_processing_time, 2),
+                "matching_time": round(matching_time, 2)
+            },
+            "jd_standardized": jd_standardized,
+            "results": successful_matches,
+            "failed_cvs": failed_cvs,
+            "failed_matches": failed_matches,
+            "processing_metadata": {
+                "prompt_version": "user_specified_exact",
+                "processing_method": "parallel_optimized",
+                "cv_focus": "most_recent_two_jobs",
+                "skills_correlation": "95_percent_minimum"
+            }
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Bulk analysis failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Bulk analysis failed: {str(e)}")

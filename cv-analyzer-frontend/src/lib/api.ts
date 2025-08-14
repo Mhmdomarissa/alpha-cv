@@ -82,11 +82,21 @@ export interface SystemStatus {
     cpu_usage: number;
     memory_usage: number;
     disk_usage: number;
+    total_cvs: number;
+    total_jds: number;
+    processed_cvs: number;
+    processed_jds: number;
   };
   services: {
-    qdrant: boolean;
-    openai: boolean;
-    embeddings: boolean;
+    qdrant: {
+      status: string;
+      collections: number;
+      total_vectors: number;
+    };
+    openai: {
+      status: string;
+      model: string;
+    };
   };
   performance: {
     average_response_time: number;
@@ -182,13 +192,17 @@ export const apiMethods = {
       });
       return res.data;
     }).catch(error => {
-      console.error('❌ [CV UPLOAD] Next.js API route error details:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message,
-        url: '/api/jobs/upload-cv'
-      });
+      const errorDetails = {
+        status: error.response?.status || 'unknown',
+        statusText: error.response?.statusText || 'unknown',
+        data: error.response?.data || {},
+        message: error.message || 'unknown error',
+        url: '/api/jobs/upload-cv',
+        errorType: error.constructor.name,
+        code: error.code || 'unknown'
+      };
+      console.error('❌ [CV UPLOAD] Next.js API route error details:', errorDetails);
+      console.error('❌ [CV UPLOAD] Raw error response data:', error.response?.data);
       
       const responseData = error.response?.data || {};
       let errorMessage = responseData.error || error.message || 'CV upload failed';
@@ -303,8 +317,8 @@ export const apiMethods = {
     
     console.log(`🚀 Processing ${data.cv_texts.length} CVs with parallel batches`);
     
-    // Process CVs with controlled parallelism for better performance
-    const batchSize = 3; // Process 3 CVs at a time to balance speed and server load
+    // Process CVs with optimized parallelism for faster performance
+    const batchSize = 6; // Process 6 CVs at a time for better speed (increased from 3)
     console.log(`🚀 Processing ${data.cv_texts.length} CVs with parallel batches of ${batchSize}`);
     
     // Process CVs in batches
@@ -387,7 +401,7 @@ async function processSingleCV(index: number, cvText: string, filename: string, 
   console.log(`📄 Processing CV ${index + 1}: ${filename}`);
   
   // Retry logic for intermittent backend failures
-  let lastError: unknown;
+  // let lastError: unknown;
   const maxRetries = 2;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -433,7 +447,7 @@ async function processSingleCV(index: number, cvText: string, filename: string, 
         throw new Error('No match_result from backend');
       }
     } catch (apiError: unknown) {
-      lastError = apiError;
+      // lastError = apiError;
       const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
       console.warn(`⚠️ Backend analysis failed for CV ${index + 1} (attempt ${attempt}/${maxRetries}):`, errorMessage);
       

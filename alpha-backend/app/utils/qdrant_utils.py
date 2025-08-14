@@ -36,7 +36,7 @@ def create_collections():
         try:
             client.create_collection(
                 collection_name="cvs",
-                vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
+                vectors_config=VectorParams(size=768, distance=Distance.COSINE)
             )
             logger.info("Created CVs collection")
         except Exception as e:
@@ -48,7 +48,7 @@ def create_collections():
         try:
             client.create_collection(
                 collection_name="jds",
-                vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
+                vectors_config=VectorParams(size=768, distance=Distance.COSINE)
             )
             logger.info("Created JDs collection")
         except Exception as e:

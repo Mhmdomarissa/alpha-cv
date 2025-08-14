@@ -751,7 +751,12 @@ class EmbeddingService:
             logger.warning("NumPy not available, falling back to original algorithm")
             return self._calculate_responsibility_similarity_matrix_fallback(jd_responsibilities, cv_responsibilities)
         except Exception as e:
-            logger.error(f"Optimized responsibility matching failed: {str(e)}, falling back to original")
+            logger.error(f"Optimized responsibility matching failed: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"JD responsibilities count: {len(jd_responsibilities)}")
+            logger.error(f"CV responsibilities count: {len(cv_responsibilities)}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return self._calculate_responsibility_similarity_matrix_fallback(jd_responsibilities, cv_responsibilities)
     
     def _calculate_responsibility_similarity_matrix_fallback(self, jd_responsibilities: List[str], cv_responsibilities: List[str]) -> Dict[str, Any]:
