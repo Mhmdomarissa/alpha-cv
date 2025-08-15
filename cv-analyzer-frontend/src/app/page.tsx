@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { useAppStore } from '@/stores/appStore';
 import Layout from '@/components/Layout';
+import AuthGuard from '@/components/AuthGuard';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -136,9 +137,11 @@ const AppContent = memo(function AppContent() {
   };
 
   return (
-    <Layout>
-      {renderCurrentTab()}
-    </Layout>
+    <AuthGuard>
+      <Layout>
+        {renderCurrentTab()}
+      </Layout>
+    </AuthGuard>
   );
 });
 

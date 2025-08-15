@@ -614,11 +614,14 @@ This candidate profile represents a qualified professional suitable for Business
         console.log('📄 CV Texts count:', cvTexts.length);
         console.log('📄 CV Texts preview:', cvTexts.map(text => text?.substring(0, 100) + '...'));
         
-        // Call the real analysis API with extracted text content
+        // Call the real analysis API with extracted text content and progress callback
         const analysisResult = await apiMethods.analyzeAndMatch({
           jd_text: jobDescriptionText,
           cv_texts: cvTexts,
           filenames: validFiles.map(file => file?.name || 'unknown.txt')
+        }, (progress: number, step: string) => {
+          setAnalysisProgress(progress);
+          setAnalysisStep(step);
         });
         
         console.log('✅ Real backend analysis completed:', analysisResult);
@@ -807,9 +810,14 @@ This candidate profile represents a qualified professional suitable for Business
                 </h3>
                 <p className="text-sm text-secondary-600 mb-4">{analysisStep}</p>
                 <Progress value={analysisProgress} showValue className="mb-4" />
-                <p className="text-xs text-secondary-500">
-                  This may take a few moments...
-                </p>
+                <div className="text-xs text-secondary-500 space-y-1">
+                  <p>Processing {uploadedFiles.length} CV{uploadedFiles.length > 1 ? 's' : ''} with AI analysis...</p>
+                  {analysisProgress > 75 && (
+                    <p className="text-amber-600 font-medium">
+                      ⚡ Using optimized processing for best results
+                    </p>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>

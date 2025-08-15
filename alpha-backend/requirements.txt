@@ -19,4 +19,8 @@ numpy==1.26.4
 sentence-transformers==2.7.0
 scikit-learn==1.4.2
 torch>=2.2.0
+python-dateutil==2.8.2
+rapidfuzz==3.6.1
+spacy==3.7.2
+pdfplumber==0.10.3
 

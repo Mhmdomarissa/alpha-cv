@@ -7,9 +7,12 @@ import {
   DocumentTextIcon,
   CogIcon,
   HomeIcon,
-  UserGroupIcon
+  UserGroupIcon,
+  ArrowRightOnRectangleIcon,
+  UserIcon
 } from '@heroicons/react/24/outline';
 import { useAppStore } from '@/stores/appStore';
+import { useAuthStore } from '@/stores/authStore';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import TestApiButton from './TestApiButton';
@@ -22,6 +25,12 @@ interface LayoutProps {
 
 const Layout = ({ children }: LayoutProps) => {
   const { currentTab, setCurrentTab, systemStatus, cvs, jobDescriptions } = useAppStore();
+  const { user, logout } = useAuthStore();
+
+  const handleLogout = () => {
+    logout();
+    // The AuthGuard will handle redirecting to login
+  };
 
   const navigation = [
     {
@@ -86,8 +95,9 @@ const Layout = ({ children }: LayoutProps) => {
               ))}
             </nav>
 
-            {/* System Status */}
+            {/* User Menu and System Status */}
             <div className="flex items-center space-x-3">
+              {/* System Status */}
               <div className="flex items-center space-x-2">
                 <div
                   className={`h-2 w-2 rounded-full ${
@@ -98,8 +108,31 @@ const Layout = ({ children }: LayoutProps) => {
                   {systemStatus?.status === 'operational' ? 'Online' : 'Limited'}
                 </span>
               </div>
-              <Button variant="ghost" size="icon">
+              
+              {/* User Info */}
+              {user && (
+                <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 px-3 py-1.5 bg-secondary-50 rounded-lg">
+                    <UserIcon className="h-4 w-4 text-secondary-600" />
+                    <span className="text-sm font-medium text-secondary-700">{user.username}</span>
+                  </div>
+                </div>
+              )}
+              
+              {/* Settings */}
+              <Button variant="ghost" size="icon" title="Settings">
                 <CogIcon className="h-5 w-5" />
+              </Button>
+              
+              {/* Logout */}
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={handleLogout}
+                title="Sign out"
+                className="text-secondary-600 hover:text-red-600 hover:bg-red-50"
+              >
+                <ArrowRightOnRectangleIcon className="h-5 w-5" />
               </Button>
             </div>
           </div>

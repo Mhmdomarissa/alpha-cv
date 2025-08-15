@@ -18,6 +18,7 @@ from app.utils.gpt_extractor import standardize_job_description_with_gpt, standa
 from app.utils.qdrant_utils import save_jd_to_qdrant, list_jds, get_qdrant_client, save_cv_to_qdrant, list_cvs
 from app.services.granular_matching_service import get_granular_matching_service
 from app.utils.content_classifier import classify_document_content, validate_document_classification
+# from app.utils.enhanced_resume_parser import EnhancedResumeParser  # Temporarily disabled
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -52,63 +53,94 @@ class StandardizedMatchRequest(BaseModel):
     jd_id: str
     cv_id: str
 
+# # Initialize enhanced parser
+# enhanced_parser = EnhancedResumeParser()  # Temporarily disabled
+
 # Utility Functions
 def extract_text(file: UploadFile) -> str:
-    """Extract text from uploaded file with enhanced error handling."""
+    """Extract text from uploaded file with enhanced error handling and multiple extraction methods."""
     try:
-        if file.filename.endswith(".pdf"):
-            content = file.file.read()
-            doc = fitz.open(stream=content, filetype="pdf")
-            text = ""
-            for page in doc:
-                text += page.get_text()
-            doc.close()
-            return text.strip()
+        # Save file temporarily for enhanced parser
+        import tempfile
+        import shutil
         
-        elif file.filename.endswith(".docx"):
-            try:
-                content = file.file.read()
-                document = docx.Document(BytesIO(content))
-                paragraphs = [p.text.strip() for p in document.paragraphs if p.text.strip()]
-                tables_text = []
-                for table in document.tables:
-                    for row in table.rows:
-                        row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-                        if row_text:
-                            tables_text.append(" | ".join(row_text))
-                extracted_text = "\n".join(paragraphs + (["\n--- Tables ---"] + tables_text if tables_text else []))
-                if not extracted_text.strip():
-                    raise ValueError("No text could be extracted from DOCX file")
-                return extracted_text
-            except Exception as docx_error:
-                logger.error(f"DOCX extraction failed for {file.filename}: {str(docx_error)}")
-                raise ValueError(f"Failed to extract text from DOCX file {file.filename}. The file may be corrupted or protected.")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp_file:
+            # Copy uploaded file to temp file
+            file.file.seek(0)
+            shutil.copyfileobj(file.file, tmp_file)
+            tmp_file_path = tmp_file.name
         
-        elif file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp')):
-            content = file.file.read()
-            image = Image.open(BytesIO(content))
-            text = pytesseract.image_to_string(image)
-            return text.strip()
+        try:
+            # Use fallback method (enhanced parser temporarily disabled)
+            file.file.seek(0)
+            text = _extract_text_fallback(file)
+                
+        finally:
+            # Clean up temp file
+            if os.path.exists(tmp_file_path):
+                os.unlink(tmp_file_path)
         
-        elif file.filename.lower().endswith(('.txt', '.text')):
-            # Handle plain text files
-            content = file.file.read()
-            # Try different encodings
-            try:
-                text = content.decode('utf-8')
-            except UnicodeDecodeError:
-                try:
-                    text = content.decode('latin-1')
-                except UnicodeDecodeError:
-                    text = content.decode('utf-8', errors='ignore')
-            return text.strip()
-        
-        else:
-            raise ValueError(f"Unsupported file type: {file.filename}")
+        if not text.strip():
+            raise ValueError(f"No text could be extracted from {file.filename}")
+            
+        return text.strip()
     
     except Exception as e:
         logger.error(f"Text extraction failed for {file.filename}: {str(e)}")
         raise ValueError(f"Failed to extract text from {file.filename}: {str(e)}")
+
+
+def _extract_text_fallback(file: UploadFile) -> str:
+    """Fallback text extraction method using original implementation."""
+    if file.filename.endswith(".pdf"):
+        content = file.file.read()
+        doc = fitz.open(stream=content, filetype="pdf")
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        doc.close()
+        return text.strip()
+    
+    elif file.filename.endswith(".docx"):
+        try:
+            content = file.file.read()
+            document = docx.Document(BytesIO(content))
+            paragraphs = [p.text.strip() for p in document.paragraphs if p.text.strip()]
+            tables_text = []
+            for table in document.tables:
+                for row in table.rows:
+                    row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if row_text:
+                        tables_text.append(" | ".join(row_text))
+            extracted_text = "\n".join(paragraphs + (["\n--- Tables ---"] + tables_text if tables_text else []))
+            if not extracted_text.strip():
+                raise ValueError("No text could be extracted from DOCX file")
+            return extracted_text
+        except Exception as docx_error:
+            logger.error(f"DOCX extraction failed for {file.filename}: {str(docx_error)}")
+            raise ValueError(f"Failed to extract text from DOCX file {file.filename}. The file may be corrupted or protected.")
+    
+    elif file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp')):
+        content = file.file.read()
+        image = Image.open(BytesIO(content))
+        text = pytesseract.image_to_string(image)
+        return text.strip()
+    
+    elif file.filename.lower().endswith(('.txt', '.text')):
+        # Handle plain text files
+        content = file.file.read()
+        # Try different encodings
+        try:
+            text = content.decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                text = content.decode('latin-1')
+            except UnicodeDecodeError:
+                text = content.decode('utf-8', errors='ignore')
+        return text.strip()
+    
+    else:
+        raise ValueError(f"Unsupported file type: {file.filename}")
 
 
 # CORE API ENDPOINTS (Only the ones being used by frontend)
@@ -533,6 +565,38 @@ async def re_extract_cv_text(file: UploadFile = File(...)) -> JSONResponse:
             status_code=500,
             content={"error": f"Text re-extraction failed: {str(e)}"}
         )
+
+# @router.post("/parse-resume-enhanced")  # Temporarily disabled
+# async def parse_resume_enhanced(file: UploadFile = File(...)) -> JSONResponse:
+#     """
+#     Parse resume using enhanced parser with NLP and structured extraction.
+#     Returns detailed structured data including skills, experience, education, etc.
+#     """
+#     try:
+#         logger.info(f"Enhanced parsing for {file.filename}")
+        
+#         # Extract text
+#         raw_text = extract_text(file)
+        
+#         # Parse with enhanced parser
+#         parsed_data = enhanced_parser.parse_resume(raw_text, file.filename)
+        
+#         logger.info(f"Successfully parsed {file.filename} with enhanced parser")
+        
+#         return JSONResponse(content={
+#             "status": "success",
+#             "filename": file.filename,
+#             "raw_text_length": len(raw_text),
+#             "parsed_data": parsed_data,
+#             "extraction_method": "enhanced_nlp"
+#         })
+        
+#     except Exception as e:
+#         logger.error(f"Enhanced parsing failed for {file.filename}: {str(e)}")
+#         return JSONResponse(
+#             status_code=500,
+#             content={"error": f"Enhanced parsing failed: {str(e)}"}
+#         )
 
 @router.get("/audit-classifications")
 async def audit_document_classifications() -> JSONResponse:

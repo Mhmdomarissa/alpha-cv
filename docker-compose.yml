@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # Backend services
+  backend:
+    build: ./alpha-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://cv_user:cv_password@postgres:5432/cv_database
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - postgres
+      - qdrant
+    restart: unless-stopped
+    volumes:
+      - ./alpha-backend:/app
+    networks:
+      - cv-network
+
+  # Frontend service
+  frontend:
+    build: ./cv-analyzer-frontend
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - cv-network
+
+  # Database
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: cv_database
+      POSTGRES_USER: cv_user
+      POSTGRES_PASSWORD: cv_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - cv-network
+
+  # Vector database
+  qdrant:
+    image: qdrant/qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    networks:
+      - cv-network
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+    networks:
+      - cv-network
+
+volumes:
+  postgres_data:
+  qdrant_data:
+
+networks:
+  cv-network:
+    driver: bridge

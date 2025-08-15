@@ -85,13 +85,15 @@ const ResultsPage = () => {
     );
   }
 
-  const getScoreColor = (score: number) => {
+  const getScoreColor = (score: number | undefined | null) => {
+    if (score === undefined || score === null || isNaN(score)) return 'error';
     if (score >= 0.9) return 'success';
     if (score >= 0.7) return 'warning';
     return 'error';
   };
 
-  const getScoreVariant = (score: number) => {
+  const getScoreVariant = (score: number | undefined | null) => {
+    if (score === undefined || score === null || isNaN(score)) return 'error';
     if (score >= 0.9) return 'success';
     if (score >= 0.7) return 'warning';
     return 'error';
@@ -221,8 +223,8 @@ const ResultsPage = () => {
                           <span className="text-xs font-medium text-secondary-700">Skills</span>
                         </div>
                         <Progress 
-                          value={result.skills_score} 
-                          variant={getScoreColor(result.skills_score / 100)}
+                          value={result.skills_score || 0} 
+                          variant={getScoreColor((result.skills_score || 0) / 100)}
                           size="sm"
                         />
                         <span className="text-xs text-secondary-600 mt-1 block">
@@ -236,8 +238,8 @@ const ResultsPage = () => {
                           <span className="text-xs font-medium text-secondary-700">Experience</span>
                         </div>
                         <Progress 
-                          value={result.experience_score} 
-                          variant={getScoreColor(result.experience_score / 100)}
+                          value={result.experience_score || 0} 
+                          variant={getScoreColor((result.experience_score || 0) / 100)}
                           size="sm"
                         />
                         <span className="text-xs text-secondary-600 mt-1 block">
@@ -251,8 +253,8 @@ const ResultsPage = () => {
                           <span className="text-xs font-medium text-secondary-700">Education</span>
                         </div>
                         <Progress 
-                          value={result.education_score} 
-                          variant={getScoreColor(result.education_score / 100)}
+                          value={result.education_score || 0} 
+                          variant={getScoreColor((result.education_score || 0) / 100)}
                           size="sm"
                         />
                         <span className="text-xs text-secondary-600 mt-1 block">
@@ -266,8 +268,8 @@ const ResultsPage = () => {
                           <span className="text-xs font-medium text-secondary-700">Title</span>
                         </div>
                         <Progress 
-                          value={result.title_score} 
-                          variant={getScoreColor(result.title_score / 100)}
+                          value={result.title_score || 0} 
+                          variant={getScoreColor((result.title_score || 0) / 100)}
                           size="sm"
                         />
                         <span className="text-xs text-secondary-600 mt-1 block">
@@ -367,32 +369,32 @@ const ResultsPage = () => {
                   <div className="space-y-3">
                     <h4 className="font-semibold text-secondary-900">Skills Analysis</h4>
                     <Progress 
-                      value={selectedCandidate.skills_score} 
-                      variant={getScoreColor(selectedCandidate.skills_score / 100)}
+                      value={selectedCandidate.skills_score || 0} 
+                      variant={getScoreColor((selectedCandidate.skills_score || 0) / 100)}
                       showValue
                     />
                   </div>
                   <div className="space-y-3">
                     <h4 className="font-semibold text-secondary-900">Experience Match</h4>
                     <Progress 
-                      value={selectedCandidate.experience_score} 
-                      variant={getScoreColor(selectedCandidate.experience_score / 100)}
+                      value={selectedCandidate.experience_score || 0} 
+                      variant={getScoreColor((selectedCandidate.experience_score || 0) / 100)}
                       showValue
                     />
                   </div>
                   <div className="space-y-3">
                     <h4 className="font-semibold text-secondary-900">Education Level</h4>
                     <Progress 
-                      value={selectedCandidate.education_score} 
-                      variant={getScoreColor(selectedCandidate.education_score / 100)}
+                      value={selectedCandidate.education_score || 0} 
+                      variant={getScoreColor((selectedCandidate.education_score || 0) / 100)}
                       showValue
                     />
                   </div>
                   <div className="space-y-3">
                     <h4 className="font-semibold text-secondary-900">Title Relevance</h4>
                     <Progress 
-                      value={selectedCandidate.title_score} 
-                      variant={getScoreColor(selectedCandidate.title_score / 100)}
+                      value={selectedCandidate.title_score || 0} 
+                      variant={getScoreColor((selectedCandidate.title_score || 0) / 100)}
                       showValue
                     />
                   </div>

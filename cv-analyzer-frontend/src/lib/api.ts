@@ -311,57 +311,114 @@ export const apiMethods = {
   getJobDescriptions: (): Promise<{ jds: JobDescription[] }> => 
     api.get('/api/jobs/list-jds').then(res => res.data),
 
-  // Analysis and Matching with Parallel Processing
-  analyzeAndMatch: async (data: AnalysisRequest): Promise<{ results: MatchResult[] }> => {
+  // Individual CV processing function for complex batches and fallbacks
+  async processIndividualCVs(data: AnalysisRequest, onProgress?: (progress: number, step: string) => void): Promise<{ results: MatchResult[] }> {
     const results: MatchResult[] = [];
+    console.log(`🔄 INDIVIDUAL PROCESSING: Processing ${data.cv_texts.length} CVs one by one`);
     
-    console.log(`🚀 Processing ${data.cv_texts.length} CVs with parallel batches`);
-    
-    // Process CVs with optimized parallelism for faster performance
-    const batchSize = 6; // Process 6 CVs at a time for better speed (increased from 3)
-    console.log(`🚀 Processing ${data.cv_texts.length} CVs with parallel batches of ${batchSize}`);
-    
-    // Process CVs in batches
-    for (let batchStart = 0; batchStart < data.cv_texts.length; batchStart += batchSize) {
-      const batchEnd = Math.min(batchStart + batchSize, data.cv_texts.length);
-      const batchPromises: Promise<MatchResult>[] = [];
-      
-      console.log(`📦 Processing batch ${Math.floor(batchStart / batchSize) + 1}: CVs ${batchStart + 1}-${batchEnd}`);
-      
-      // Create promises for current batch
-      for (let i = batchStart; i < batchEnd; i++) {
-        batchPromises.push(processSingleCV(i, data.cv_texts[i], data.filenames?.[i] || `CV_${i + 1}`, data.jd_text));
-      }
-      
-      // Wait for current batch to complete
-      const batchResults = await Promise.allSettled(batchPromises);
-      
-      // Process batch results
-      batchResults.forEach((result, index) => {
-        const cvIndex = batchStart + index;
-        if (result.status === 'fulfilled') {
-          results.push(result.value);
-          console.log(`✅ CV ${cvIndex + 1} completed successfully`);
-        } else {
-          console.error(`❌ CV ${cvIndex + 1} failed:`, result.reason);
-          // Add fallback result for failed CV
-          const filename = data.filenames?.[cvIndex] || `CV_${cvIndex + 1}`;
-          results.push(calculateQuickScore(data.jd_text, data.cv_texts[cvIndex], filename));
-        }
-      });
-      
-      // Small delay between batches to avoid overwhelming the server
-      if (batchEnd < data.cv_texts.length) {
-        console.log(`⏸️ Waiting 500ms before next batch...`);
-        await new Promise(resolve => setTimeout(resolve, 500));
+    for (let i = 0; i < data.cv_texts.length; i++) {
+      try {
+        const progressStep = 75 + (i / data.cv_texts.length) * 20; // 75-95% range
+        if (onProgress) onProgress(progressStep, `Analyzing CV ${i + 1} of ${data.cv_texts.length}...`);
+        
+        const result = await processSingleCV(i, data.cv_texts[i], data.filenames?.[i] || `CV_${i + 1}`, data.jd_text);
+        results.push(result);
+        console.log(`✅ CV ${i + 1} completed successfully - Score: ${result.overall_score.toFixed(2)}`);
+      } catch (cvError) {
+        console.error(`❌ CV ${i + 1} failed:`, cvError);
+        const filename = data.filenames?.[i] || `CV_${i + 1}`;
+        results.push(calculateQuickScore(data.jd_text, data.cv_texts[i], filename));
       }
     }
     
-    // Sort results by overall score (highest first)
-    results.sort((a, b) => b.overall_score - a.overall_score);
+    const sortedResults = results.sort((a, b) => b.overall_score - a.overall_score);
+    console.log(`🎉 Individual processing completed. ${results.length}/${data.cv_texts.length} successful.`);
     
-    console.log(`🎉 Completed processing all CVs. ${results.length}/${data.cv_texts.length} successful.`);
-    return { results };
+    if (onProgress) onProgress(98, 'Finalizing results and ranking candidates...');
+    return { results: sortedResults };
+  },
+
+  // ENHANCED: Smart analysis using bulk API with intelligent chunking
+  analyzeAndMatch: async (data: AnalysisRequest, onProgress?: (progress: number, step: string) => void): Promise<{ results: MatchResult[] }> => {
+    // Calculate total text complexity to determine processing strategy
+    const totalTextLength = data.cv_texts.reduce((sum, text) => sum + text.length, 0) + data.jd_text.length;
+    const avgCvLength = totalTextLength / data.cv_texts.length;
+    const isComplexBatch = avgCvLength > 3000 || data.cv_texts.length > 3;
+    
+    console.log(`🚀 SMART PROCESSING: ${data.cv_texts.length} CVs (avg: ${Math.round(avgCvLength)} chars, complex: ${isComplexBatch})`);
+    
+    // Use bulk API for smaller/simpler batches, individual processing for complex ones
+    if (!isComplexBatch) {
+      console.log(`📦 Using BULK API mode for simple batch`);
+      if (onProgress) onProgress(80, 'Sending bulk request to AI for analysis...');
+    } else {
+      console.log(`🔄 Using INDIVIDUAL processing mode for complex batch`);
+      if (onProgress) onProgress(78, 'Complex batch detected, using individual processing...');
+      return await apiMethods.processIndividualCVs(data, onProgress);
+    }
+    
+    try {
+      // Create the bulk analysis request
+      const bulkRequest = {
+        jd_text: data.jd_text,
+        cv_texts: data.cv_texts,
+        cv_filenames: data.filenames || data.cv_texts.map((_, i) => `CV_${i + 1}.txt`),
+        jd_filename: "job_description.txt"
+      };
+      
+      console.log(`📊 Bulk request: 1 JD + ${data.cv_texts.length} CVs`);
+      console.log(`📦 Sending ALL CVs in ONE API call to /api/jobs/process-bulk-analysis`);
+      
+      // Make the single bulk API call with extended timeout for complex batches
+      const response = await api.post('/api/jobs/process-bulk-analysis', bulkRequest, {
+        timeout: 90000, // 90 seconds for bulk processing
+      });
+      const bulkResult = response.data;
+      
+      console.log('✅ Bulk analysis completed:', bulkResult.status);
+      console.log(`⚡ Total processing time: ${bulkResult.summary?.total_processing_time || 'N/A'}s`);
+      console.log(`📊 Successful matches: ${bulkResult.summary?.successful_matches || 0}/${data.cv_texts.length}`);
+      
+      if (onProgress) onProgress(95, 'Processing bulk results and calculating scores...');
+      
+      if (bulkResult.status === 'success' && bulkResult.results) {
+        // Transform bulk API results to match expected MatchResult format
+        const transformedResults: MatchResult[] = bulkResult.results.map((result: any, index: number) => {
+          const breakdown = result.breakdown || {};
+          
+          return {
+            cv_id: `bulk_cv_${result.cv_index ?? index}_${Math.random().toString(36).substr(2, 9)}`,
+            cv_filename: result.cv_filename || `CV_${(result.cv_index ?? index) + 1}`,
+            overall_score: Number(result.overall_score) || 0,
+            skills_score: Number(breakdown.skills_score) || 0,
+            experience_score: Number(breakdown.experience_score) || 0,
+            education_score: Number(breakdown.education_score || breakdown.responsibility_score) || 0,
+            title_score: Number(breakdown.title_score) || 0,
+            standardized_cv: result.standardized_cv,
+            match_details: {
+              overall_score: Number(result.overall_score) || 0,
+              breakdown: breakdown,
+              explanation: result.explanation || ''
+            }
+          };
+        });
+        
+        // Sort results by overall score (highest first)
+        const sortedResults = transformedResults.sort((a, b) => b.overall_score - a.overall_score);
+        
+        console.log(`🎉 SUCCESS: Processed ALL ${sortedResults.length} CVs in ONE bulk call!`);
+        console.log(`📊 First result transformed:`, sortedResults[0]);
+        return { results: sortedResults };
+      } else {
+        throw new Error(`Bulk analysis failed: ${bulkResult.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('❌ Bulk API failed, falling back to individual processing:', error);
+      
+      if (onProgress) onProgress(75, 'Bulk processing timed out, switching to individual processing...');
+      
+      return await apiMethods.processIndividualCVs(data, onProgress);
+    }
   },
 
   bulkUploadCVs: (files: File[]): Promise<ApiResponse> => {

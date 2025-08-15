@@ -22,15 +22,15 @@ import { CV, JobDescription } from '@/lib/api';
 import toast from 'react-hot-toast';
 
 // Helper function to extract data from structured_info
-const getStructuredValue = (item: any, field: string, fallback: string = 'Not specified') => {
+const getStructuredValue = (item: CV | JobDescription | Record<string, unknown>, field: string, fallback: string = 'Not specified'): string => {
   // Try direct field access first
-  if (item[field] && item[field] !== 'Not specified') {
-    return item[field];
+  if ((item as any)[field] && (item as any)[field] !== 'Not specified') {
+    return String((item as any)[field]);
   }
   
   // Try structured_info
-  if (item.structured_info) {
-    let structured = item.structured_info;
+  if ((item as any).structured_info) {
+    let structured = (item as any).structured_info;
     
     // If structured_info is a string, try to parse it
     if (typeof structured === 'string') {
@@ -42,9 +42,9 @@ const getStructuredValue = (item: any, field: string, fallback: string = 'Not sp
     }
     
     // Return the field value if it exists and is meaningful
-    const value = structured[field];
+    const value = (structured as Record<string, unknown>)[field];
     if (value && value !== 'Not specified' && value !== 'Not provided') {
-      return value;
+      return String(value);
     }
   }
   
@@ -52,10 +52,10 @@ const getStructuredValue = (item: any, field: string, fallback: string = 'Not sp
 };
 
 // Helper function to extract experience from combined years_of_experience field
-const getExperienceValue = (item: any, fallback: string = 'Not specified') => {
+const getExperienceValue = (item: CV | JobDescription | Record<string, unknown>, fallback: string = 'Not specified') => {
   const combinedValue = getStructuredValue(item, 'years_of_experience', '');
   
-  if (combinedValue && combinedValue !== 'Not specified') {
+  if (combinedValue && combinedValue !== 'Not specified' && typeof combinedValue === 'string') {
     // Extract just the experience part (before any markdown headers)
     const lines = combinedValue.split('\n');
     const experienceLine = lines[0].trim();
@@ -70,7 +70,7 @@ const getExperienceValue = (item: any, fallback: string = 'Not specified') => {
 };
 
 // Helper function to extract education from combined years_of_experience field
-const getEducationValue = (item: any, fallback: string = 'Not specified') => {
+const getEducationValue = (item: CV | JobDescription | Record<string, unknown>, fallback: string = 'Not specified') => {
   // First try direct education field
   const directEducation = getStructuredValue(item, 'education', '');
   if (directEducation && directEducation !== 'Not specified') {
@@ -80,7 +80,7 @@ const getEducationValue = (item: any, fallback: string = 'Not specified') => {
   // Then try to extract from years_of_experience field
   const combinedValue = getStructuredValue(item, 'years_of_experience', '');
   
-  if (combinedValue && combinedValue.includes('**EDUCATION:**')) {
+  if (combinedValue && typeof combinedValue === 'string' && combinedValue.includes('**EDUCATION:**')) {
     const educationMatch = combinedValue.match(/\*\*EDUCATION:\*\*\s*\n([^*]+?)(?:\n\*\*|$)/);
     if (educationMatch && educationMatch[1]) {
       return educationMatch[1].trim();

@@ -13,8 +13,12 @@ export function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-export function formatPercentage(value: number): string {
+export function formatPercentage(value: number | undefined | null): string {
   // Backend already returns percentage values (e.g., 55.67), not decimals (0.5567)
+  // Handle undefined, null, or NaN values gracefully
+  if (value === undefined || value === null || isNaN(value)) {
+    return '0.0%';
+  }
   return `${value.toFixed(1)}%`;
 }
 

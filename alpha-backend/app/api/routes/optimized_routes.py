@@ -71,7 +71,7 @@ async def bulk_analyze_optimized(request: BulkAnalysisRequest) -> JSONResponse:
                 "overall_score": result.overall_score,
                 "skills_score": result.breakdown["skills_score"],
                 "experience_score": result.breakdown["experience_score"],
-                "education_score": result.breakdown["responsibility_score"],  # Map responsibility to education for compatibility
+                "education_score": 100.0,  # TODO: Implement education matching when JD education requirements are available
                 "title_score": result.breakdown["title_score"],
                 "match_details": {
                     "overall_score": result.overall_score,
