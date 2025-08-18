@@ -113,7 +113,9 @@ class GranularMatchingService:
                 responsibility_analysis=responsibility_analysis,
                 title_similarity=title_similarity,
                 experience_match=experience_match,
-                processing_time=time.time() - start_time
+                processing_time=time.time() - start_time,
+                jd_experience=jd_experience,
+                cv_experience=cv_experience
             )
             
             result["matching_method"] = "stored_embeddings"
@@ -286,7 +288,9 @@ class GranularMatchingService:
                 responsibility_analysis=responsibility_analysis,
                 title_similarity=title_similarity,
                 experience_match=experience_match,
-                processing_time=time.time() - start_time
+                processing_time=time.time() - start_time,
+                jd_experience=jd_experience,
+                cv_experience=cv_experience
             )
             
             logger.info(f"✅ Enhanced matching completed in {result['processing_time']:.2f}s")
@@ -339,7 +343,9 @@ class GranularMatchingService:
         responsibility_analysis: Dict[str, Any],
         title_similarity: float,
         experience_match: bool,
-        processing_time: float
+        processing_time: float,
+        jd_experience: str = "",
+        cv_experience: str = ""
     ) -> Dict[str, Any]:
         """Create comprehensive match result with all analysis."""
         

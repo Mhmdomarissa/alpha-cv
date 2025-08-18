@@ -21,12 +21,13 @@ def call_openai_api(messages: list, model: str = "gpt-4o-mini", max_tokens: int 
     if not api_key:
         raise Exception("OPENAI_API_KEY environment variable is required")
     
+    # TEMPORARILY DISABLE CACHE TO FIX CV EXTRACTION BUG
     # Check cache first
-    cache_key = get_gpt_cache_key(str(messages), model)
-    cached_response = gpt_response_cache.get(cache_key)
-    if cached_response:
-        logger.info("💾 Using cached GPT response")
-        return cached_response
+    # cache_key = get_gpt_cache_key(str(messages), model)
+    # cached_response = gpt_response_cache.get(cache_key)
+    # if cached_response:
+    #     logger.info("💾 Using cached GPT response")
+    #     return cached_response
     
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -66,8 +67,9 @@ def call_openai_api(messages: list, model: str = "gpt-4o-mini", max_tokens: int 
                 if not content or len(content.strip()) == 0:
                     raise Exception("OpenAI returned empty response")
                 
+                # TEMPORARILY DISABLE CACHE TO FIX CV EXTRACTION BUG
                 # Cache the response
-                gpt_response_cache.set(cache_key, content.strip())
+                # gpt_response_cache.set(cache_key, content.strip())
                 
                 logger.info("✅ OpenAI API call successful")
                 return content.strip()
