@@ -10,11 +10,10 @@ from app.core.cache import gpt_response_cache, get_gpt_cache_key
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# REAL GPT-4o-mini ONLY - NO MOCK MODE
+# UPDATED GPT EXTRACTOR - FULL TEXT PROCESSING & STANDARDIZED EMBEDDING
 # ============================================================================
-# All mock functions have been removed - only real GPT-4o-mini analysis available
 
-def call_openai_api(messages: list, model: str = "gpt-4o-mini", max_tokens: int = 800, temperature: float = 0.1) -> str:
+def call_openai_api(messages: list, model: str = "gpt-4o-mini", max_tokens: int = 2000, temperature: float = 0.1) -> str:
     """Call OpenAI API with robust error handling, retry logic with exponential backoff, and caching."""
     import time
     
@@ -125,447 +124,476 @@ def call_openai_api(messages: list, model: str = "gpt-4o-mini", max_tokens: int 
     # Should never reach here, but just in case
     raise Exception(f"OpenAI API call failed after {max_retries} attempts")
 
-def analyze_cv_with_gpt(text: str, filename: str) -> dict:
+def standardize_cv_with_gpt(text: str, filename: str) -> dict:
     """
-    Analyze CV with GPT-4o-mini ONLY. No mock mode.
-    """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise Exception("OPENAI_API_KEY environment variable is required. No mock mode available.")
-    
-    try:
-        prompt = f"""
-        You are a professional CV analyzer. Extract the following information from this CV:
-
-        **BASIC INFORMATION:**
-        - Full name
-        - Email address
-        - Phone number
-        - Current job title
-
-        **SKILLS:**
-        List the technical skills mentioned in the CV. Focus on programming languages, frameworks, tools, and technologies.
-
-        **EXPERIENCE:**
-        Summarize the work experience, focusing on the most recent 2-3 positions.
-
-        **YEARS OF EXPERIENCE:**
-        Calculate the total years of relevant professional experience.
-
-        **EDUCATION:**
-        List educational qualifications.
-
-        **SUMMARY:**
-        Provide a brief professional summary based on the CV content.
-
-        ---
-        CV CONTENT:
-        {text[:4000]}
-        """
-
-        content = call_openai_api([{"role": "user", "content": prompt}], model="gpt-4o-mini", max_tokens=1500, temperature=0.1)
-        
-        if not content or len(content.strip()) == 0:
-            raise Exception(f"GPT-4o-mini returned empty response for {filename}")
-
-        logger.info(f"🔍 GPT-4o-mini Response for {filename}: {content[:200]}...")
-
-        # Parse the response (simplified parsing for backward compatibility)
-        result = {
-            "full_name": "Extracted by GPT-4o-mini",
-            "email": "Extracted by GPT-4o-mini", 
-            "phone": "Extracted by GPT-4o-mini",
-            "job_title": "Extracted by GPT-4o-mini",
-            "years_of_experience": "Calculated by GPT-4o-mini",
-            "skills": "Extracted by GPT-4o-mini",
-            "education": "Extracted by GPT-4o-mini",
-            "summary": content[:500],  # Use first part of GPT response
-            "raw_analysis": content,
-            "processing_metadata": {
-                "gpt_model_used": "gpt-4o-mini",
-                "extraction_method": "real_gpt_analysis"
-            }
-        }
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"❌ Error in GPT-4o-mini CV analysis for {filename}: {str(e)}")
-        raise Exception(f"GPT-4o-mini CV analysis failed for {filename}: {str(e)}")
-
-def analyze_jd_with_gpt(text: str, filename: str) -> dict:
-    """
-    Analyze job description with GPT-4o-mini ONLY. No mock mode.
+    NEW STANDARDIZED CV ANALYSIS - Process full document without character limits.
+    Extracts standardized data for embedding generation (not raw text).
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise Exception("OPENAI_API_KEY environment variable is required. No mock mode available.")
+        raise Exception("OPENAI_API_KEY environment variable is required")
     
     try:
-        prompt = f"""
-        You are a professional job description analyzer. Extract the following information:
-
-        **JOB DETAILS:**
-        - Job title
-        - Company name
-        - Location
-        - Job type (full-time, part-time, contract, etc.)
-        - Salary range (if mentioned)
-
-        **REQUIREMENTS:**
-        - Required skills and technologies
-        - Years of experience required
-        - Education requirements
-
-        **RESPONSIBILITIES:**
-        - Key job responsibilities and duties
-
-        ---
-        JOB DESCRIPTION:
-        {text[:4000]}
-        """
-
-        content = call_openai_api([{"role": "user", "content": prompt}], model="gpt-4o-mini", max_tokens=1500, temperature=0.1)
+        # CRITICAL: Process ENTIRE document text - NO character limits
+        logger.info(f"🔍 Processing FULL CV content: {len(text):,} characters for {filename}")
         
-        if not content or len(content.strip()) == 0:
-            raise Exception(f"GPT-4o-mini returned empty response for {filename}")
-
-        logger.info(f"🔍 GPT-4o-mini Response for {filename}: {content[:200]}...")
-
-        result = {
-            "job_title": "Extracted by GPT-4o-mini",
-            "company": "Extracted by GPT-4o-mini",
-            "required_skills": "Extracted by GPT-4o-mini",
-            "location": "Extracted by GPT-4o-mini",
-            "salary_range": "Extracted by GPT-4o-mini",
-            "experience_required": "Extracted by GPT-4o-mini",
-            "raw_analysis": content,
-            "processing_metadata": {
-                "gpt_model_used": "gpt-4o-mini",
-                "extraction_method": "real_gpt_analysis"
-            }
-        }
+        # Handle very long documents by implementing chunking if needed
+        if len(text) > 120000:  # If text is extremely long, chunk it
+            logger.info(f"⚠️ Large document detected ({len(text):,} chars), implementing chunking strategy")
+            # Process in chunks and combine results
+            chunks = [text[i:i+120000] for i in range(0, len(text), 120000)]
+            all_results = []
+            
+            for i, chunk in enumerate(chunks):
+                logger.info(f"📄 Processing chunk {i+1}/{len(chunks)}")
+                chunk_result = _process_cv_chunk(chunk, filename, i+1)
+                all_results.append(chunk_result)
+            
+            # Combine results from all chunks
+            result = _combine_cv_chunks(all_results, filename)
+        else:
+            # Process normally for standard-sized documents
+            result = _process_cv_chunk(text, filename)
         
+        logger.info(f"✅ Standardized CV analysis completed for {filename}")
         return result
         
     except Exception as e:
-        logger.error(f"❌ Error in GPT-4o-mini JD analysis for {filename}: {str(e)}")
-        raise Exception(f"GPT-4o-mini JD analysis failed for {filename}: {str(e)}")
+        logger.error(f"❌ Standardized CV analysis failed for {filename}: {str(e)}")
+        raise Exception(f"Standardized CV analysis failed: {str(e)}")
+
+def _process_cv_chunk(text: str, filename: str, chunk_num: int = 1) -> dict:
+    """Process a single chunk of CV text with the UPDATED standardized prompt."""
+    
+    prompt = f"""You are an advanced CV/Job Description analysis system. Your task is to extract and standardize information from the provided document text for accurate matching and scoring.
+
+CRITICAL INSTRUCTIONS:
+1. Process the ENTIRE document - do not truncate or limit analysis
+2. Extract and standardize all information into structured format
+3. Output will be used for embedding generation - ensure consistency and standardization
+
+FOR CVs:
+Skills Extraction:
+- List clearly mentioned skills directly supported by candidate's described experience
+- Only include skills with strong correlation (95%+) to actual work done
+- Write each skill in full-word format (e.g., "JavaScript" not "JS", ".NET" not "Dot Net")
+- Limit to maximum 20 relevant skills
+- Extract individual, atomic skills only
+- Standardize to industry-standard terms
+
+Responsibilities Extraction:
+- Review the most recent TWO jobs in the CV
+- Write exactly 10 numbered responsibilities describing what candidate did
+- Focus more heavily on the most recent role
+- Do NOT include introduction or summary text before the list
+- Use clear, concise job-description style language
+- Highlight technical expertise, leadership, or ownership when visible
+- Use action-oriented language starting with action verbs
+
+Experience Level:
+- Calculate total years of experience relevant to most recent two roles
+- Do NOT count unrelated earlier roles
+- Format: "X years"
+
+Job Title:
+- Suggest clear, industry-standard job title based primarily on most recent position
+- Align with extracted skills
+- Remove company-specific prefixes/suffixes
+
+Return the response in JSON format:
+{{
+  "document_type": "CV",
+  "skills": ["skill1", "skill2", "skill3"],
+  "responsibilities": ["responsibility1", "responsibility2", "responsibility3", "responsibility4", "responsibility5", "responsibility6", "responsibility7", "responsibility8", "responsibility9", "responsibility10"],
+  "experience_years": "X years",
+  "job_title": "Standardized Job Title",
+  "full_name": "Full Name",
+  "email": "Email Address", 
+  "phone": "Phone Number"
+}}
+
+STANDARDIZATION RULES:
+- Skills: Individual atomic terms, full standardized names, no abbreviations
+- Responsibilities: Complete sentences, action-oriented, exactly 10
+- Experience: Numeric format with "years" suffix
+- Job Title: Industry-standard format without company specifics
+
+CV CONTENT:
+{text}"""
+
+    response = call_openai_api([{"role": "user", "content": prompt}], 
+                              model="gpt-4o-mini", 
+                              max_tokens=2000, 
+                              temperature=0.1)
+    
+    # Clean and parse JSON response
+    try:
+        # Remove code blocks and clean response
+        cleaned_response = re.sub(r'```(json)?', '', response, flags=re.IGNORECASE).strip()
+        json_start = cleaned_response.find('{')
+        json_end = cleaned_response.rfind('}')
+        
+        if json_start != -1 and json_end != -1:
+            json_str = cleaned_response[json_start:json_end + 1]
+            result = json.loads(json_str)
+            
+            # Validate required fields for CV
+            required_fields = ["skills", "responsibilities", "experience_years", "job_title", "document_type"]
+            for field in required_fields:
+                if field not in result:
+                    if field in ["skills", "responsibilities"]:
+                        result[field] = []
+                    elif field == "document_type":
+                        result[field] = "CV"
+                    else:
+                        result[field] = "Not specified"
+                        
+            # Map experience_years to years_of_experience for backward compatibility
+            if "experience_years" in result:
+                result["years_of_experience"] = result["experience_years"]
+            
+            # Ensure skills are individual terms, not sentences
+            if isinstance(result.get("skills"), list):
+                result["skills"] = [skill.strip() for skill in result["skills"] 
+                                 if skill.strip() and len(skill.strip().split()) <= 3]
+            
+            # Ensure we have exactly 10 responsibilities
+            if isinstance(result.get("responsibilities"), list):
+                responsibilities = result["responsibilities"]
+                if len(responsibilities) < 10:
+                    # Pad with generic responsibilities if needed
+                    while len(responsibilities) < 10:
+                        responsibilities.append("Collaborated with team members on project deliverables")
+                elif len(responsibilities) > 10:
+                    responsibilities = responsibilities[:10]
+                result["responsibilities"] = responsibilities
+            
+            result["processing_metadata"] = {
+                "chunk_number": chunk_num,
+                "text_length": len(text),
+                "extraction_method": "standardized_gpt_analysis",
+                "gpt_model": "gpt-4o-mini"
+            }
+            
+            return result
+            
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ JSON parsing failed for {filename}: {str(e)}")
+        logger.error(f"Raw response: {response}")
+        
+    # Fallback if JSON parsing fails
+    return {
+        "skills": [],
+        "responsibilities": ["Unable to extract responsibilities due to parsing error"] * 10,
+        "years_of_experience": "Not specified",
+        "job_title": "Not specified",
+        "full_name": "Not specified",
+        "email": "Not specified",
+        "phone": "Not specified",
+        "raw_response": response,
+        "processing_metadata": {
+            "chunk_number": chunk_num,
+            "text_length": len(text),
+            "extraction_method": "standardized_gpt_analysis_fallback",
+            "gpt_model": "gpt-4o-mini"
+        }
+    }
+
+def _combine_cv_chunks(chunk_results: list, filename: str) -> dict:
+    """Combine results from multiple CV chunks into a single standardized result."""
+    if not chunk_results:
+        raise Exception("No chunk results to combine")
+    
+    # Use the first chunk as base and merge others
+    combined = chunk_results[0].copy()
+    
+    if len(chunk_results) > 1:
+        all_skills = set()
+        all_responsibilities = []
+        
+        for chunk in chunk_results:
+            if isinstance(chunk.get("skills"), list):
+                all_skills.update(chunk["skills"])
+            if isinstance(chunk.get("responsibilities"), list):
+                all_responsibilities.extend(chunk["responsibilities"])
+        
+        # Deduplicate and limit skills to 20
+        combined["skills"] = list(all_skills)[:20]
+        
+        # Deduplicate responsibilities and limit to 10
+        unique_responsibilities = []
+        for resp in all_responsibilities:
+            if resp not in unique_responsibilities:
+                unique_responsibilities.append(resp)
+        combined["responsibilities"] = unique_responsibilities[:10]
+        
+        # Pad responsibilities to exactly 10 if needed
+        while len(combined["responsibilities"]) < 10:
+            combined["responsibilities"].append("Additional responsibility from document analysis")
+    
+    combined["processing_metadata"]["total_chunks"] = len(chunk_results)
+    combined["processing_metadata"]["combined_processing"] = True
+    
+    return combined
 
 def standardize_job_description_with_gpt(text: str, filename: str) -> dict:
     """
-    Standardize job description using GPT-4o-mini ONLY. No mock mode.
+    NEW STANDARDIZED JD ANALYSIS - Process full document without character limits.
+    Extracts standardized data for embedding generation (not raw text).
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise Exception("OPENAI_API_KEY environment variable is required. No mock mode available.")
+        raise Exception("OPENAI_API_KEY environment variable is required")
     
     try:
-        # 🚀 USER'S EXACT JD PROMPT SPECIFICATION
-        prompt = f"""Take this job description and, without removing any original information, reformat it into the following standardized structure:
+        # CRITICAL: Process ENTIRE document text - NO character limits
+        logger.info(f"🔍 Processing FULL JD content: {len(text):,} characters for {filename}")
+        
+        # Handle very long documents by implementing chunking if needed
+        if len(text) > 120000:  # If text is extremely long, chunk it
+            logger.info(f"⚠️ Large document detected ({len(text):,} chars), implementing chunking strategy")
+            # Process in chunks and combine results
+            chunks = [text[i:i+120000] for i in range(0, len(text), 120000)]
+            all_results = []
+            
+            for i, chunk in enumerate(chunks):
+                logger.info(f"📄 Processing chunk {i+1}/{len(chunks)}")
+                chunk_result = _process_jd_chunk(chunk, filename, i+1)
+                all_results.append(chunk_result)
+            
+            # Combine results from all chunks
+            result = _combine_jd_chunks(all_results, filename)
+        else:
+            # Process normally for standard-sized documents
+            result = _process_jd_chunk(text, filename)
+        
+        logger.info(f"✅ Standardized JD analysis completed for {filename}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Standardized JD analysis failed for {filename}: {str(e)}")
+        raise Exception(f"Standardized JD analysis failed: {str(e)}")
 
-Skills: Provide a concise list (maximum 20 items) of only the specific technologies, platforms, or tools that the employee must be highly proficient in to perform this job at a very high level. Do not include general skills, soft skills, or experience references. If the job description is sparse, add relevant technologies based on industry standards for similar roles.
+def _process_jd_chunk(text: str, filename: str, chunk_num: int = 1) -> dict:
+    """Process a single chunk of JD text with the UPDATED standardized prompt."""
+    
+    prompt = f"""You are an advanced CV/Job Description analysis system. Your task is to extract and standardize information from the provided document text for accurate matching and scoring.
 
-Responsibilities: Summarize the experience the employee should already have in order to do the job very well upon joining. If the job description includes detailed responsibilities, use its style and content. If not, add relevant content based on industry standards. This section should be written in exactly 10 full sentences.
+CRITICAL INSTRUCTIONS:
+1. Process the ENTIRE document - do not truncate or limit analysis
+2. Extract and standardize all information into structured format
+3. Output will be used for embedding generation - ensure consistency and standardization
 
-Years of Experience: Note any specific mention of required years of experience.
+FOR JOB DESCRIPTIONS:
+Skills Extraction:
+- Provide exactly 20 distinct skills required for the position
+- Only list actionable, demonstrable skills (technical or soft skills)
+- Do NOT include qualifications, years of experience, certifications, or personal traits
+- Do not include anything that cannot be demonstrated as a skill
+- Make sure each item is phrased as a skill, not a requirement or attribute
+- Write all technology names, frameworks, and methodologies in their complete, standardized form
+- Examples: "JavaScript" (not "JS"), "Service Level Agreement" (not "SLA"), "Microsoft .NET" (not "DotNET")
+- Do not use abbreviations unless you also write out the full term
+- If job description is sparse, add relevant technologies based on industry standards
 
-Job Title: Suggest a standard job title based on the description, unless a clear title is already mentioned—if so, retain it with at least 90% weighting.
+Responsibilities Extraction:
+- Summarize the experience the employee should already have to perform the job excellently
+- Write exactly 10 full sentences describing required experience/responsibilities
+- Use the job description's style and content if detailed
+- If sparse, add relevant content based on industry standards for similar roles
+- Focus on what experience is needed, not just job duties
+
+Experience Level:
+- Note any specific mention of required years of experience
+- Format: "X years" where X is a number
+- For ranges, use the average (e.g., "3-5 years" → "4 years")
+
+Job Title:
+- Suggest a standard job title based on the description
+- If clear title already exists, retain it with 90%+ weighting
+- Use industry-standard format
+
+Return the response in JSON format:
+{{
+  "document_type": "JD",
+  "skills": ["skill1", "skill2", "skill3", "skill4", "skill5", "skill6", "skill7", "skill8", "skill9", "skill10", "skill11", "skill12", "skill13", "skill14", "skill15", "skill16", "skill17", "skill18", "skill19", "skill20"],
+  "responsibilities": ["responsibility1", "responsibility2", "responsibility3", "responsibility4", "responsibility5", "responsibility6", "responsibility7", "responsibility8", "responsibility9", "responsibility10"],
+  "experience_years": "X years",
+  "job_title": "Standardized Job Title"
+}}
+
+STANDARDIZATION RULES:
+- Skills: Individual atomic terms, full standardized names, no abbreviations - EXACTLY 20
+- Responsibilities: Complete sentences, action-oriented, exactly 10
+- Experience: Numeric format with "years" suffix
+- Job Title: Industry-standard format without company specifics
+- Document Type: Identify as "JD"
 
 JOB DESCRIPTION:
-{text[:4000]}"""
+{text}"""
 
-        content = call_openai_api([{"role": "user", "content": prompt}], model="gpt-4o-mini", max_tokens=800, temperature=0.05)
-        
-        if not content or len(content.strip()) == 0:
-            raise Exception(f"GPT-4o-mini returned empty response for {filename}")
-
-        logger.info(f"🔍 GPT-4o-mini Response for {filename}: {content[:200]}...")
-
-        # Parse the structured response
-        try:
-            result = parse_standardized_jd_response(content, filename)
-            
-            # Add metadata
-            result["processing_metadata"] = {
-                "gpt_model_used": "gpt-4o-mini",
-                "processing_time": "calculated",
-                "extraction_method": "real_standardized_jd_analysis",
-                "standardization_version": "2.0",
-                "optimization": "consistent_output_format"
-            }
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"❌ Standardized JD parsing failed for {filename}: {str(e)}")
-            logger.error(f"Raw response: {content}")
-            raise Exception(f"GPT-4o-mini standardized JD analysis failed for {filename}: {str(e)}")
-            
-    except Exception as e:
-        logger.error(f"❌ Error in standardized JD analysis for {filename}: {str(e)}")
-        raise Exception(f"GPT-4o-mini standardized JD analysis failed for {filename}: {str(e)}")
-
-def standardize_cv_with_gpt(text: str, filename: str) -> dict:
-    """
-    Standardize CV using GPT-4o-mini ONLY. No mock mode.
-    """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise Exception("OPENAI_API_KEY environment variable is required. No mock mode available.")
+    response = call_openai_api([{"role": "user", "content": prompt}], 
+                              model="gpt-4o-mini", 
+                              max_tokens=2000, 
+                              temperature=0.1)
     
+    # Clean and parse JSON response
     try:
-        # 🚀 USER'S EXACT CV PROMPT SPECIFICATION
-        prompt = f"""Review this CV and extract the following information in a structured format:
-
-Skills: List the clearly mentioned skills that are directly supported by the candidate's described experience. Only include skills with a strong correlation (95%+) to the actual work done. Write each skill in full-word format (e.g., Java Script instead of JS, .Net instead of Dot Net). Limit to a maximum of 20 relevant skills.
-
-Experience: Review the most recent two jobs in the CV. Write a numbered list of exactly 10 responsibilities that describe what the candidate did in these roles, focusing more on the most recent one. Do not include any introduction or summary text before the list. Use clear, concise job-description style language that highlights technical expertise, leadership, or ownership when visible.
-
-Years of Experience: Calculate the total number of years of experience relevant to the most recent two roles. Do not count unrelated earlier roles.
-
-Job Title: Suggest a clear, industry-standard job title based primarily on the most recent position and aligned with the extracted skills.
-
-CV CONTENT:
-{text[:4000]}"""
-
-        content = call_openai_api([{"role": "user", "content": prompt}], model="gpt-4o-mini", max_tokens=800, temperature=0.05)
+        # Remove code blocks and clean response
+        cleaned_response = re.sub(r'```(json)?', '', response, flags=re.IGNORECASE).strip()
+        json_start = cleaned_response.find('{')
+        json_end = cleaned_response.rfind('}')
         
-        if not content or len(content.strip()) == 0:
-            raise Exception(f"GPT-4o-mini returned empty response for {filename}")
-
-        logger.info(f"🔍 GPT-4o-mini Response for {filename}: {content[:200]}...")
-
-        # Parse the structured response
-        try:
-            result = parse_standardized_cv_response(content, filename)
+        if json_start != -1 and json_end != -1:
+            json_str = cleaned_response[json_start:json_end + 1]
+            result = json.loads(json_str)
             
-            # Add metadata
+            # Validate required fields for JD
+            required_fields = ["skills", "responsibilities", "experience_years", "job_title", "document_type"]
+            for field in required_fields:
+                if field not in result:
+                    if field in ["skills", "responsibilities"]:
+                        result[field] = []
+                    elif field == "document_type":
+                        result[field] = "JD"
+                    else:
+                        result[field] = "Not specified"
+                        
+            # Map experience_years to years_of_experience for backward compatibility
+            if "experience_years" in result:
+                result["years_of_experience"] = result["experience_years"]
+            
+            # Ensure we have EXACTLY 20 skills for JDs
+            if isinstance(result.get("skills"), list):
+                skills = [skill.strip() for skill in result["skills"] 
+                         if skill.strip() and len(skill.strip().split()) <= 3]
+                # Ensure exactly 20 skills
+                if len(skills) < 20:
+                    # Add generic skills based on job title if needed
+                    generic_skills = _generate_generic_skills(result.get("job_title", ""), 20 - len(skills))
+                    skills.extend(generic_skills)
+                elif len(skills) > 20:
+                    skills = skills[:20]
+                result["skills"] = skills
+            
+            # Ensure we have exactly 10 responsibility sentences
+            if isinstance(result.get("responsibilities"), list):
+                responsibilities = result["responsibilities"]
+                if len(responsibilities) < 10:
+                    # Pad with generic responsibilities if needed
+                    while len(responsibilities) < 10:
+                        responsibilities.append("Work collaboratively with team members on assigned projects.")
+                elif len(responsibilities) > 10:
+                    responsibilities = responsibilities[:10]
+                result["responsibilities"] = responsibilities
+                # Also set responsibility_sentences for backward compatibility
+                result["responsibility_sentences"] = responsibilities
+            
             result["processing_metadata"] = {
-                "gpt_model_used": "gpt-4o-mini",
-                "processing_time": "calculated",
-                "extraction_method": "real_standardized_cv_analysis",
-                "standardization_version": "2.0",
-                "optimization": "consistent_output_format"
+                "chunk_number": chunk_num,
+                "text_length": len(text),
+                "extraction_method": "standardized_gpt_jd_analysis",
+                "gpt_model": "gpt-4o-mini"
             }
             
             return result
             
-        except Exception as e:
-            logger.error(f"❌ Standardized CV parsing failed for {filename}: {str(e)}")
-            logger.error(f"Raw response: {content}")
-            raise Exception(f"GPT-4o-mini standardized CV analysis failed for {filename}: {str(e)}")
-            
-    except Exception as e:
-        logger.error(f"❌ Error in standardized CV analysis for {filename}: {str(e)}")
-        raise Exception(f"GPT-4o-mini standardized CV analysis failed for {filename}: {str(e)}")
-
-def parse_standardized_jd_response(content: str, filename: str) -> dict:
-    """
-    Parse the standardized job description response into structured format.
-    """
-    try:
-        # Extract sections using regex patterns
-        import re
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ JSON parsing failed for {filename}: {str(e)}")
+        logger.error(f"Raw response: {response}")
         
-        # NEW: Parse the user's exact prompt format (no ** markers)
-        
-        # Extract job title (new format: "Job Title: ...")
-        title_match = re.search(r'Job Title:\s*(.+?)(?=\n\n|\nSkills:|\nResponsibilities:|\Z)', content, re.DOTALL)
-        job_title = title_match.group(1).strip() if title_match else "Not specified"
-        
-        # Extract skills section (new format: "Skills: ...")
-        skills_match = re.search(r'Skills:\s*(.*?)(?=\n\nResponsibilities:|\nResponsibilities:|\nYears of Experience:|\Z)', content, re.DOTALL)
-        skills_text = skills_match.group(1).strip() if skills_match else ""
-        
-        # Parse skills - handle numbered list format from GPT (JD Parser)
-        skills = []
-        if skills_text:
-            # Clean up markdown formatting
-            skills_text = skills_text.replace('**', '').strip()
-            
-            # Try numbered list format first (most common with our prompt)
-            numbered_skills = re.findall(r'\d+\.\s*([^\d\n]+?)(?=\d+\.|$)', skills_text, re.DOTALL)
-            if numbered_skills:
-                for skill in numbered_skills:
-                    skill = skill.strip().replace('\n', ' ').strip()
-                    if skill and skill not in skills and len(skill) > 1:
-                        skills.append(skill)
-            else:
-                # Fallback to line-by-line parsing
-                for line in skills_text.split('\n'):
-                    line = line.strip()
-                    if line and not line.lower().startswith('skills:'):
-                        # Remove bullet points or numbers
-                        line = re.sub(r'^[-*•\d+\.\s]+', '', line).strip()
-                        if line and line not in skills and len(line) > 1:
-                            skills.append(line)
-        
-        # Extract responsibilities section (new format: "Responsibilities: ...")
-        resp_match = re.search(r'Responsibilities:\s*(.*?)(?=\n\nYears of Experience:|\nYears of Experience:|\nJob Title:|\Z)', content, re.DOTALL)
-        responsibilities_text = resp_match.group(1).strip() if resp_match else ""
-        
-        # Parse responsibilities - should be 10 full sentences
-        responsibilities = []
-        if responsibilities_text:
-            # Split by periods followed by space or newline, or by numbered items
-            sentences = re.split(r'(?<=\.)\s+(?=[A-Z])|(?<=\.)\n+|^\d+\.\s*', responsibilities_text)
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if sentence and len(sentence) > 10:  # Filter out very short fragments
-                    # Remove any leading numbers or bullets
-                    sentence = re.sub(r'^\d+\.\s*', '', sentence).strip()
-                    if sentence and sentence not in responsibilities:
-                        responsibilities.append(sentence)
-        
-        # For backward compatibility, also keep as text
-        if not responsibilities and responsibilities_text:
-            responsibilities = responsibilities_text
-        
-        # Extract years of experience (new format: "Years of Experience: ...")
-        years_match = re.search(r'Years of Experience:\s*(.+?)(?=\n\n|\nJob Title:|\Z)', content, re.DOTALL)
-        years_of_experience = years_match.group(1).strip() if years_match else "Not specified"
-        
-        # Clean up common formatting issues from markdown
-        if job_title.startswith('**') or job_title.endswith('**'):
-            job_title = job_title.replace('**', '').strip()
-        if job_title.lower() in ['not specified', 'not provided', 'n/a']:
-            job_title = "Not specified"
-        
-        # Clean years of experience
-        if years_of_experience.startswith('**') or years_of_experience.endswith('**'):
-            years_of_experience = years_of_experience.replace('**', '').strip()
-        
-        # Clean responsibilities text 
-        if isinstance(responsibilities, str):
-            responsibilities = responsibilities.replace('**', '').strip()
-        
-        return {
-            "skills": skills,
-            "responsibilities": responsibilities,
-            "responsibility_sentences": responsibilities,  # Same as responsibilities in new format
-            "years_of_experience": years_of_experience,
-            "job_title": job_title,
-            "filename": filename,
-            "standardization_method": "real_standardized"
+    # Fallback if JSON parsing fails
+    return {
+        "skills": [],
+        "responsibility_sentences": ["Unable to extract responsibilities due to parsing error"] * 10,
+        "years_of_experience": "Not specified",
+        "job_title": "Not specified",
+        "raw_response": response,
+        "processing_metadata": {
+            "chunk_number": chunk_num,
+            "text_length": len(text),
+            "extraction_method": "standardized_gpt_jd_analysis_fallback",
+            "gpt_model": "gpt-4o-mini"
         }
-        
-    except Exception as e:
-        logger.error(f"❌ Error parsing standardized JD response for {filename}: {str(e)}")
-        raise Exception(f"Failed to parse standardized JD response: {str(e)}")
+    }
 
-def parse_standardized_cv_response(content: str, filename: str) -> dict:
-    """
-    Parse the standardized CV response into structured format.
-    """
-    try:
-        # Extract sections using regex patterns
-        import re
+def _combine_jd_chunks(chunk_results: list, filename: str) -> dict:
+    """Combine results from multiple JD chunks into a single standardized result."""
+    if not chunk_results:
+        raise Exception("No chunk results to combine")
+    
+    # Use the first chunk as base and merge others
+    combined = chunk_results[0].copy()
+    
+    if len(chunk_results) > 1:
+        all_skills = set()
+        all_responsibilities = []
         
-        # NEW: Parse the user's exact prompt format (no ** markers)
+        for chunk in chunk_results:
+            if isinstance(chunk.get("skills"), list):
+                all_skills.update(chunk["skills"])
+            if isinstance(chunk.get("responsibility_sentences"), list):
+                all_responsibilities.extend(chunk["responsibility_sentences"])
         
-        # Extract basic info from the free-form text (no specific sections expected)
-        full_name = "Not provided in the CV"
-        email = "Not provided in the CV" 
-        phone = "Not provided in the CV"
+        # Deduplicate and limit skills to 20
+        combined["skills"] = list(all_skills)[:20]
         
-        # Try to extract name, email, phone from any format in the content
-        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', content)
-        if email_match:
-            email = email_match.group(0)
+        # Deduplicate responsibilities and limit to 10
+        unique_responsibilities = []
+        for resp in all_responsibilities:
+            if resp not in unique_responsibilities:
+                unique_responsibilities.append(resp)
+        combined["responsibility_sentences"] = unique_responsibilities[:10]
         
-        phone_match = re.search(r'[\+]?[\d\s\-\(\)]{10,}', content)
-        if phone_match:
-            phone = phone_match.group(0).strip()
-        
-        # Try to extract name from the beginning of content
-        lines = content.split('\n')
-        for line in lines[:5]:  # Check first 5 lines
-            line = line.strip()
-            if line and not line.lower().startswith(('skills:', 'experience:', 'years of experience:', 'job title:')):
-                # Likely the name
-                if len(line.split()) >= 2 and not '@' in line and not any(char.isdigit() for char in line):
-                    full_name = line
-                    break
-        
-        # Extract skills (new format: "Skills: ...")
-        skills_match = re.search(r'Skills:\s*(.*?)(?=\n\nExperience:|\nExperience:|\nYears of Experience:|\nJob Title:|\Z)', content, re.DOTALL)
-        skills_text = skills_match.group(1).strip() if skills_match else ""
-        
-        # Parse skills - handle numbered list format from GPT (CV Parser)
-        skills = []
-        if skills_text:
-            # Clean up markdown formatting
-            skills_text = skills_text.replace('**', '').strip()
-            
-            # Try numbered list format first (most common with our prompt)
-            numbered_skills = re.findall(r'\d+\.\s*([^\d\n]+?)(?=\d+\.|$)', skills_text, re.DOTALL)
-            if numbered_skills:
-                for skill in numbered_skills:
-                    skill = skill.strip().replace('\n', ' ').strip()
-                    if skill and skill not in skills and len(skill) > 1:
-                        skills.append(skill)
-            else:
-                # Fallback to line-by-line parsing
-                for line in skills_text.split('\n'):
-                    line = line.strip()
-                    if line and not line.lower().startswith('skills:'):
-                        # Remove bullet points or numbers
-                        line = re.sub(r'^[-*•\d+\.\s]+', '', line).strip()
-                        if line and line not in skills and len(line) > 1:
-                            skills.append(line)
-        
-        # Extract experience (new format: "Experience: ...")
-        exp_match = re.search(r'Experience:\s*(.*?)(?=\n\nYears of Experience:|\nYears of Experience:|\nJob Title:|\Z)', content, re.DOTALL)
-        experience_text = exp_match.group(1).strip() if exp_match else ""
-        
-        # Parse experience as numbered responsibilities (exactly 10)
-        responsibilities = []
-        if experience_text:
-            # Split by numbered items
-            numbered_items = re.findall(r'\d+\.\s*([^0-9]+?)(?=\d+\.|$)', experience_text, re.DOTALL)
-            for item in numbered_items:
-                item = item.strip()
-                if item and len(item) > 5:
-                    responsibilities.append(item)
-        
-        experience = experience_text  # Keep original for backward compatibility
-        
-        # Extract years of experience (new format: "Years of Experience: ...")
-        years_match = re.search(r'Years of Experience:\s*(.+?)(?=\n\nJob Title:|\nJob Title:|\Z)', content, re.DOTALL)
-        years_of_experience = years_match.group(1).strip() if years_match else "Not specified"
-        
-        # Extract job title (new format: "Job Title: ...")
-        title_match = re.search(r'Job Title:\s*(.+?)(?=\n\n|\Z)', content, re.DOTALL)
-        job_title = title_match.group(1).strip() if title_match else "Not specified"
-        
-        # Clean up common formatting issues from markdown (CV)
-        if job_title.startswith('**') or job_title.endswith('**'):
-            job_title = job_title.replace('**', '').strip()
-        if job_title.lower() in ['not specified', 'not provided', 'n/a']:
-            job_title = "Not specified"
-        
-        # Clean years of experience
-        if years_of_experience.startswith('**') or years_of_experience.endswith('**'):
-            years_of_experience = years_of_experience.replace('**', '').strip()
-        
-        # Clean experience text 
-        if isinstance(experience, str):
-            experience = experience.replace('**', '').strip()
-        
-        return {
-            "full_name": full_name,
-            "email": email,
-            "phone": phone,
-            "skills": skills,
-            "experience": experience,
-            "responsibilities": responsibilities,  # Add parsed responsibilities
-            "years_of_experience": years_of_experience,
-            "job_title": job_title,
-            "filename": filename,
-            "standardization_method": "real_standardized"
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Error parsing standardized CV response for {filename}: {str(e)}")
-        raise Exception(f"Failed to parse standardized CV response: {str(e)}")
+        # Pad responsibilities to exactly 10 if needed
+        while len(combined["responsibility_sentences"]) < 10:
+            combined["responsibility_sentences"].append("Additional responsibility identified from job description analysis.")
+    
+    combined["processing_metadata"]["total_chunks"] = len(chunk_results)
+    combined["processing_metadata"]["combined_processing"] = True
+    
+    return combined
+
+
+def _generate_generic_skills(job_title: str, count_needed: int) -> list:
+    """Generate generic skills based on job title to ensure exactly 20 skills for JDs."""
+    if count_needed <= 0:
+        return []
+    
+    # Common skill categories based on job types
+    skill_sets = {
+        "software": ["Programming", "Debugging", "Code Review", "Version Control", "Agile Methodology", 
+                    "Problem Solving", "System Design", "Testing", "Documentation", "Team Collaboration"],
+        "data": ["Data Analysis", "Statistical Analysis", "Machine Learning", "Data Visualization", 
+                "Database Management", "ETL Processes", "Big Data", "Python", "SQL", "Data Mining"],
+        "manager": ["Leadership", "Project Management", "Strategic Planning", "Team Management", 
+                   "Budget Management", "Stakeholder Communication", "Risk Management", "Process Improvement", 
+                   "Performance Management", "Decision Making"],
+        "marketing": ["Digital Marketing", "Content Creation", "Social Media Marketing", "SEO", 
+                     "Analytics", "Brand Management", "Campaign Management", "Market Research", 
+                     "Email Marketing", "Customer Acquisition"],
+        "sales": ["Lead Generation", "Customer Relationship Management", "Negotiation", "Sales Strategy", 
+                 "Territory Management", "Pipeline Management", "Client Retention", "Prospecting", 
+                 "Presentation Skills", "Closing Techniques"]
+    }
+    
+    # Determine skill category based on job title
+    title_lower = job_title.lower()
+    if any(word in title_lower for word in ["developer", "engineer", "programmer", "software", "technical"]):
+        base_skills = skill_sets["software"]
+    elif any(word in title_lower for word in ["data", "analyst", "scientist", "analytics"]):
+        base_skills = skill_sets["data"]
+    elif any(word in title_lower for word in ["manager", "director", "lead", "supervisor"]):
+        base_skills = skill_sets["manager"]
+    elif any(word in title_lower for word in ["marketing", "digital", "content", "brand"]):
+        base_skills = skill_sets["marketing"]
+    elif any(word in title_lower for word in ["sales", "business development", "account"]):
+        base_skills = skill_sets["sales"]
+    else:
+        # Generic professional skills
+        base_skills = ["Communication", "Problem Solving", "Time Management", "Critical Thinking", 
+                      "Attention to Detail", "Adaptability", "Teamwork", "Professional Writing", 
+                      "Project Coordination", "Quality Assurance"]
+    
+    # Return the needed number of skills
+    return base_skills[:count_needed]
