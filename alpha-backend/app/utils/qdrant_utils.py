@@ -28,11 +28,11 @@ def get_qdrant_client() -> QdrantClient:
         raise
 
 def create_collections():
-    """Create Qdrant collections with error handling."""
+    """Create Qdrant collections with error handling for new embedding structure."""
     try:
         client = get_qdrant_client()
         
-        # Create CVs collection
+        # Create CVs collection - now stores individual skill/responsibility embeddings
         try:
             client.create_collection(
                 collection_name="cvs",
@@ -44,7 +44,7 @@ def create_collections():
                 logger.error(f"Failed to create CVs collection: {str(e)}")
                 raise
         
-        # Create JDs collection
+        # Create JDs collection - now stores individual skill/responsibility embeddings
         try:
             client.create_collection(
                 collection_name="jds",
@@ -54,6 +54,30 @@ def create_collections():
         except Exception as e:
             if "already exists" not in str(e).lower():
                 logger.error(f"Failed to create JDs collection: {str(e)}")
+                raise
+        
+        # Create Skills collection for individual skill embeddings
+        try:
+            client.create_collection(
+                collection_name="skills",
+                vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+            )
+            logger.info("Created Skills collection")
+        except Exception as e:
+            if "already exists" not in str(e).lower():
+                logger.error(f"Failed to create Skills collection: {str(e)}")
+                raise
+                
+        # Create Responsibilities collection for individual responsibility embeddings
+        try:
+            client.create_collection(
+                collection_name="responsibilities",
+                vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+            )
+            logger.info("Created Responsibilities collection")
+        except Exception as e:
+            if "already exists" not in str(e).lower():
+                logger.error(f"Failed to create Responsibilities collection: {str(e)}")
                 raise
                 
     except Exception as e:
@@ -69,12 +93,8 @@ def generate_embedding(text: str) -> List[float]:
     if not cleaned_text:
         raise Exception("Empty text provided for embedding")
     
-    # Truncate text if too long
-    if len(cleaned_text) > 8000:
-        cleaned_text = cleaned_text[:8000]
-        logger.warning(f"Text truncated to 8000 characters for embedding")
-    
-    logger.info("Generating embedding using embedding service (all-mpnet-base-v2)")
+    # No truncation - process full text as required
+    logger.info(f"Generating embedding for text: {len(cleaned_text)} characters")
     try:
         embedding_service = get_embedding_service()
         embedding = embedding_service.get_embedding(cleaned_text)
@@ -89,390 +109,509 @@ def generate_embedding(text: str) -> List[float]:
         logger.error(f"Error generating embedding: {str(e)}")
         raise Exception(f"Embedding generation failed: {str(e)}")
 
-def clean_gpt_json(raw: str) -> str:
-    """Clean and validate GPT JSON response with enhanced error handling."""
-    try:
-        if not raw:
-            return '{"error": "Empty GPT response"}'
-        
-        # Remove markdown code blocks
-        cleaned = re.sub(r'```(json)?', '', raw, flags=re.IGNORECASE).strip()
-        
-        # Find JSON boundaries
-        json_start = cleaned.find('{')
-        json_end = cleaned.rfind('}')
-        
-        if json_start != -1 and json_end != -1 and json_end > json_start:
-            cleaned = cleaned[json_start:json_end + 1]
-        
-        # Validate JSON
-        try:
-            json.loads(cleaned)
-            return cleaned
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON from GPT: {str(e)}")
-            return json.dumps({
-                "Full Name": "JSON parsing error",
-                "Email": "Not provided in the CV",
-                "Phone Number": "Not provided in the CV",
-                "Job Title": "Not specified in the CV",
-                "Years of Experience": "Not calculable from CV",
-                "Skills": "Not specified in the CV",
-                "Education": "Not specified in the CV",
-                "Summary": "Not specified in the CV"
-            })
-            
-    except Exception as e:
-        logger.error(f"Error cleaning GPT JSON: {str(e)}")
-        return '{"error": "JSON processing failed"}'
-
-def save_cv_to_qdrant(extracted_text: str, structured_info: str, filename: str) -> str:
-    """Save CV to Qdrant with enhanced error handling and consistent field mapping"""
+def save_cv_to_qdrant_new(extracted_text: str, standardized_data: dict, filename: str) -> str:
+    """
+    NEW APPROACH: Save CV using standardized data with individual embeddings.
+    CRITICAL: Embeds standardized data, not raw text.
+    """
     try:
         client = get_qdrant_client()
         
-        # Generate embedding
-        embedding = generate_embedding(extracted_text)
-        
-        # Parse structured info from GPT
-        try:
-            # Handle both string and dict responses (mock mode returns dict)
-            if isinstance(structured_info, dict):
-                info = structured_info
-            else:
-                info = json.loads(structured_info)
-        except json.JSONDecodeError:
-            logger.error(f"Invalid JSON from GPT for {filename}: {structured_info}")
-            info = {}
-        
-        # Generate unique ID
+        # Generate unique ID for this CV
         cv_id = str(uuid.uuid4())
         
-        # Extract skills from the correct structure
-        skills = ""
-        if "skills_analysis" in info and "technical_skills" in info["skills_analysis"]:
-            # Extract from complex structure
-            tech_skills = info["skills_analysis"]["technical_skills"]
-            if isinstance(tech_skills, list):
-                skills = ", ".join([skill.get("skill", str(skill)) if isinstance(skill, dict) else str(skill) for skill in tech_skills])
-        elif "skills" in info:
-            # Extract from simple structure
-            skills = str(info["skills"])
+        logger.info(f"🔄 Saving CV with NEW embedding strategy: {filename}")
+        logger.info(f"📊 Standardized data: {len(standardized_data.get('skills', []))} skills, {len(standardized_data.get('responsibilities', []))} responsibilities")
         
-        # Extract basic info
-        basic_info = info.get("basic_info", {})
+        # 1. Generate individual skill embeddings
+        skills = standardized_data.get("skills", [])
+        skill_points = []
+        for i, skill in enumerate(skills):
+            if skill and skill.strip():
+                try:
+                    skill_embedding = generate_embedding(skill.strip())
+                    skill_id = f"{cv_id}_skill_{i}"
+                    skill_points.append(PointStruct(
+                        id=skill_id,
+                        vector=skill_embedding,
+                        payload={
+                            "type": "skill",
+                            "content": skill.strip(),
+                            "document_id": cv_id,
+                            "document_type": "cv",
+                            "filename": filename,
+                            "index": i
+                        }
+                    ))
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate embedding for skill '{skill}': {str(e)}")
         
-        # Prepare payload with consistent field names and safe defaults
-        payload = {
+        # 2. Generate individual responsibility embeddings
+        responsibilities = standardized_data.get("responsibilities", [])
+        responsibility_points = []
+        for i, responsibility in enumerate(responsibilities):
+            if responsibility and responsibility.strip():
+                try:
+                    resp_embedding = generate_embedding(responsibility.strip())
+                    resp_id = f"{cv_id}_resp_{i}"
+                    responsibility_points.append(PointStruct(
+                        id=resp_id,
+                        vector=resp_embedding,
+                        payload={
+                            "type": "responsibility",
+                            "content": responsibility.strip(),
+                            "document_id": cv_id,
+                            "document_type": "cv",
+                            "filename": filename,
+                            "index": i
+                        }
+                    ))
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate embedding for responsibility: {str(e)}")
+        
+        # 3. Generate job title embedding
+        job_title = standardized_data.get("job_title", "")
+        title_embedding = None
+        if job_title and job_title.strip() and job_title != "Not specified":
+            try:
+                title_embedding = generate_embedding(job_title.strip())
+            except Exception as e:
+                logger.error(f"❌ Failed to generate embedding for job title: {str(e)}")
+        
+        # 4. Generate experience embedding
+        experience = standardized_data.get("experience_years", "")
+        # Also check legacy field name for backward compatibility
+        if not experience:
+            experience = standardized_data.get("years_of_experience", "")
+        experience_embedding = None
+        if experience and experience.strip() and experience != "Not specified":
+            try:
+                experience_embedding = generate_embedding(experience.strip())
+            except Exception as e:
+                logger.error(f"❌ Failed to generate embedding for experience: {str(e)}")
+        
+        # 5. Create a combined embedding for the overall document (for compatibility)
+        # Use job title + summary of skills as the main document embedding
+        skills_summary = ", ".join(skills[:10])  # Top 10 skills
+        combined_text = f"{job_title}. Skills: {skills_summary}"
+        main_embedding = generate_embedding(combined_text)
+        
+        # 6. Store main CV document with all metadata
+        cv_payload = {
             "extracted_text": extracted_text,
             "filename": filename,
             "upload_date": datetime.utcnow().isoformat(),
-            # Map GPT response fields to consistent names with safe defaults
-            "full_name": str(basic_info.get("full_name", info.get("full_name", "Not provided in the CV"))).strip(),
-            "email": str(basic_info.get("email", info.get("email", "Not provided in the CV"))).strip(),
-            "phone": str(basic_info.get("phone", info.get("phone", "Not provided in the CV"))).strip(),
-            "job_title": str(basic_info.get("current_job_title", info.get("job_title", "Not specified in the CV"))).strip(),
-            "years_of_experience": str(basic_info.get("years_of_experience", info.get("years_of_experience", "Not calculable from CV"))).strip(),
-            "skills": skills.strip(),
-            "education": str(info.get("education", "Not specified in the CV")).strip(),
-            "summary": str(info.get("summary", "Not specified in the CV")).strip(),
-            # Store the full structured info for advanced matching
-            "structured_info": info
+            "document_type": "cv",
+            "full_name": standardized_data.get("full_name", "Not specified"),
+            "email": standardized_data.get("email", "Not specified"),
+            "phone": standardized_data.get("phone", "Not specified"),
+            "job_title": job_title,
+            "years_of_experience": experience,
+            "skills": skills,
+            "responsibilities": responsibilities,
+            "structured_info": standardized_data,
+            "embedding_strategy": "standardized_individual_components",
+            "total_skill_embeddings": len(skill_points),
+            "total_responsibility_embeddings": len(responsibility_points),
+            "processing_metadata": standardized_data.get("processing_metadata", {})
         }
         
-        # Store in Qdrant
+        # Store main CV document
         client.upsert(
             collection_name="cvs",
             wait=True,
-            points=[
-                PointStruct(
-                    id=cv_id,
-                    vector=embedding,
-                    payload=payload
-                )
-            ]
+            points=[PointStruct(id=cv_id, vector=main_embedding, payload=cv_payload)]
         )
         
-        logger.info(f"Successfully saved CV {filename} with ID {cv_id}")
+        # Store individual skill embeddings
+        if skill_points:
+            client.upsert(
+                collection_name="skills",
+                wait=True,
+                points=skill_points
+            )
+            logger.info(f"✅ Stored {len(skill_points)} individual skill embeddings")
+        
+        # Store individual responsibility embeddings
+        if responsibility_points:
+            client.upsert(
+                collection_name="responsibilities",
+                wait=True,
+                points=responsibility_points
+            )
+            logger.info(f"✅ Stored {len(responsibility_points)} individual responsibility embeddings")
+        
+        logger.info(f"✅ Successfully saved CV {filename} with NEW embedding strategy (ID: {cv_id})")
         return cv_id
         
     except Exception as e:
-        logger.error(f"Error saving CV to Qdrant: {str(e)}")
-        raise
+        logger.error(f"❌ Error saving CV with new embedding strategy: {str(e)}")
+        raise Exception(f"Failed to save CV to Qdrant: {str(e)}")
 
-def save_jd_to_qdrant(jd_text: str, structured_info: str, filename: str) -> str:
-    """Save JD to Qdrant with enhanced error handling and consistent field mapping"""
+def save_jd_to_qdrant_new(extracted_text: str, standardized_data: dict, filename: str) -> str:
+    """
+    NEW APPROACH: Save JD using standardized data with individual embeddings.
+    CRITICAL: Embeds standardized data, not raw text.
+    """
     try:
         client = get_qdrant_client()
         
-        # Generate embedding
-        embedding = generate_embedding(jd_text)
-        
-        # Parse structured info from GPT
-        try:
-            # Handle both string and dict responses (mock mode returns dict)
-            if isinstance(structured_info, dict):
-                info = structured_info
-            else:
-                info = json.loads(structured_info)
-        except json.JSONDecodeError:
-            logger.error(f"Invalid JSON from GPT for JD {filename}: {structured_info}")
-            info = {}
-        
-        # Generate unique ID
+        # Generate unique ID for this JD
         jd_id = str(uuid.uuid4())
         
-        # Extract skills from the correct structure
-        skills = ""
-        if "required_skills" in info:
-            required_skills = info["required_skills"]
-            if isinstance(required_skills, str):
-                skills = required_skills
-            elif isinstance(required_skills, list):
-                skills = ", ".join([str(skill) for skill in required_skills])
+        logger.info(f"🔄 Saving JD with NEW embedding strategy: {filename}")
+        logger.info(f"📊 Standardized data: {len(standardized_data.get('skills', []))} skills, {len(standardized_data.get('responsibility_sentences', []))} responsibilities")
         
-        # Prepare payload with consistent field names and safe defaults
-        payload = {
-            "jd_text": jd_text,
+        # 1. Generate individual skill embeddings
+        skills = standardized_data.get("skills", [])
+        skill_points = []
+        for i, skill in enumerate(skills):
+            if skill and skill.strip():
+                try:
+                    skill_embedding = generate_embedding(skill.strip())
+                    skill_id = f"{jd_id}_skill_{i}"
+                    skill_points.append(PointStruct(
+                        id=skill_id,
+                        vector=skill_embedding,
+                        payload={
+                            "type": "skill",
+                            "content": skill.strip(),
+                            "document_id": jd_id,
+                            "document_type": "jd",
+                            "filename": filename,
+                            "index": i
+                        }
+                    ))
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate embedding for skill '{skill}': {str(e)}")
+        
+        # 2. Generate individual responsibility embeddings
+        responsibilities = standardized_data.get("responsibilities", [])
+        # Also check legacy field name for backward compatibility
+        if not responsibilities:
+            responsibilities = standardized_data.get("responsibility_sentences", [])
+        responsibility_points = []
+        for i, responsibility in enumerate(responsibilities):
+            if responsibility and responsibility.strip():
+                try:
+                    resp_embedding = generate_embedding(responsibility.strip())
+                    resp_id = f"{jd_id}_resp_{i}"
+                    responsibility_points.append(PointStruct(
+                        id=resp_id,
+                        vector=resp_embedding,
+                        payload={
+                            "type": "responsibility",
+                            "content": responsibility.strip(),
+                            "document_id": jd_id,
+                            "document_type": "jd",
+                            "filename": filename,
+                            "index": i
+                        }
+                    ))
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate embedding for responsibility: {str(e)}")
+        
+        # 3. Generate job title embedding
+        job_title = standardized_data.get("job_title", "")
+        title_embedding = None
+        if job_title and job_title.strip() and job_title != "Not specified":
+            try:
+                title_embedding = generate_embedding(job_title.strip())
+            except Exception as e:
+                logger.error(f"❌ Failed to generate embedding for job title: {str(e)}")
+        
+        # 4. Generate experience embedding
+        experience = standardized_data.get("experience_years", "")
+        # Also check legacy field name for backward compatibility
+        if not experience:
+            experience = standardized_data.get("years_of_experience", "")
+        experience_embedding = None
+        if experience and experience.strip() and experience != "Not specified":
+            try:
+                experience_embedding = generate_embedding(experience.strip())
+            except Exception as e:
+                logger.error(f"❌ Failed to generate embedding for experience: {str(e)}")
+        
+        # 5. Create a combined embedding for the overall document (for compatibility)
+        # Use job title + summary of skills as the main document embedding
+        skills_summary = ", ".join(skills[:10])  # Top 10 skills
+        combined_text = f"{job_title}. Required skills: {skills_summary}"
+        main_embedding = generate_embedding(combined_text)
+        
+        # 6. Store main JD document with all metadata
+        jd_payload = {
+            "extracted_text": extracted_text,
             "filename": filename,
             "upload_date": datetime.utcnow().isoformat(),
-            # Map GPT response fields to consistent names with safe defaults
-            "job_title": str(info.get("job_title", "Not specified in the JD")).strip(),
-            "company_name": str(info.get("company_name", "Not specified in the JD")).strip(),
-            "required_skills": skills.strip(),
-            "experience_required": str(info.get("experience_required", "Not specified in the JD")).strip(),
-            "job_summary": str(info.get("job_summary", "Not specified in the JD")).strip(),
-            "location": str(info.get("location", "Not specified in the JD")).strip(),
-            "employment_type": str(info.get("employment_type", "Not specified in the JD")).strip(),
-            # Store the full structured info for advanced matching
-            "structured_info": info
+            "document_type": "jd",
+            "job_title": job_title,
+            "years_of_experience": experience,
+            "skills": skills,
+            "responsibilities": responsibilities,  # Updated to use consistent field name
+            "responsibility_sentences": responsibilities,  # Keep for backward compatibility
+            "structured_info": standardized_data,
+            "embedding_strategy": "standardized_individual_components",
+            "total_skill_embeddings": len(skill_points),
+            "total_responsibility_embeddings": len(responsibility_points),
+            "processing_metadata": standardized_data.get("processing_metadata", {})
         }
         
-        # Store in Qdrant
+        # Store main JD document
         client.upsert(
             collection_name="jds",
             wait=True,
-            points=[
-                PointStruct(
-                    id=jd_id,
-                    vector=embedding,
-                    payload=payload
-                )
-            ]
+            points=[PointStruct(id=jd_id, vector=main_embedding, payload=jd_payload)]
         )
         
-        # Clear the list_jds cache since we added a new JD
-        list_jds.cache_clear()
+        # Store individual skill embeddings
+        if skill_points:
+            client.upsert(
+                collection_name="skills",
+                wait=True,
+                points=skill_points
+            )
+            logger.info(f"✅ Stored {len(skill_points)} individual skill embeddings")
         
-        logger.info(f"Successfully saved JD {filename} with ID {jd_id}")
+        # Store individual responsibility embeddings
+        if responsibility_points:
+            client.upsert(
+                collection_name="responsibilities",
+                wait=True,
+                points=responsibility_points
+            )
+            logger.info(f"✅ Stored {len(responsibility_points)} individual responsibility embeddings")
+        
+        logger.info(f"✅ Successfully saved JD {filename} with NEW embedding strategy (ID: {jd_id})")
         return jd_id
         
     except Exception as e:
-        logger.error(f"Error saving JD to Qdrant: {str(e)}")
-        raise
+        logger.error(f"❌ Error saving JD with new embedding strategy: {str(e)}")
+        raise Exception(f"Failed to save JD to Qdrant: {str(e)}")
 
+# Wrapper functions to maintain compatibility while using new approach
+def save_cv_to_qdrant(extracted_text: str, structured_info: Any, filename: str) -> str:
+    """
+    UPDATED: Now uses standardized data instead of raw text for embeddings.
+    """
+    # Handle both dict and string inputs
+    if isinstance(structured_info, dict):
+        standardized_data = structured_info
+    else:
+        try:
+            standardized_data = json.loads(structured_info) if isinstance(structured_info, str) else structured_info
+        except (json.JSONDecodeError, TypeError):
+            logger.error(f"Invalid structured_info format for {filename}: {type(structured_info)}")
+            raise Exception("Invalid structured_info format")
+    
+    return save_cv_to_qdrant_new(extracted_text, standardized_data, filename)
+
+def save_jd_to_qdrant(extracted_text: str, structured_info: Any, filename: str) -> str:
+    """
+    UPDATED: Now uses standardized data instead of raw text for embeddings.
+    """
+    # Handle both dict and string inputs
+    if isinstance(structured_info, dict):
+        standardized_data = structured_info
+    else:
+        try:
+            standardized_data = json.loads(structured_info) if isinstance(structured_info, str) else structured_info
+        except (json.JSONDecodeError, TypeError):
+            logger.error(f"Invalid structured_info format for {filename}: {type(structured_info)}")
+            raise Exception("Invalid structured_info format")
+    
+    return save_jd_to_qdrant_new(extracted_text, standardized_data, filename)
+
+def search_similar_skills(query_skills: List[str], document_type: str = "cv", limit: int = 10) -> List[Dict]:
+    """
+    NEW: Search for similar skills using individual skill embeddings.
+    """
+    try:
+        client = get_qdrant_client()
+        all_results = []
+        
+        for skill in query_skills:
+            if not skill or not skill.strip():
+                continue
+                
+            try:
+                # Generate embedding for the query skill
+                skill_embedding = generate_embedding(skill.strip())
+                
+                # Search in skills collection
+                search_results = client.search(
+                    collection_name="skills",
+                    query_vector=skill_embedding,
+                    query_filter={
+                        "must": [
+                            {"key": "document_type", "match": {"value": document_type}}
+                        ]
+                    },
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                for result in search_results:
+                    all_results.append({
+                        "query_skill": skill,
+                        "matched_skill": result.payload["content"],
+                        "similarity_score": float(result.score),
+                        "document_id": result.payload["document_id"],
+                        "filename": result.payload["filename"]
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error searching for skill '{skill}': {str(e)}")
+        
+        # Sort by similarity score
+        all_results.sort(key=lambda x: x["similarity_score"], reverse=True)
+        return all_results
+        
+    except Exception as e:
+        logger.error(f"Error in skill search: {str(e)}")
+        return []
+
+def search_similar_responsibilities(query_responsibilities: List[str], document_type: str = "cv", limit: int = 10) -> List[Dict]:
+    """
+    NEW: Search for similar responsibilities using individual responsibility embeddings.
+    """
+    try:
+        client = get_qdrant_client()
+        all_results = []
+        
+        for responsibility in query_responsibilities:
+            if not responsibility or not responsibility.strip():
+                continue
+                
+            try:
+                # Generate embedding for the query responsibility
+                resp_embedding = generate_embedding(responsibility.strip())
+                
+                # Search in responsibilities collection
+                search_results = client.search(
+                    collection_name="responsibilities",
+                    query_vector=resp_embedding,
+                    query_filter={
+                        "must": [
+                            {"key": "document_type", "match": {"value": document_type}}
+                        ]
+                    },
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                for result in search_results:
+                    all_results.append({
+                        "query_responsibility": responsibility,
+                        "matched_responsibility": result.payload["content"],
+                        "similarity_score": float(result.score),
+                        "document_id": result.payload["document_id"],
+                        "filename": result.payload["filename"]
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error searching for responsibility: {str(e)}")
+        
+        # Sort by similarity score
+        all_results.sort(key=lambda x: x["similarity_score"], reverse=True)
+        return all_results
+        
+    except Exception as e:
+        logger.error(f"Error in responsibility search: {str(e)}")
+        return []
+
+# Keep existing functions for compatibility
 def list_cvs() -> List[Dict[str, Any]]:
-    """List all CVs from Qdrant with caching for performance"""
+    """List all CVs with enhanced metadata."""
     try:
         client = get_qdrant_client()
         
-        # Use scroll to get all CVs efficiently
-        response = client.scroll(
-            collection_name="cvs",
-            limit=1000,  # Get more records per request
-            with_payload=True,
-            with_vectors=False  # Don't fetch vectors to save bandwidth
-        )
+        # Get all CVs from collection with enhanced pagination
+        all_cvs = []
+        offset = None
         
-        cvs = []
-        for point in response[0]:
-            payload = point.payload
-            # Parse structured_info if it's stored as string
-            structured_info = payload.get("structured_info", {})
-            if isinstance(structured_info, str):
-                try:
-                    structured_info = json.loads(structured_info)
-                except json.JSONDecodeError:
-                    structured_info = {}
-                    
-            cvs.append({
-                "id": point.id,
-                "full_name": payload.get("full_name", "Unknown"),
-                "job_title": payload.get("job_title", "Not specified"),
-                "email": payload.get("email", "Not provided"),
-                "phone": payload.get("phone", "Not provided"),
-                "years_of_experience": payload.get("years_of_experience", "Unknown"),
-                "skills": payload.get("skills", "Not specified"),
-                "education": payload.get("education", "Not specified"),
-                "summary": payload.get("summary", "Not specified"),
-                "filename": payload.get("filename", "Unknown"),
-                "upload_date": payload.get("upload_date", "Unknown"),
-                # Add the requested raw and processed data
-                "extracted_text": payload.get("extracted_text", ""),
-                "structured_info": structured_info
-            })
+        while True:
+            result = client.scroll(
+                collection_name="cvs",
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            points, next_offset = result
+            
+            for point in points:
+                cv_data = {
+                    "id": point.id,
+                    "filename": point.payload.get("filename", "Unknown"),
+                    "upload_date": point.payload.get("upload_date", "Unknown"),
+                    "full_name": point.payload.get("full_name", "Not specified"),
+                    "job_title": point.payload.get("job_title", "Not specified"),
+                    "years_of_experience": point.payload.get("years_of_experience", "Not specified"),
+                    "skills": point.payload.get("skills", []),
+                    "email": point.payload.get("email", "Not specified"),
+                    "phone": point.payload.get("phone", "Not specified"),
+                    "extracted_text": point.payload.get("extracted_text", ""),
+                    "structured_info": point.payload.get("structured_info", {}),
+                    "embedding_strategy": point.payload.get("embedding_strategy", "legacy")
+                }
+                all_cvs.append(cv_data)
+            
+            if next_offset is None:
+                break
+            offset = next_offset
         
-        logger.info(f"Retrieved {len(cvs)} CVs from Qdrant")
-        return cvs
+        logger.info(f"Found {len(all_cvs)} CVs in database")
+        return all_cvs
         
     except Exception as e:
         logger.error(f"Error listing CVs: {str(e)}")
         return []
 
-@lru_cache(maxsize=1)  # Cache for performance
 def list_jds() -> List[Dict[str, Any]]:
-    """List all JDs from Qdrant with caching for performance"""
+    """List all Job Descriptions with enhanced metadata."""
     try:
         client = get_qdrant_client()
         
-        # Use scroll to get all JDs efficiently
-        response = client.scroll(
-            collection_name="jds",
-            limit=1000,  # Get more records per request
-            with_payload=True,
-            with_vectors=False  # Don't fetch vectors to save bandwidth
-        )
+        # Get all JDs from collection with enhanced pagination
+        all_jds = []
+        offset = None
         
-        jds = []
-        for point in response[0]:
-            payload = point.payload
+        while True:
+            result = client.scroll(
+                collection_name="jds",
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
             
-            # Parse structured_info if it exists
-            structured_info = payload.get("structured_info")
-            if isinstance(structured_info, str):
-                try:
-                    structured_info = json.loads(structured_info)
-                except json.JSONDecodeError:
-                    structured_info = {}
-            elif structured_info is None:
-                structured_info = {}
-                
-            # Extract skills from structured_info if main field is empty
-            skills_text = payload.get("required_skills", payload.get("skills", ""))
-            if not skills_text and structured_info.get("skills"):
-                skills_list = structured_info.get("skills", [])
-                if isinstance(skills_list, list):
-                    skills_text = ", ".join(skills_list)
-                else:
-                    skills_text = str(skills_list)
+            points, next_offset = result
             
-            jds.append({
-                "id": point.id,
-                "job_title": payload.get("job_title", "Not specified"),
-                "years_of_experience": payload.get("experience_required", payload.get("years_of_experience", "Not specified")),
-                "skills": skills_text or "Not specified",
-                "education": payload.get("education", "Not specified"),
-                "summary": payload.get("job_summary", payload.get("summary", "Not specified")),
-                "filename": payload.get("filename", "Unknown"),
-                "upload_date": payload.get("upload_date", "Unknown"),
-                # Add the requested raw and processed data
-                "extracted_text": payload.get("jd_text", payload.get("extracted_text", "")),
-                "structured_info": structured_info
-            })
+            for point in points:
+                jd_data = {
+                    "id": point.id,
+                    "filename": point.payload.get("filename", "Unknown"),
+                    "upload_date": point.payload.get("upload_date", "Unknown"),
+                    "job_title": point.payload.get("job_title", "Not specified"),
+                    "years_of_experience": point.payload.get("years_of_experience", "Not specified"),
+                    "skills": point.payload.get("skills", []),
+                    "responsibility_sentences": point.payload.get("responsibility_sentences", []),
+                    "extracted_text": point.payload.get("extracted_text", ""),
+                    "structured_info": point.payload.get("structured_info", {}),
+                    "embedding_strategy": point.payload.get("embedding_strategy", "legacy")
+                }
+                all_jds.append(jd_data)
+            
+            if next_offset is None:
+                break
+            offset = next_offset
         
-        logger.info(f"Retrieved {len(jds)} JDs from Qdrant")
-        return jds
+        logger.info(f"Found {len(all_jds)} JDs in database")
+        return all_jds
         
     except Exception as e:
         logger.error(f"Error listing JDs: {str(e)}")
         return []
-
-def get_cv_by_id(cv_id: str) -> Optional[Dict[str, Any]]:
-    """Get a specific CV by ID with optimized retrieval"""
-    try:
-        client = get_qdrant_client()
-        
-        # Retrieve specific point by ID
-        response = client.retrieve(
-            collection_name="cvs",
-            ids=[cv_id],
-            with_payload=True,
-            with_vectors=False
-        )
-        
-        if not response:
-            return None
-            
-        point = response[0]
-        payload = point.payload
-        
-        return {
-            "id": point.id,
-            "full_name": payload.get("full_name", "Unknown"),
-            "job_title": payload.get("job_title", "Not specified"),
-            "email": payload.get("email", "Not provided"),
-            "phone": payload.get("phone", "Not provided"),
-            "years_of_experience": payload.get("years_of_experience", "Unknown"),
-            "skills": payload.get("skills", "Not specified"),
-            "education": payload.get("education", "Not specified"),
-            "summary": payload.get("summary", "Not specified"),
-            "filename": payload.get("filename", "Unknown"),
-            "upload_date": payload.get("upload_date", "Unknown"),
-            "extracted_text": payload.get("extracted_text", "")
-        }
-        
-    except Exception as e:
-        logger.error(f"Error retrieving CV {cv_id}: {str(e)}")
-        return None
-
-def get_jd_by_id(jd_id: str) -> Optional[Dict[str, Any]]:
-    """Get a specific JD by ID with optimized retrieval"""
-    try:
-        client = get_qdrant_client()
-        
-        # Retrieve specific point by ID
-        response = client.retrieve(
-            collection_name="jds",
-            ids=[jd_id],
-            with_payload=True,
-            with_vectors=False
-        )
-        
-        if not response:
-            return None
-            
-        point = response[0]
-        payload = point.payload
-        
-        return {
-            "id": point.id,
-            "job_title": payload.get("job_title", "Not specified"),
-            "years_of_experience": payload.get("years_of_experience", "Not specified"),
-            "skills": payload.get("skills", "Not specified"),
-            "education": payload.get("education", "Not specified"),
-            "summary": payload.get("summary", "Not specified"),
-            "filename": payload.get("filename", "Unknown"),
-            "upload_date": payload.get("upload_date", "Unknown"),
-            "jd_text": payload.get("jd_text", "")
-        }
-        
-    except Exception as e:
-        logger.error(f"Error retrieving JD {jd_id}: {str(e)}")
-        return None
-
-def delete_cv(cv_id: str) -> bool:
-    """Delete a CV by ID with error handling."""
-    try:
-        client = get_qdrant_client()
-        client.delete(collection_name="cvs", points_selector=[cv_id])
-        logger.info(f"Successfully deleted CV {cv_id}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to delete CV {cv_id}: {str(e)}")
-        return False
-
-def delete_jd(jd_id: str) -> bool:
-    """Delete a Job Description by ID with error handling."""
-    try:
-        client = get_qdrant_client()
-        client.delete(collection_name="jds", points_selector=[jd_id])
-        logger.info(f"Successfully deleted JD {jd_id}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to delete JD {jd_id}: {str(e)}")
-        return False
-
-def clear_cache():
-    """Clear the LRU cache for list operations"""
-    list_cvs.cache_clear()
-    list_jds.cache_clear()
