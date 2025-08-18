@@ -13,10 +13,7 @@ from pydantic import BaseModel
 import uuid
 
 from app.services.performance_optimized_service import get_optimized_service
-from app.utils.gpt_extractor_optimized import (
-    standardize_job_description_with_gpt_optimized,
-    standardize_cv_with_gpt_optimized
-)
+from app.utils.gpt_extractor_unified import standardize_cv_unified, standardize_jd_unified
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +116,7 @@ async def standardize_cv_optimized(request: OptimizedMatchRequest) -> JSONRespon
             raise HTTPException(status_code=400, detail="CV text is required")
         
         # Use optimized GPT processing
-        result = standardize_cv_with_gpt_optimized(request.cv_text, "cv_input.txt")
+        result = standardize_cv_unified(request.cv_text, "cv_input.txt")
         
         # Validate output
         if len(result.get("skills", [])) != 20:
@@ -161,7 +158,7 @@ async def standardize_jd_optimized(request: OptimizedMatchRequest) -> JSONRespon
             raise HTTPException(status_code=400, detail="JD text is required")
         
         # Use optimized GPT processing
-        result = standardize_job_description_with_gpt_optimized(request.jd_text, "jd_input.txt")
+        result = standardize_jd_unified(request.jd_text, "jd_input.txt")
         
         # Validate output
         if len(result.get("skills", [])) != 20:

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from app.services.embedding_service import get_embedding_service
-from app.utils.gpt_extractor import standardize_job_description_with_gpt, standardize_cv_with_gpt
+from app.utils.gpt_extractor_unified import standardize_cv_unified, standardize_jd_unified
 
 logger = logging.getLogger(__name__)
 
@@ -237,8 +237,8 @@ class GranularMatchingService:
         try:
             # Step 1: Standardize with enhanced GPT prompts
             logger.info("📝 Standardizing JD and CV with enhanced GPT prompts...")
-            jd_standardized = standardize_job_description_with_gpt(jd_text, jd_filename)
-            cv_standardized = standardize_cv_with_gpt(cv_text, cv_filename)
+            jd_standardized = standardize_jd_unified(jd_text, jd_filename)
+            cv_standardized = standardize_cv_unified(cv_text, cv_filename)
             
             # Step 2: Extract skills and responsibilities (using consistent field names)
             jd_skills = jd_standardized.get("skills", [])

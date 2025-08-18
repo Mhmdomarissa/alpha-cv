@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from app.core.config import settings, get_cors_config
 from app.core.middleware import RequestLoggingMiddleware, SecurityHeadersMiddleware, RateLimitMiddleware
-from app.api.routes import upload_routes, job_routes, optimized_routes
+from app.api.routes import upload_routes, job_routes, optimized_routes, batch_extraction_routes
 from app.utils.qdrant_utils import create_collections, get_qdrant_client
 from app.services.performance_optimized_service import get_optimized_service
 
@@ -103,10 +103,9 @@ app.add_middleware(
 app.include_router(upload_routes.router, prefix="/api/upload", tags=["upload"])
 app.include_router(job_routes.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(optimized_routes.router, prefix="/api/optimized", tags=["optimized-analysis"])
+app.include_router(batch_extraction_routes.router, prefix="/api/batch", tags=["batch-extraction"])
 
-# Include enhanced analysis endpoints (temporarily disabled for compatibility)
-# from app.api.endpoints import enhanced_analysis
-# app.include_router(enhanced_analysis.router, prefix="/api/enhanced", tags=["enhanced-analysis"])
+
 
 @app.get("/")
 async def root():

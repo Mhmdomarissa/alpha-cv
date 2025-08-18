@@ -16,10 +16,7 @@ import hashlib
 import json
 
 from app.services.embedding_service import get_embedding_service
-from app.utils.gpt_extractor_optimized import (
-    standardize_job_description_with_gpt_optimized, 
-    standardize_cv_with_gpt_optimized
-)
+from app.utils.gpt_extractor_unified import standardize_cv_unified, standardize_jd_unified
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +78,7 @@ class PerformanceOptimizedService:
         start_time = time.time()
         
         try:
-            result = standardize_job_description_with_gpt_optimized(jd_text, filename)
+            result = standardize_jd_unified(jd_text, filename)
             _jd_cache[cache_key] = result
             
             elapsed = time.time() - start_time
@@ -106,7 +103,7 @@ class PerformanceOptimizedService:
                 return _cv_cache[cache_key]
             
             try:
-                result = standardize_cv_with_gpt_optimized(cv_text, filename)
+                result = standardize_cv_unified(cv_text, filename)
                 _cv_cache[cache_key] = result
                 return result
             except Exception as e:
