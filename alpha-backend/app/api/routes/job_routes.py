@@ -14,11 +14,11 @@ import json
 import time
 from pydantic import BaseModel
 
-from app.utils.gpt_extractor import standardize_job_description_with_gpt, standardize_cv_with_gpt
+from app.utils.gpt_extractor_unified import standardize_cv_unified, standardize_jd_unified
 from app.utils.qdrant_utils import save_jd_to_qdrant, list_jds, get_qdrant_client, save_cv_to_qdrant, list_cvs
 from app.services.granular_matching_service import get_granular_matching_service
 from app.utils.content_classifier import classify_document_content, validate_document_classification
-# from app.utils.enhanced_resume_parser import EnhancedResumeParser  # Temporarily disabled
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -53,8 +53,8 @@ class StandardizedMatchRequest(BaseModel):
     jd_id: str
     cv_id: str
 
-# # Initialize enhanced parser
-# enhanced_parser = EnhancedResumeParser()  # Temporarily disabled
+
+
 
 # Utility Functions
 def extract_text(file: UploadFile) -> str:
@@ -168,7 +168,7 @@ async def standardize_job_description(
         logger.info(f"🚀 Starting standardized JD processing for {filename}")
         
         # Use the standardized GPT function
-        standardized_result = standardize_job_description_with_gpt(extracted_text, filename)
+        standardized_result = standardize_jd_unified(extracted_text, filename)
         
         # Save to Qdrant with standardized data
         jd_id = save_jd_to_qdrant(extracted_text, json.dumps(standardized_result), filename)
@@ -240,7 +240,7 @@ async def standardize_cv(file: UploadFile = File(...)) -> JSONResponse:
         # Use the standardized GPT function with enhanced error handling
         try:
             logger.info(f"🧠 Starting GPT processing for {file.filename}")
-            standardized_result = standardize_cv_with_gpt(extracted_text, file.filename)
+            standardized_result = standardize_cv_unified(extracted_text, file.filename)
             logger.info(f"✅ GPT processing successful for {file.filename}")
         except Exception as e:
             logger.error(f"❌ GPT processing failed for {file.filename}: {str(e)}")
@@ -349,7 +349,7 @@ async def bulk_upload_cvs(request: BulkCVUploadRequest):
                 logger.info(f"Processing CV {i+1}/{len(request.cv_texts)}: {filename}")
                 
                 # Standardize with GPT-4o-mini
-                standardized_data = standardize_cv_with_gpt(cv_text, filename)
+                standardized_data = standardize_cv_unified(cv_text, filename)
                 
                 # Save to Qdrant with embedding
                 cv_id = save_cv_to_qdrant(
@@ -566,37 +566,7 @@ async def re_extract_cv_text(file: UploadFile = File(...)) -> JSONResponse:
             content={"error": f"Text re-extraction failed: {str(e)}"}
         )
 
-# @router.post("/parse-resume-enhanced")  # Temporarily disabled
-# async def parse_resume_enhanced(file: UploadFile = File(...)) -> JSONResponse:
-#     """
-#     Parse resume using enhanced parser with NLP and structured extraction.
-#     Returns detailed structured data including skills, experience, education, etc.
-#     """
-#     try:
-#         logger.info(f"Enhanced parsing for {file.filename}")
-        
-#         # Extract text
-#         raw_text = extract_text(file)
-        
-#         # Parse with enhanced parser
-#         parsed_data = enhanced_parser.parse_resume(raw_text, file.filename)
-        
-#         logger.info(f"Successfully parsed {file.filename} with enhanced parser")
-        
-#         return JSONResponse(content={
-#             "status": "success",
-#             "filename": file.filename,
-#             "raw_text_length": len(raw_text),
-#             "parsed_data": parsed_data,
-#             "extraction_method": "enhanced_nlp"
-#         })
-        
-#     except Exception as e:
-#         logger.error(f"Enhanced parsing failed for {file.filename}: {str(e)}")
-#         return JSONResponse(
-#             status_code=500,
-#             content={"error": f"Enhanced parsing failed: {str(e)}"}
-#         )
+
 
 @router.get("/audit-classifications")
 async def audit_document_classifications() -> JSONResponse:
@@ -680,168 +650,8 @@ async def audit_document_classifications() -> JSONResponse:
             content={"error": f"Classification audit failed: {str(e)}"}
         )
 
-@router.post("/process-bulk-analysis")
-async def process_bulk_analysis(request: BulkAnalysisRequest):
-    """
-    Enhanced bulk analysis endpoint: Process one JD with multiple CVs in optimized batch mode.
-    Uses the exact prompt specifications provided by the user.
-    
-    This replaces the need for separate API calls - everything is processed in one optimized request.
-    """
-    try:
-        logger.info(f"🚀 Starting enhanced bulk analysis: 1 JD vs {len(request.cv_texts)} CVs")
-        
-        # Validate input
-        if not request.jd_text or not request.jd_text.strip():
-            raise HTTPException(status_code=400, detail="JD text cannot be empty")
-        
-        if not request.cv_texts or len(request.cv_texts) == 0:
-            raise HTTPException(status_code=400, detail="At least one CV text is required")
-        
-        if len(request.cv_texts) > 20:  # Reasonable limit
-            raise HTTPException(status_code=400, detail="Maximum 20 CVs per batch request")
-        
-        import time
-        import asyncio
-        from concurrent.futures import ThreadPoolExecutor
-        from app.utils.gpt_extractor import standardize_job_description_with_gpt, standardize_cv_with_gpt
-        from app.services.granular_matching_service import GranularMatchingService
-        
-        start_time = time.time()
-        
-        # Step 1: Process JD once (shared across all CV matches)
-        logger.info("📋 Processing Job Description with updated prompt...")
-        jd_start = time.time()
-        
-        try:
-            jd_standardized = standardize_job_description_with_gpt(request.jd_text, request.jd_filename)
-            jd_processing_time = time.time() - jd_start
-            logger.info(f"✅ JD processed in {jd_processing_time:.2f}s")
-        except Exception as e:
-            logger.error(f"❌ JD processing failed: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"JD processing failed: {str(e)}")
-        
-        # Step 2: Process CVs in parallel batches (performance optimization)
-        logger.info(f"📄 Processing {len(request.cv_texts)} CVs in parallel...")
-        cv_start = time.time()
-        
-        def process_single_cv(cv_data):
-            cv_text, cv_index = cv_data
-            cv_filename = f"bulk_cv_{cv_index + 1}.txt"
-            if request.cv_filenames and cv_index < len(request.cv_filenames):
-                cv_filename = request.cv_filenames[cv_index]
-            
-            try:
-                logger.info(f"🔍 Processing CV {cv_index + 1}: {cv_filename}")
-                cv_standardized = standardize_cv_with_gpt(cv_text, cv_filename)
-                return {
-                    "index": cv_index,
-                    "filename": cv_filename,
-                    "standardized": cv_standardized,
-                    "status": "success"
-                }
-            except Exception as e:
-                logger.error(f"❌ CV {cv_index + 1} processing failed: {str(e)}")
-                return {
-                    "index": cv_index,
-                    "filename": cv_filename,
-                    "error": str(e),
-                    "status": "failed"
-                }
-        
-        # Process CVs in parallel using ThreadPoolExecutor
-        cv_data_list = [(cv_text, i) for i, cv_text in enumerate(request.cv_texts)]
-        
-        with ThreadPoolExecutor(max_workers=3) as executor:  # Limit parallel processing
-            cv_results = list(executor.map(process_single_cv, cv_data_list))
-        
-        cv_processing_time = time.time() - cv_start
-        logger.info(f"✅ All CVs processed in {cv_processing_time:.2f}s")
-        
-        # Step 3: Perform matching for all successful CV-JD pairs
-        logger.info("🔍 Starting CV-JD matching for all pairs...")
-        matching_start = time.time()
-        
-        matching_service = GranularMatchingService()
-        final_results = []
-        successful_cvs = [cv for cv in cv_results if cv["status"] == "success"]
-        failed_cvs = [cv for cv in cv_results if cv["status"] == "failed"]
-        
-        def perform_matching(cv_result):
-            try:
-                cv_text = request.cv_texts[cv_result["index"]]
-                
-                # Use the enhanced matching service
-                match_result = matching_service.perform_enhanced_matching(
-                    jd_text=request.jd_text,
-                    cv_text=cv_text,
-                    jd_filename=request.jd_filename,
-                    cv_filename=cv_result["filename"]
-                )
-                
-                return {
-                    "cv_filename": cv_result["filename"],
-                    "cv_index": cv_result["index"],
-                    "overall_score": match_result["match_result"]["overall_score"],
-                    "breakdown": match_result["match_result"]["breakdown"],
-                    "explanation": match_result["match_result"]["explanation"],
-                    "standardized_cv": cv_result["standardized"],
-                    "match_details": match_result["match_result"],
-                    "status": "success"
-                }
-            except Exception as e:
-                logger.error(f"❌ Matching failed for {cv_result['filename']}: {str(e)}")
-                return {
-                    "cv_filename": cv_result["filename"],
-                    "cv_index": cv_result["index"],
-                    "error": str(e),
-                    "status": "failed"
-                }
-        
-        # Perform matching in parallel
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            match_results = list(executor.map(perform_matching, successful_cvs))
-        
-        matching_time = time.time() - matching_start
-        total_time = time.time() - start_time
-        
-        # Step 4: Prepare comprehensive response
-        successful_matches = [result for result in match_results if result["status"] == "success"]
-        failed_matches = [result for result in match_results if result["status"] == "failed"]
-        
-        # Sort by overall score (highest first)
-        successful_matches.sort(key=lambda x: x["overall_score"], reverse=True)
-        
-        logger.info(f"🎉 Bulk analysis completed in {total_time:.2f}s")
-        logger.info(f"📊 Results: {len(successful_matches)} successful, {len(failed_matches + failed_cvs)} failed")
-        
-        return JSONResponse(content={
-            "status": "success",
-            "summary": {
-                "total_cvs": len(request.cv_texts),
-                "successful_matches": len(successful_matches),
-                "failed_processing": len(failed_cvs),
-                "failed_matching": len(failed_matches),
-                "total_processing_time": round(total_time, 2),
-                "jd_processing_time": round(jd_processing_time, 2),
-                "cv_processing_time": round(cv_processing_time, 2),
-                "matching_time": round(matching_time, 2)
-            },
-            "jd_standardized": jd_standardized,
-            "results": successful_matches,
-            "failed_cvs": failed_cvs,
-            "failed_matches": failed_matches,
-            "processing_metadata": {
-                "prompt_version": "user_specified_exact",
-                "processing_method": "parallel_optimized",
-                "cv_focus": "most_recent_two_jobs",
-                "skills_correlation": "95_percent_minimum"
-            }
-        })
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Bulk analysis failed: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Bulk analysis failed: {str(e)}")
+
+# REMOVED: Old process-bulk-analysis endpoint (lines 653-817)
+# This endpoint has been replaced by the ultra-efficient /api/batch/extract-batch-all
+# which reduces GPT calls from 2*N to 2 total regardless of document count.
+# The old endpoint was causing 404 errors in the frontend and is no longer needed.
