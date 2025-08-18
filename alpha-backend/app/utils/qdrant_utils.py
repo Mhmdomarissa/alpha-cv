@@ -130,7 +130,7 @@ def save_cv_to_qdrant_new(extracted_text: str, standardized_data: dict, filename
             if skill and skill.strip():
                 try:
                     skill_embedding = generate_embedding(skill.strip())
-                    skill_id = f"{cv_id}_skill_{i}"
+                    skill_id = str(uuid.uuid4())
                     skill_points.append(PointStruct(
                         id=skill_id,
                         vector=skill_embedding,
@@ -153,7 +153,7 @@ def save_cv_to_qdrant_new(extracted_text: str, standardized_data: dict, filename
             if responsibility and responsibility.strip():
                 try:
                     resp_embedding = generate_embedding(responsibility.strip())
-                    resp_id = f"{cv_id}_resp_{i}"
+                    resp_id = str(uuid.uuid4())
                     responsibility_points.append(PointStruct(
                         id=resp_id,
                         vector=resp_embedding,
@@ -269,7 +269,7 @@ def save_jd_to_qdrant_new(extracted_text: str, standardized_data: dict, filename
             if skill and skill.strip():
                 try:
                     skill_embedding = generate_embedding(skill.strip())
-                    skill_id = f"{jd_id}_skill_{i}"
+                    skill_id = str(uuid.uuid4())
                     skill_points.append(PointStruct(
                         id=skill_id,
                         vector=skill_embedding,
@@ -295,7 +295,7 @@ def save_jd_to_qdrant_new(extracted_text: str, standardized_data: dict, filename
             if responsibility and responsibility.strip():
                 try:
                     resp_embedding = generate_embedding(responsibility.strip())
-                    resp_id = f"{jd_id}_resp_{i}"
+                    resp_id = str(uuid.uuid4())
                     responsibility_points.append(PointStruct(
                         id=resp_id,
                         vector=resp_embedding,
