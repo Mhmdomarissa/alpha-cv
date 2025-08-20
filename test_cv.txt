@@ -1,0 +1,16 @@
+John Doe
+Software Engineer
+Email: john.doe@example.com
+Phone: +1-555-0123
+
+Experience:
+- 5 years of Python development
+- Full-stack web development with React and FastAPI
+- Machine learning model deployment
+- Database design and optimization
+
+Skills:
+- Python, JavaScript, React, FastAPI
+- PostgreSQL, MongoDB
+- Docker, Kubernetes
+- AWS, Azure

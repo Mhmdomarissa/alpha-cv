@@ -61,8 +61,8 @@ function createConfig(): Config {
         internalUrl = 'http://localhost:8000';
         break;
       default: // development
-        backendUrl = 'http://13.62.91.25:8000';
-        internalUrl = 'http://13.62.91.25:8000';
+        backendUrl = 'http://localhost:8000';
+        internalUrl = 'http://backend:8000';
     }
     
     console.warn(`⚠️ NEXT_PUBLIC_API_URL not set, using fallback: ${backendUrl}`);

@@ -97,11 +97,7 @@ def generate_embedding(text: str) -> List[float]:
     logger.info(f"Generating embedding for text: {len(cleaned_text)} characters")
     try:
         embedding_service = get_embedding_service()
-        embedding = embedding_service.generate_single_embedding(cleaned_text)
-        
-        # Convert numpy array to list if needed
-        if hasattr(embedding, 'tolist'):
-            embedding = embedding.tolist()
+        embedding = embedding_service.get_embedding(cleaned_text)
         
         if not isinstance(embedding, list) or len(embedding) == 0:
             raise Exception(f"Invalid embedding format: {type(embedding)}")
@@ -619,101 +615,3 @@ def list_jds() -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error listing JDs: {str(e)}")
         return []
-
-
-class QdrantUtilsAdapter:
-    """Adapter class to provide expected interface for the new route structure."""
-    
-    def store_cv_embeddings(self, cv_id: str, embeddings: dict, cv_data: dict) -> str:
-        """Store CV embeddings - adapter for save_cv_to_qdrant_new."""
-        try:
-            # Extract the required data for the legacy function
-            extracted_text = cv_data.get("extracted_text", "")
-            structured_info = cv_data.get("structured_info", {})
-            filename = cv_data.get("filename", "unknown.txt")
-            
-            # Call the legacy function
-            result_id = save_cv_to_qdrant_new(extracted_text, structured_info, filename)
-            return result_id
-        except Exception as e:
-            logger.error(f"Failed to store CV embeddings: {str(e)}")
-            raise
-    
-    def store_jd_embeddings(self, jd_id: str, embeddings: dict, jd_data: dict) -> str:
-        """Store JD embeddings - adapter for save_jd_to_qdrant_new."""
-        try:
-            extracted_text = jd_data.get("extracted_text", "")
-            structured_info = jd_data.get("structured_info", {})
-            filename = jd_data.get("filename", "unknown.txt")
-            
-            result_id = save_jd_to_qdrant_new(extracted_text, structured_info, filename)
-            return result_id
-        except Exception as e:
-            logger.error(f"Failed to store JD embeddings: {str(e)}")
-            raise
-    
-    def list_documents(self, doc_type: str) -> list:
-        """List documents by type."""
-        if doc_type == "cv":
-            return list_cvs()
-        elif doc_type == "jd":
-            return list_jds()
-        else:
-            raise ValueError(f"Unknown document type: {doc_type}")
-    
-    def retrieve_document(self, doc_id: str, doc_type: str) -> dict:
-        """Retrieve a document by ID and type."""
-        try:
-            client = get_qdrant_client()
-            collection = "cvs" if doc_type == "cv" else "jds"
-            
-            response = client.retrieve(
-                collection_name=collection,
-                ids=[doc_id]
-            )
-            
-            if response:
-                return response[0].payload
-            return None
-        except Exception as e:
-            logger.error(f"Failed to retrieve document: {str(e)}")
-            return None
-    
-    def retrieve_embeddings(self, doc_id: str, doc_type: str) -> dict:
-        """Retrieve embeddings for a document."""
-        # This is a simplified implementation
-        return {}
-    
-    def delete_document(self, doc_id: str, doc_type: str) -> bool:
-        """Delete a document by ID and type."""
-        try:
-            client = get_qdrant_client()
-            collection = "cvs" if doc_type == "cv" else "jds"
-            
-            client.delete(
-                collection_name=collection,
-                points_selector=[doc_id]
-            )
-            return True
-        except Exception as e:
-            logger.error(f"Failed to delete document: {str(e)}")
-            return False
-    
-    def health_check(self) -> dict:
-        """Health check for Qdrant."""
-        try:
-            client = get_qdrant_client()
-            collections = client.get_collections()
-            return {"status": "healthy", "collections": len(collections.collections)}
-        except Exception as e:
-            return {"status": "unhealthy", "error": str(e)}
-
-# Create singleton instance
-_qdrant_utils_instance = None
-
-def get_qdrant_utils() -> QdrantUtilsAdapter:
-    """Get QdrantUtils adapter instance (singleton)."""
-    global _qdrant_utils_instance
-    if _qdrant_utils_instance is None:
-        _qdrant_utils_instance = QdrantUtilsAdapter()
-    return _qdrant_utils_instance

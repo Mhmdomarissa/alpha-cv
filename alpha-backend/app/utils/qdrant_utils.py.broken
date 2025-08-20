@@ -1,0 +1,614 @@
+"""
+Qdrant Utils - Consolidated Vector Database Operations
+Handles ALL Qdrant database interactions for storing and retrieving embeddings.
+Single responsibility: Vector database operations (store/retrieve embeddings and documents).
+"""
+
+import logging
+import os
+import uuid
+import json
+from datetime import datetime
+from typing import List, Dict, Any, Optional
+import numpy as np
+
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+
+logger = logging.getLogger(__name__)
+
+class QdrantUtils:
+    """
+    Consolidated utility class for all Qdrant vector database operations.
+    Handles collections, embeddings storage, and similarity search.
+    """
+    
+    def __init__(self):
+        """Initialize Qdrant connection."""
+        self.host = os.getenv("QDRANT_HOST", "qdrant")
+        self.port = int(os.getenv("QDRANT_PORT", 6333))
+        self.client = None
+        self._initialize_client()
+        self._ensure_collections()
+        
+        logger.info(f"🔗 QdrantUtils initialized: {self.host}:{self.port}")
+    
+    def _initialize_client(self) -> None:
+        """Initialize Qdrant client with error handling."""
+        try:
+            self.client = QdrantClient(host=self.host, port=self.port)
+            logger.info("✅ Qdrant client connected successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to connect to Qdrant: {str(e)}")
+            raise Exception(f"Qdrant connection failed: {str(e)}")
+    
+    def _ensure_collections(self) -> None:
+        """Ensure all required collections exist."""
+        try:
+            collections = ["cvs", "jds", "skills", "responsibilities"]
+            for collection_name in collections:
+                try:
+                    self.client.create_collection(
+                        collection_name=collection_name,
+                vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+            )
+                    logger.info(f"✅ Created collection: {collection_name}")
+        except Exception as e:
+            if "already exists" not in str(e).lower():
+                        logger.error(f"❌ Failed to create collection {collection_name}: {str(e)}")
+                raise
+                    else:
+                        logger.debug(f"Collection {collection_name} already exists")
+        except Exception as e:
+            logger.error(f"❌ Collection initialization failed: {str(e)}")
+            raise Exception(f"Collection setup failed: {str(e)}")
+    
+    def store_cv_embeddings(self, cv_id: str, embeddings: Dict[str, Any], cv_data: Dict[str, Any]) -> str:
+        """
+        Store CV embeddings in appropriate collections.
+        
+        Args:
+            cv_id: Unique CV identifier
+            embeddings: Dictionary containing all CV embeddings
+            cv_data: CV metadata and structured information
+            
+        Returns:
+            CV ID that was stored
+    """
+    try:
+            logger.info(f"💾 Storing CV embeddings: {cv_id}")
+        
+        # Store main CV document
+            self._store_main_document(cv_id, embeddings, cv_data, "cv")
+        
+        # Store individual skill embeddings
+            if "skills" in embeddings:
+                self._store_individual_embeddings(
+                    cv_id, embeddings["skills"], cv_data.get("filename", "unknown"), 
+                    "skills", "cv"
+                )
+        
+        # Store individual responsibility embeddings
+            if "responsibilities" in embeddings:
+                self._store_individual_embeddings(
+                    cv_id, embeddings["responsibilities"], cv_data.get("filename", "unknown"),
+                    "responsibilities", "cv"
+                )
+            
+            logger.info(f"✅ CV embeddings stored successfully: {cv_id}")
+        return cv_id
+        
+    except Exception as e:
+            logger.error(f"❌ Failed to store CV embeddings: {str(e)}")
+            raise Exception(f"CV storage failed: {str(e)}")
+    
+    def store_jd_embeddings(self, jd_id: str, embeddings: Dict[str, Any], jd_data: Dict[str, Any]) -> str:
+        """
+        Store JD embeddings in appropriate collections.
+        
+        Args:
+            jd_id: Unique JD identifier
+            embeddings: Dictionary containing all JD embeddings
+            jd_data: JD metadata and structured information
+            
+        Returns:
+            JD ID that was stored
+    """
+    try:
+            logger.info(f"💾 Storing JD embeddings: {jd_id}")
+            
+            # Store main JD document
+            self._store_main_document(jd_id, embeddings, jd_data, "jd")
+            
+            # Store individual skill embeddings
+            if "skills" in embeddings:
+                self._store_individual_embeddings(
+                    jd_id, embeddings["skills"], jd_data.get("filename", "unknown"),
+                    "skills", "jd"
+                )
+            
+            # Store individual responsibility embeddings
+            if "responsibilities" in embeddings:
+                self._store_individual_embeddings(
+                    jd_id, embeddings["responsibilities"], jd_data.get("filename", "unknown"),
+                    "responsibilities", "jd"
+                )
+            
+            logger.info(f"✅ JD embeddings stored successfully: {jd_id}")
+            return jd_id
+            
+            except Exception as e:
+            logger.error(f"❌ Failed to store JD embeddings: {str(e)}")
+            raise Exception(f"JD storage failed: {str(e)}")
+    
+    def retrieve_embeddings(self, doc_id: str, doc_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve stored embeddings for a document.
+        
+        Args:
+            doc_id: Document identifier
+            doc_type: "cv" or "jd"
+            
+        Returns:
+            Dictionary containing all embeddings or None if not found
+        """
+        try:
+            logger.debug(f"🔍 Retrieving embeddings for {doc_type} {doc_id}")
+            
+            # Get skills embeddings
+            skills_filter = Filter(
+                must=[
+                    FieldCondition(key="document_id", match=MatchValue(value=doc_id)),
+                    FieldCondition(key="document_type", match=MatchValue(value=doc_type)),
+                    FieldCondition(key="type", match=MatchValue(value="skill"))
+                ]
+            )
+            
+            skills_points = self.client.scroll(
+                collection_name="skills",
+                scroll_filter=skills_filter,
+                limit=100,
+                with_payload=True,
+                with_vectors=True
+            )[0]
+            
+            # Get responsibilities embeddings
+            resp_filter = Filter(
+                must=[
+                    FieldCondition(key="document_id", match=MatchValue(value=doc_id)),
+                    FieldCondition(key="document_type", match=MatchValue(value=doc_type)),
+                    FieldCondition(key="type", match=MatchValue(value="responsibility"))
+                ]
+            )
+            
+            resp_points = self.client.scroll(
+                collection_name="responsibilities",
+                scroll_filter=resp_filter,
+                limit=100,
+                with_payload=True,
+                with_vectors=True
+            )[0]
+            
+            if not skills_points and not resp_points:
+                return None
+            
+            # Convert to embeddings format
+            embeddings = {}
+            
+            # Skills embeddings
+            if skills_points:
+                skills_embeddings = {}
+                for point in skills_points:
+                    content = point.payload.get("content", "")
+                    if content:
+                        skills_embeddings[content] = np.array(point.vector)
+                embeddings["skills"] = skills_embeddings
+            
+            # Responsibilities embeddings
+            if resp_points:
+                resp_embeddings = {}
+                for point in resp_points:
+                    content = point.payload.get("content", "")
+                    if content:
+                        resp_embeddings[content] = np.array(point.vector)
+                embeddings["responsibilities"] = resp_embeddings
+            
+            logger.debug(f"✅ Retrieved embeddings for {doc_type} {doc_id}")
+            return embeddings
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to retrieve embeddings: {str(e)}")
+            return None
+    
+    def retrieve_document(self, doc_id: str, doc_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve document data from main collection.
+        
+        Args:
+            doc_id: Document identifier
+            doc_type: "cv" or "jd"
+            
+        Returns:
+            Document data or None if not found
+        """
+        try:
+            collection_name = "cvs" if doc_type == "cv" else "jds"
+            
+            points = self.client.retrieve(
+                collection_name=collection_name,
+                ids=[doc_id],
+                with_payload=True
+            )
+            
+            if not points:
+                return None
+            
+            payload = points[0].payload
+            
+            # Parse structured_info if it's a JSON string
+            structured_info = payload.get("structured_info", {})
+            if isinstance(structured_info, str):
+                try:
+                    structured_info = json.loads(structured_info)
+                    payload["structured_info"] = structured_info
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse structured_info for {doc_id}")
+            
+            return payload
+        
+    except Exception as e:
+            logger.error(f"❌ Failed to retrieve document {doc_id}: {str(e)}")
+            return None
+    
+    def search_similar_vectors(self, query_vector: np.ndarray, collection_name: str, limit: int = 10, doc_type_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Search for similar vectors in a collection.
+        
+        Args:
+            query_vector: Vector to search for
+            collection_name: Collection to search in
+            limit: Maximum number of results
+            doc_type_filter: Optional filter by document type
+            
+        Returns:
+            List of similar vectors with metadata
+        """
+        try:
+            logger.debug(f"🔍 Searching for similar vectors in {collection_name}")
+            
+            # Build filter if needed
+            search_filter = None
+            if doc_type_filter:
+                search_filter = Filter(
+                    must=[FieldCondition(key="document_type", match=MatchValue(value=doc_type_filter))]
+                )
+            
+            # Perform search
+            search_results = self.client.search(
+                collection_name=collection_name,
+                query_vector=query_vector.tolist(),
+                query_filter=search_filter,
+                limit=limit,
+                with_payload=True
+            )
+            
+            # Convert results
+            results = []
+                for result in search_results:
+                results.append({
+                    "id": result.id,
+                    "score": float(result.score),
+                    "payload": result.payload
+                })
+            
+            logger.debug(f"✅ Found {len(results)} similar vectors")
+            return results
+        
+    except Exception as e:
+            logger.error(f"❌ Vector search failed: {str(e)}")
+        return []
+
+    def list_documents(self, doc_type: str) -> List[Dict[str, Any]]:
+        """
+        List all documents of a specific type.
+        
+        Args:
+            doc_type: "cv" or "jd"
+            
+        Returns:
+            List of all documents
+        """
+        try:
+            collection_name = "cvs" if doc_type == "cv" else "jds"
+            
+            all_docs = []
+        offset = None
+        
+        while True:
+                points, next_offset = self.client.scroll(
+                    collection_name=collection_name,
+                limit=100,
+                offset=offset,
+                    with_payload=True
+            )
+            
+            for point in points:
+                    doc_data = {
+                    "id": point.id,
+                    "filename": point.payload.get("filename", "Unknown"),
+                    "upload_date": point.payload.get("upload_date", "Unknown"),
+                        "extracted_text": point.payload.get("extracted_text", ""),
+                        "structured_info": point.payload.get("structured_info", {})
+                    }
+                    
+                    # Parse structured_info if it's a string
+                    if isinstance(doc_data["structured_info"], str):
+                        try:
+                            doc_data["structured_info"] = json.loads(doc_data["structured_info"])
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    # Add type-specific fields
+                    if doc_type == "cv":
+                        doc_data.update({
+                    "full_name": point.payload.get("full_name", "Not specified"),
+                            "email": point.payload.get("email", "Not specified"),
+                            "phone": point.payload.get("phone", "Not specified"),
+                            "job_title": point.payload.get("job_title", "Not specified"),
+                            "years_of_experience": point.payload.get("years_of_experience", "Not specified"),
+                            "skills": point.payload.get("skills", [])
+                        })
+                    else:  # JD
+                        doc_data.update({
+                    "job_title": point.payload.get("job_title", "Not specified"),
+                    "years_of_experience": point.payload.get("years_of_experience", "Not specified"),
+                    "skills": point.payload.get("skills", []),
+                            "responsibility_sentences": point.payload.get("responsibility_sentences", [])
+                        })
+                    
+                    all_docs.append(doc_data)
+            
+            if next_offset is None:
+                break
+            offset = next_offset
+        
+            logger.info(f"📋 Found {len(all_docs)} {doc_type}s in database")
+            return all_docs
+        
+    except Exception as e:
+            logger.error(f"❌ Failed to list {doc_type}s: {str(e)}")
+        return []
+
+    def delete_document(self, doc_id: str, doc_type: str) -> bool:
+        """
+        Delete a document and all its associated embeddings.
+        
+        Args:
+            doc_id: Document identifier
+            doc_type: "cv" or "jd"
+            
+        Returns:
+            True if deletion was successful
+        """
+        try:
+            logger.info(f"🗑️ Deleting {doc_type} {doc_id}")
+            
+            # Delete from main collection
+            collection_name = "cvs" if doc_type == "cv" else "jds"
+            self.client.delete(collection_name=collection_name, points_selector=[doc_id])
+            
+            # Delete individual skills
+            skills_filter = Filter(
+                must=[
+                    FieldCondition(key="document_id", match=MatchValue(value=doc_id)),
+                    FieldCondition(key="document_type", match=MatchValue(value=doc_type))
+                ]
+            )
+            self.client.delete(collection_name="skills", points_selector=skills_filter)
+            
+            # Delete individual responsibilities
+            resp_filter = Filter(
+                must=[
+                    FieldCondition(key="document_id", match=MatchValue(value=doc_id)),
+                    FieldCondition(key="document_type", match=MatchValue(value=doc_type))
+                ]
+            )
+            self.client.delete(collection_name="responsibilities", points_selector=resp_filter)
+            
+            logger.info(f"✅ Successfully deleted {doc_type} {doc_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to delete {doc_type} {doc_id}: {str(e)}")
+            return False
+    
+    def clear_all_data(self) -> bool:
+        """
+        Clear all data from all collections (use with caution!).
+        
+        Returns:
+            True if successful
+        """
+        try:
+            logger.warning("🧹 CLEARING ALL DATA from Qdrant collections")
+            
+            collections = ["cvs", "jds", "skills", "responsibilities"]
+            
+            for collection_name in collections:
+                try:
+                    # Delete the collection
+                    self.client.delete_collection(collection_name)
+                    
+                    # Recreate the collection
+                    self.client.create_collection(
+                        collection_name=collection_name,
+                        vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+                    )
+                    
+                    logger.info(f"✅ Cleared collection: {collection_name}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Failed to clear collection {collection_name}: {str(e)}")
+            
+            logger.warning("⚠️ ALL DATA CLEARED from Qdrant")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to clear data: {str(e)}")
+            return False
+    
+    def _store_main_document(self, doc_id: str, embeddings: Dict[str, Any], doc_data: Dict[str, Any], doc_type: str) -> None:
+        """Store main document in primary collection."""
+        collection_name = "cvs" if doc_type == "cv" else "jds"
+        
+        # Create combined embedding for main document (for compatibility)
+        skills_list = []
+        if "skills" in embeddings and embeddings["skills"]:
+            skills_list = list(embeddings["skills"].keys())[:10]  # Top 10 skills
+        
+        job_title = doc_data.get("job_title", "")
+        combined_text = f"{job_title}. Skills: {', '.join(skills_list)}"
+        
+        # Generate main embedding if title or skills embeddings exist
+        main_vector = None
+        if "title" in embeddings:
+            main_vector = embeddings["title"]
+        elif "skills" in embeddings and embeddings["skills"]:
+            # Use average of first few skill embeddings
+            skill_vectors = list(embeddings["skills"].values())[:5]
+            if skill_vectors:
+                main_vector = np.mean(skill_vectors, axis=0)
+        
+        if main_vector is None:
+            # Generate a default embedding for combined text
+            from app.services.embedding_service import get_embedding_service
+            embedding_service = get_embedding_service()
+            main_vector = embedding_service.generate_single_embedding(combined_text)
+        
+        # Prepare payload
+        payload = {
+            "filename": doc_data.get("filename", "unknown"),
+            "upload_date": datetime.utcnow().isoformat(),
+            "document_type": doc_type,
+            "extracted_text": doc_data.get("extracted_text", ""),
+            "structured_info": doc_data.get("structured_info", {}),
+            "embedding_strategy": "consolidated_individual_components"
+        }
+        
+        # Add type-specific fields
+        if doc_type == "cv":
+            structured_info = doc_data.get("structured_info", {})
+            payload.update({
+                "full_name": structured_info.get("full_name", "Not specified"),
+                "email": structured_info.get("email", "Not specified"),
+                "phone": structured_info.get("phone", "Not specified"),
+                "job_title": structured_info.get("job_title", "Not specified"),
+                "years_of_experience": structured_info.get("experience_years", structured_info.get("years_of_experience", "Not specified")),
+                "skills": structured_info.get("skills", []),
+                "responsibilities": structured_info.get("responsibilities", [])
+            })
+        else:  # JD
+            structured_info = doc_data.get("structured_info", {})
+            payload.update({
+                "job_title": structured_info.get("job_title", "Not specified"),
+                "years_of_experience": structured_info.get("experience_years", structured_info.get("years_of_experience", "Not specified")),
+                "skills": structured_info.get("skills", []),
+                "responsibilities": structured_info.get("responsibilities", structured_info.get("responsibility_sentences", [])),
+                "responsibility_sentences": structured_info.get("responsibilities", structured_info.get("responsibility_sentences", []))
+            })
+        
+        # Store main document
+        point = PointStruct(
+            id=doc_id,
+            vector=main_vector.tolist() if hasattr(main_vector, 'tolist') else main_vector,
+            payload=payload
+        )
+        
+        self.client.upsert(collection_name=collection_name, wait=True, points=[point])
+    
+    def _store_individual_embeddings(self, doc_id: str, embeddings_dict: Dict[str, np.ndarray], filename: str, embedding_type: str, doc_type: str) -> None:
+        """Store individual embeddings (skills or responsibilities) in their respective collections."""
+        if not embeddings_dict:
+            return
+        
+        collection_name = embedding_type  # "skills" or "responsibilities"
+        points = []
+        
+        for i, (content, embedding) in enumerate(embeddings_dict.items()):
+            point_id = str(uuid.uuid4())
+            
+            payload = {
+                "type": embedding_type.rstrip('s'),  # "skill" or "responsibility"
+                "content": content,
+                "document_id": doc_id,
+                "document_type": doc_type,
+                "filename": filename,
+                "index": i
+            }
+            
+            point = PointStruct(
+                id=point_id,
+                vector=embedding.tolist() if hasattr(embedding, 'tolist') else embedding,
+                payload=payload
+            )
+            
+            points.append(point)
+        
+        if points:
+            self.client.upsert(collection_name=collection_name, wait=True, points=points)
+            logger.debug(f"✅ Stored {len(points)} {embedding_type} embeddings for {doc_id}")
+    
+    def health_check(self) -> Dict[str, Any]:
+        """Check health of Qdrant connection and collections."""
+        try:
+            collections = self.client.get_collections()
+            
+            status = {
+                "status": "healthy",
+                "host": self.host,
+                "port": self.port,
+                "collections": []
+            }
+            
+            for collection in collections.collections:
+                try:
+                    info = self.client.get_collection(collection.name)
+                    status["collections"].append({
+                        "name": collection.name,
+                        "points_count": info.points_count,
+                        "status": info.status
+                    })
+                except Exception:
+                    status["collections"].append({
+                        "name": collection.name,
+                        "status": "error"
+                    })
+            
+            return status
+        
+    except Exception as e:
+            return {
+                "status": "unhealthy",
+                "error": str(e),
+                "host": self.host,
+                "port": self.port
+            }
+
+# Global instance
+_qdrant_utils: Optional[QdrantUtils] = None
+
+def get_qdrant_utils() -> QdrantUtils:
+    """Get global Qdrant utils instance."""
+    global _qdrant_utils
+    if _qdrant_utils is None:
+        _qdrant_utils = QdrantUtils()
+    return _qdrant_utils
+
+# Backward compatibility functions
+def get_qdrant_client():
+    """Get Qdrant client (backward compatibility)."""
+    return get_qdrant_utils().client
+
+def create_collections():
+    """Create collections (backward compatibility)."""
+    get_qdrant_utils()._ensure_collections()
