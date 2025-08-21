@@ -3,7 +3,6 @@ LLM Service - Consolidated Large Language Model Operations
 Handles ALL OpenAI GPT interactions for standardization and analysis.
 Single responsibility: Convert raw text into structured, standardized data.
 """
-
 import logging
 import os
 import json
@@ -37,9 +36,9 @@ class LLMService:
             raise ValueError("OPENAI_API_KEY environment variable is required")
             
         self.base_url = "https://api.openai.com/v1/chat/completions"
-        self.default_model = "gpt-4o-mini"
-        self.max_retries = 3
-        self.base_delay = 1
+        self.default_model = "gpt-4o-nano"
+        self.max_retries = 2  # Reduce retries for faster failure
+        self.base_delay = 0.5  # Faster retry delay
         
         # Session for connection reuse
         self.session = requests.Session()
@@ -64,12 +63,32 @@ class LLMService:
         try:
             logger.info(f"🔍 Standardizing CV: {filename} ({len(raw_text):,} chars)")
             
-            # Handle very long documents with chunking
-            if len(raw_text) > 120000:
-                return self._process_large_cv(raw_text, filename)
+            # Handle very long documents with truncation for performance
+            if len(raw_text) > 50000:  # Reduce threshold from 120k to 50k chars
+                logger.warning(f"⚠️ Large CV detected ({len(raw_text):,} chars), truncating for performance")
+                raw_text = raw_text[:50000] + "\n\n[TRUNCATED FOR PROCESSING]"
             
             prompt = self._build_cv_prompt(raw_text)
+            
+            # Log the data being sent to LLM
+            logger.info("---------- DATA SENT TO LLM (CV) ----------")
+            logger.info(f"Filename: {filename}")
+            logger.info(f"Text length: {len(raw_text)} characters")
+            logger.info(f"Prompt:\n{prompt[0]['content']}")
+            logger.info("----------------------------------------")
+            
             response = self._call_openai_api(prompt)
+            
+            # Log the response received from LLM
+            logger.info("---------- RESPONSE RECEIVED FROM LLM (CV) ----------")
+            logger.info(f"Success: {response.success}")
+            logger.info(f"Processing time: {response.processing_time:.2f}s")
+            logger.info(f"Model used: {response.model_used}")
+            if response.success:
+                logger.info(f"Response data:\n{json.dumps(response.data, indent=2)}")
+            else:
+                logger.info(f"Error message: {response.error_message}")
+            logger.info("---------------------------------------------")
             
             if response.success:
                 # Validate and clean the response
@@ -104,12 +123,33 @@ class LLMService:
         try:
             logger.info(f"🔍 Standardizing JD: {filename} ({len(raw_text):,} chars)")
             
-            # Handle very long documents with chunking
-            if len(raw_text) > 120000:
-                return self._process_large_jd(raw_text, filename)
+            # Handle very long documents with truncation for performance
+            if len(raw_text) > 30000:  # JDs are typically shorter
+                logger.warning(f"⚠️ Large JD detected ({len(raw_text):,} chars), truncating for performance")
+                raw_text = raw_text[:30000] + "\n\n[TRUNCATED FOR PROCESSING]"
+
             
             prompt = self._build_jd_prompt(raw_text)
+            
+            # Log the data being sent to LLM
+            logger.info("---------- DATA SENT TO LLM (JD) ----------")
+            logger.info(f"Filename: {filename}")
+            logger.info(f"Text length: {len(raw_text)} characters")
+            logger.info(f"Prompt:\n{prompt[0]['content']}")
+            logger.info("----------------------------------------")
+            
             response = self._call_openai_api(prompt)
+            
+            # Log the response received from LLM
+            logger.info("---------- RESPONSE RECEIVED FROM LLM (JD) ----------")
+            logger.info(f"Success: {response.success}")
+            logger.info(f"Processing time: {response.processing_time:.2f}s")
+            logger.info(f"Model used: {response.model_used}")
+            if response.success:
+                logger.info(f"Response data:\n{json.dumps(response.data, indent=2)}")
+            else:
+                logger.info(f"Error message: {response.error_message}")
+            logger.info("---------------------------------------------")
             
             if response.success:
                 # Validate and clean the response
@@ -130,7 +170,7 @@ class LLMService:
             logger.error(f"❌ JD standardization failed: {str(e)}")
             raise Exception(f"JD standardization failed: {str(e)}")
     
-    def _call_openai_api(self, messages: List[Dict[str, str]], model: str = None, max_tokens: int = 2000, temperature: float = 0.1) -> LLMResponse:
+    def _call_openai_api(self, messages: List[Dict[str, str]], model: str = None, max_tokens: int = 1500, temperature: float = 0.0) -> LLMResponse:
         """
         Core OpenAI API call with robust error handling and retry logic.
         """
@@ -153,7 +193,7 @@ class LLMService:
                 response = self.session.post(
                     self.base_url,
                     json=data,
-                    timeout=120
+                    timeout=60  # Reduce timeout from 120s to 60s
                 )
                 
                 if response.status_code == 200:
@@ -232,121 +272,77 @@ class LLMService:
     
     def _build_cv_prompt(self, text: str) -> List[Dict[str, str]]:
         """Build CV standardization prompt."""
-        prompt = f"""You are an advanced CV/Job Description analysis system. Your task is to extract and standardize information from the provided document text for accurate matching and scoring.
+        prompt = f"""Extract from CV and return JSON with EXACTLY this structure:
 
-CRITICAL INSTRUCTIONS:
-1. Process the ENTIRE document - do not truncate or limit analysis
-2. Extract and standardize all information into structured format
-3. Output will be used for embedding generation - ensure consistency and standardization
+Skills: EXACTLY 20 skills as complete sentences starting with action verbs.
+Examples: "Experienced in Python programming and software development", "Proficient in machine learning algorithms and model deployment", "Skilled in SQL database design and optimization"
 
-FOR CVs:
-Skills Extraction:
-- List clearly mentioned skills directly supported by candidate's described experience
-- Only include skills with strong correlation (95%+) to actual work done
-- Write each skill in full-word format (e.g., "JavaScript" not "JS", ".NET" not "Dot Net")
-- Limit to maximum 20 relevant skills
-- Extract individual, atomic skills only
-- Standardize to industry-standard terms
+Responsibilities: EXACTLY 10 responsibilities from recent positions.
 
-Responsibilities Extraction:
-- Review the most recent TWO jobs in the CV
-- Write exactly 10 numbered responsibilities describing what candidate did
-- Focus more heavily on the most recent role
-- Do NOT include introduction or summary text before the list
-- Use clear, concise job-description style language
-- Highlight technical expertise, leadership, or ownership when visible
-- Use action-oriented language starting with action verbs
+Experience Years: Number only (e.g., "5" or "3-5")
 
-Experience Level:
-- Calculate total years of experience relevant to most recent two roles
-- Do NOT count unrelated earlier roles
-- Format: "X years"
+Job Title: Current/most recent title
 
-Job Title:
-- Suggest clear, industry-standard job title based primarily on most recent position
-- Align with extracted skills
-- Remove company-specific prefixes/suffixes
+Contact Info: Extract name, email, phone
 
-Return the response in JSON format:
+Return JSON with EXACTLY this format:
 {{
-  "document_type": "CV",
-  "skills": ["skill1", "skill2", "skill3"],
-  "responsibilities": ["responsibility1", "responsibility2", "responsibility3", "responsibility4", "responsibility5", "responsibility6", "responsibility7", "responsibility8", "responsibility9", "responsibility10"],
-  "experience_years": "X years",
-  "job_title": "Standardized Job Title",
-  "full_name": "Full Name",
-  "email": "Email Address",
-  "phone": "Phone Number"
+  "skills": [
+    "Experienced in Python programming and software development",
+    "Proficient in machine learning algorithms and model deployment", 
+    "Skilled in SQL database design and optimization",
+    // ... exactly 20 skills total
+  ],
+  "responsibilities": [
+    "Lead development team of 5+ engineers", 
+    "Design and implement scalable software architectures",
+    // ... exactly 10 responsibilities total
+  ],
+  "experience_years": "5",
+  "job_title": "Senior Software Engineer",
+  "contact_info": {{
+    "name": "John Doe",
+    "email": "john@email.com",
+    "phone": "+1234567890"
+  }}
 }}
-
-STANDARDIZATION RULES:
-- Skills: Individual atomic terms, full standardized names, no abbreviations
-- Responsibilities: Complete sentences, action-oriented, exactly 10
-- Experience: Numeric format with "years" suffix
-- Job Title: Industry-standard format without company specifics
 
 CV CONTENT:
 {text}"""
-
         return [{"role": "user", "content": prompt}]
     
     def _build_jd_prompt(self, text: str) -> List[Dict[str, str]]:
         """Build JD standardization prompt."""
-        prompt = f"""You are an advanced CV/Job Description analysis system. Your task is to extract and standardize information from the provided document text for accurate matching and scoring.
+        prompt = f"""Extract from Job Description and return JSON with EXACTLY this structure:
 
-CRITICAL INSTRUCTIONS:
-1. Process the ENTIRE document - do not truncate or limit analysis
-2. Extract and standardize all information into structured format
-3. Output will be used for embedding generation - ensure consistency and standardization
+Skills: EXACTLY 20 required skills as complete sentences starting with action verbs.
+Examples: "Experience in Python development required", "Proficiency in machine learning algorithms needed", "Expertise in SQL database management essential"
 
-FOR JOB DESCRIPTIONS:
-Skills Extraction:
-- Provide exactly 20 distinct skills required for the position
-- Only list actionable, demonstrable skills (technical or soft skills)
-- Do NOT include qualifications, years of experience, certifications, or personal traits
-- Do not include anything that cannot be demonstrated as a skill
-- Make sure each item is phrased as a skill, not a requirement or attribute
-- Write all technology names, frameworks, and methodologies in their complete, standardized form
-- Examples: "JavaScript" (not "JS"), "Service Level Agreement" (not "SLA"), "Microsoft .NET" (not "DotNET")
-- Do not use abbreviations unless you also write out the full term
-- If job description is sparse, add relevant technologies based on industry standards
+Responsibilities: EXACTLY 10 job responsibilities.
 
-Responsibilities Extraction:
-- Summarize the experience the employee should already have to perform the job excellently
-- Write exactly 10 full sentences describing required experience/responsibilities
-- Use the job description's style and content if detailed
-- If sparse, add relevant content based on industry standards for similar roles
-- Focus on what experience is needed, not just job duties
+Experience Years: Required experience (e.g., "5" or "3-5") 
 
-Experience Level:
-- Note any specific mention of required years of experience
-- Format: "X years" where X is a number
-- For ranges, use the average (e.g., "3-5 years" → "4 years")
+Job Title: Position title
 
-Job Title:
-- Suggest a standard job title based on the description
-- If clear title already exists, retain it with 90%+ weighting
-- Use industry-standard format
-
-Return the response in JSON format:
+Return JSON with EXACTLY this format:
 {{
-  "document_type": "JD",
-  "skills": ["skill1", "skill2", "skill3", "skill4", "skill5", "skill6", "skill7", "skill8", "skill9", "skill10", "skill11", "skill12", "skill13", "skill14", "skill15", "skill16", "skill17", "skill18", "skill19", "skill20"],
-  "responsibilities": ["responsibility1", "responsibility2", "responsibility3", "responsibility4", "responsibility5", "responsibility6", "responsibility7", "responsibility8", "responsibility9", "responsibility10"],
-  "experience_years": "X years",
-  "job_title": "Standardized Job Title"
+  "skills": [
+    "Experience in Python development required",
+    "Proficiency in machine learning algorithms needed", 
+    "Expertise in SQL database management essential",
+    // ... exactly 20 skills total
+  ],
+  "responsibilities": [
+    "Lead development team of 5+ engineers", 
+    "Design and implement scalable software architectures",
+    // ... exactly 10 responsibilities total
+  ],
+  "experience_years": "5",
+  "job_title": "Senior Software Engineer"
 }}
-
-STANDARDIZATION RULES:
-- Skills: Individual atomic terms, full standardized names, no abbreviations - EXACTLY 20
-- Responsibilities: Complete sentences, action-oriented, exactly 10
-- Experience: Numeric format with "years" suffix
-- Job Title: Industry-standard format without company specifics
-- Document Type: Identify as "JD"
 
 JOB DESCRIPTION:
 {text}"""
-
         return [{"role": "user", "content": prompt}]
     
     def _parse_json_response(self, content: str) -> Dict[str, Any]:
@@ -369,20 +365,18 @@ JOB DESCRIPTION:
         validated = data.copy()
         
         # Ensure required fields exist
-        required_fields = ["skills", "responsibilities", "experience_years", "job_title", "document_type"]
+        required_fields = ["skills", "responsibilities", "years_of_experience", "job_title"]
         for field in required_fields:
             if field not in validated:
                 if field in ["skills", "responsibilities"]:
                     validated[field] = []
-                elif field == "document_type":
-                    validated[field] = "CV"
                 else:
                     validated[field] = "Not specified"
         
-        # Clean and validate skills (max 20)
+        # Clean and validate skills (exactly 20)
         skills = validated.get("skills", [])
         if isinstance(skills, list):
-            clean_skills = [skill.strip() for skill in skills if skill.strip() and len(skill.strip().split()) <= 3]
+            clean_skills = [skill.strip() for skill in skills if skill.strip()]
             validated["skills"] = clean_skills[:20]  # Limit to 20
         
         # Ensure exactly 10 responsibilities
@@ -397,7 +391,7 @@ JOB DESCRIPTION:
             validated["responsibilities"] = responsibilities
         
         # Ensure backward compatibility
-        validated["years_of_experience"] = validated.get("experience_years", "Not specified")
+        validated["experience_years"] = validated.get("years_of_experience", "Not specified")
         
         return validated
     
@@ -406,20 +400,18 @@ JOB DESCRIPTION:
         validated = data.copy()
         
         # Ensure required fields exist
-        required_fields = ["skills", "responsibilities", "experience_years", "job_title", "document_type"]
+        required_fields = ["skills", "responsibilities", "years_of_experience", "job_title"]
         for field in required_fields:
             if field not in validated:
                 if field in ["skills", "responsibilities"]:
                     validated[field] = []
-                elif field == "document_type":
-                    validated[field] = "JD"
                 else:
                     validated[field] = "Not specified"
         
         # Ensure exactly 20 skills for JDs
         skills = validated.get("skills", [])
         if isinstance(skills, list):
-            clean_skills = [skill.strip() for skill in skills if skill.strip() and len(skill.strip().split()) <= 3]
+            clean_skills = [skill.strip() for skill in skills if skill.strip()]
             if len(clean_skills) < 20:
                 # Generate additional skills if needed
                 generic_skills = self._generate_generic_skills(validated.get("job_title", ""), 20 - len(clean_skills))
@@ -440,7 +432,6 @@ JOB DESCRIPTION:
             validated["responsibilities"] = responsibilities
         
         # Ensure backward compatibility
-        validated["years_of_experience"] = validated.get("experience_years", "Not specified")
         validated["responsibility_sentences"] = validated.get("responsibilities", [])
         
         return validated
@@ -489,7 +480,7 @@ JOB DESCRIPTION:
     
     def _process_large_cv(self, text: str, filename: str) -> Dict[str, Any]:
         """Process very large CV documents using chunking strategy."""
-        logger.info(f"⚠️ Processing large CV document ({len(text):,} chars) with chunking")
+        logger.info(f"⚠ Processing large CV document ({len(text):,} chars) with chunking")
         
         # Split into chunks
         chunk_size = 120000
@@ -511,7 +502,7 @@ JOB DESCRIPTION:
     
     def _process_large_jd(self, text: str, filename: str) -> Dict[str, Any]:
         """Process very large JD documents using chunking strategy."""
-        logger.info(f"⚠️ Processing large JD document ({len(text):,} chars) with chunking")
+        logger.info(f"⚠ Processing large JD document ({len(text):,} chars) with chunking")
         
         # Split into chunks
         chunk_size = 120000

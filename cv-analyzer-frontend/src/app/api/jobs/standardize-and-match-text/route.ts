@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestData),
-      signal: AbortSignal.timeout(90000), // 90 second timeout
+      signal: AbortSignal.timeout(120000), // Increase to 2 minutes for complex analysis
     });
     
     const responseTime = Date.now() - startTime;
@@ -73,32 +73,35 @@ export async function POST(request: NextRequest) {
     console.log('✅ [ANALYSIS] Backend analysis completed successfully:', {
       responseTime: `${responseTime}ms`,
       hasData: !!analysisData,
-      hasMatchResult: !!analysisData.match_result,
-      hasOverallScore: !!analysisData.match_result?.overall_score
+      hasMatchResult: !!analysisData.text_match_result,
+      hasOverallScore: !!analysisData.text_match_result?.overall_score
     });
     
     // Validate response structure
-    if (!analysisData.match_result) {
-      console.error('❌ [ANALYSIS] Invalid response structure - missing match_result');
+    if (!analysisData.text_match_result) {
+      console.error('❌ [ANALYSIS] Invalid response structure - missing text_match_result');
       return NextResponse.json(
         { 
           error: 'Backend returned invalid response structure',
-          details: 'Missing match_result field',
+          details: 'Missing text_match_result field',
           received_data: Object.keys(analysisData)
         },
         { status: 500 }
       );
     }
     
-    // Add metadata to response
+    // Map backend response to frontend expected format
     const enhancedResponse = {
       ...analysisData,
+      match_result: analysisData.text_match_result, // Map text_match_result to match_result for frontend compatibility
+      cv_standardized_data: analysisData.standardized_data?.cv,
+      jd_standardized_data: analysisData.standardized_data?.jd,
       processing_time_ms: responseTime,
       timestamp: new Date().toISOString(),
       api_version: '1.0'
     };
     
-    console.log('✅ [ANALYSIS] Returning enhanced response with metadata');
+    console.log('✅ [ANALYSIS] Returning enhanced response with mapped fields');
     return NextResponse.json(enhancedResponse);
     
   } catch (error) {

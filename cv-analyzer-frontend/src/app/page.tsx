@@ -4,15 +4,15 @@ import { useEffect, useCallback, lazy, Suspense, memo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { useAppStore } from '@/stores/appStore';
-import Layout from '@/components/Layout';
-import AuthGuard from '@/components/AuthGuard';
+import Layout from '@/components/common/Layout';
+import AuthGuard from '@/components/common/AuthGuard';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 // Lazy load heavy components for better performance
-const UploadPage = lazy(() => import('@/components/UploadPage'));
-const DatabasePage = lazy(() => import('@/components/DatabasePage'));
-const ResultsPage = lazy(() => import('@/components/ResultsPage'));
+const UploadPage = lazy(() => import('@/components/cv/UploadPage'));
+const DatabasePage = lazy(() => import('@/components/matching/DatabasePage'));
+const ResultsPage = lazy(() => import('@/components/matching/ResultsPage'));
 
 // Create a client
 const queryClient = new QueryClient({
