@@ -23,10 +23,9 @@ export async function POST(request: NextRequest) {
       type: file.type
     });
     
-    // Create FormData for backend request - use the standardize-jd endpoint as a model
-    // since the backend doesn't have a specific upload-cv endpoint
+    // Create FormData for backend request
     const backendFormData = new FormData();
-    backendFormData.append('file', file);
+    backendFormData.append('files', file);
     
     const backendUrl = getApiBaseUrl('server');
     
@@ -36,15 +35,15 @@ export async function POST(request: NextRequest) {
       if (file.type === 'text/plain') {
         // For plain text files, pass the file directly without recreating it
         const backendFormData = new FormData();
-        backendFormData.append('file', file);
+        backendFormData.append('files', file);
         
-        const standardizeUrl = `${backendUrl}/api/cv/upload-cv`;
+        const standardizeUrl = `${backendUrl}/api/cv/cv/upload-cv`;
         console.log('📄 [CV UPLOAD] Uploading text CV via backend:', standardizeUrl);
         
         const standardizeResponse = await fetch(standardizeUrl, {
           method: 'POST',
           body: backendFormData,
-          signal: AbortSignal.timeout(60000),
+          signal: AbortSignal.timeout(120000), // Increase to 2 minutes for complex CVs
         });
         
         if (!standardizeResponse.ok) {
@@ -60,13 +59,13 @@ export async function POST(request: NextRequest) {
         extractedData = await standardizeResponse.json();
       } else {
         // For non-text files, use the proper CV upload endpoint
-        const standardizeUrl = `${backendUrl}/api/cv/upload-cv`;
+        const standardizeUrl = `${backendUrl}/api/cv/cv/upload-cv`;
         console.log('📄 [CV UPLOAD] Processing CV file via backend:', standardizeUrl);
         
         const extractResponse = await fetch(standardizeUrl, {
           method: 'POST',
           body: backendFormData,
-          signal: AbortSignal.timeout(60000), // 60 second timeout
+          signal: AbortSignal.timeout(120000), // Increase to 2 minutes for complex CVs // 60 second timeout
         });
         
         if (!extractResponse.ok) {

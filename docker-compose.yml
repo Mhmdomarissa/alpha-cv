@@ -27,6 +27,7 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://backend:8000
+      - BACKEND_URL=http://backend:8000
     restart: unless-stopped
     depends_on:
       - backend

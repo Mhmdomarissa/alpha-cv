@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     backendFormData.append('file', file);
     
     const backendUrl = getApiBaseUrl('server');
-    const targetUrl = `${backendUrl}/api/jobs/standardize-jd`;
+    const targetUrl = `${backendUrl}/api/jobs/upload-jd`;
     
     console.log('📋 [JD UPLOAD] Calling backend:', targetUrl);
     

@@ -249,7 +249,7 @@ export const apiMethods = {
           // Use local Next.js API route with correct baseURL
           const localApi = axios.create({
             baseURL: '',
-            timeout: 60000,
+            timeout: 120000, // Increase to 2 minutes for complex processing
           });
           
           localApi.post('/api/jobs/standardize-jd-text', { content })
@@ -273,7 +273,7 @@ export const apiMethods = {
     // Use axios with relative URL for Next.js API routes
     return axios.create({
       baseURL: '', // Empty base URL for relative requests
-      timeout: 60000, // 60 second timeout for file processing
+      timeout: 120000, // 2 minute timeout for file processing
     }).post('/api/jobs/standardize-jd', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',

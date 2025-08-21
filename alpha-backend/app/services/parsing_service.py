@@ -3,7 +3,6 @@ Parsing Service - Consolidated Document Processing
 Handles ALL text extraction from various file formats with PII removal.
 Single responsibility: Extract clean text from documents.
 """
-
 import logging
 import os
 import re
@@ -79,18 +78,19 @@ class ParsingService:
                 raise ValueError(f"Insufficient text extracted: {len(raw_text)} characters")
             
             # Remove PII data
-            clean_text = self.remove_pii_data(raw_text)
+            clean_text, extracted_pii = self.remove_pii_data(raw_text)
             
             result = {
-                "raw_text": raw_text,
-                "clean_text": clean_text,
-                "file_path": file_path,
-                "file_size": file_size,
-                "file_extension": file_ext,
-                "character_count": len(clean_text),
-                "processing_status": "success"
-            }
-            
+        "raw_text": raw_text,
+        "clean_text": clean_text,
+        "extracted_pii": extracted_pii,  # New field
+        "file_path": file_path,
+        "file_size": file_size,
+        "file_extension": file_ext,
+        "character_count": len(clean_text),
+        "processing_status": "success"
+    }
+
             self.logger.info(f"✅ Document processed successfully: {len(clean_text):,} characters")
             return result
             
@@ -241,49 +241,41 @@ class ParsingService:
         except Exception:
             return ""
     
-    def remove_pii_data(self, text: str) -> str:
+    def remove_pii_data(self, text: str) -> tuple[str, dict]:
         """
-        Remove personally identifiable information from text.
+        Remove PII from text and return cleaned text plus extracted PII.
+        Returns tuple: (clean_text, extracted_pii)
+        """
+        extracted_pii = {"email": [], "phone": []}
         
-        Args:
-            text: Raw text to clean
-            
-        Returns:
-            Text with PII removed/masked
-        """
-        try:
-            clean_text = text
-            
-            # Email addresses - replace with [EMAIL]
-            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-            clean_text = re.sub(email_pattern, '[EMAIL]', clean_text)
-            
-            # Phone numbers (various formats) - replace with [PHONE]
-            phone_patterns = [
-                r'\+?1?[-.\s]?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}',  # US format
-                r'\+?[0-9]{1,4}[-.\s]?\(?[0-9]{1,4}\)?[-.\s]?[0-9]{1,4}[-.\s]?[0-9]{1,9}',  # International
-                r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'  # Simple format
-            ]
-            
-            for pattern in phone_patterns:
-                clean_text = re.sub(pattern, '[PHONE]', clean_text)
-            
-            # SSN patterns - replace with [SSN]
-            ssn_pattern = r'\b\d{3}[-]?\d{2}[-]?\d{4}\b'
-            clean_text = re.sub(ssn_pattern, '[SSN]', clean_text)
-            
-            # Address patterns (basic) - replace with [ADDRESS]
-            address_pattern = r'\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Circle|Cir|Court|Ct)'
-            clean_text = re.sub(address_pattern, '[ADDRESS]', clean_text, flags=re.IGNORECASE)
-            
-            # Clean up multiple whitespaces
-            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-            
-            return clean_text
-            
-        except Exception as e:
-            self.logger.warning(f"⚠️ PII removal failed: {str(e)}, returning original text")
-            return text
+        # Extract emails
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        emails = re.findall(email_pattern, text)
+        if emails:
+            extracted_pii["email"] = list(set(emails))
+        
+        # Extract phone numbers
+        phone_patterns = [
+            r'\+?1?[-.\s]?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}',
+            r'\+?[0-9]{1,4}[-.\s]?\(?[0-9]{1,4}\)?[-.\s]?[0-9]{1,4}[-.\s]?[0-9]{1,9}',
+            r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'
+        ]
+        phones = []
+        for pattern in phone_patterns:
+            phones.extend(re.findall(pattern, text))
+        if phones:
+            extracted_pii["phone"] = list(set(phones))
+        
+        # Remove PII from text
+        clean_text = text
+        clean_text = re.sub(email_pattern, '[EMAIL]', clean_text)
+        for pattern in phone_patterns:
+            clean_text = re.sub(pattern, '[PHONE]', clean_text)
+        
+        # Clean up multiple whitespaces
+        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+        
+        return clean_text, extracted_pii
 
 # Global instance
 _parsing_service: Optional[ParsingService] = None

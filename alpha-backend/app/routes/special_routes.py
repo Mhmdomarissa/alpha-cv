@@ -398,6 +398,14 @@ async def match_text(request: TextMatchRequest) -> JSONResponse:
         logger.error(f"❌ Text matching failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Text matching failed: {str(e)}")
 
+# Alias for frontend compatibility
+@router.post("/standardize-and-match-text")
+async def standardize_and_match_text(request: TextMatchRequest) -> JSONResponse:
+    """
+    Alias for match_text endpoint to maintain frontend compatibility.
+    """
+    return await match_text(request)
+
 @router.get("/health")
 async def health_check() -> JSONResponse:
     """
@@ -550,7 +558,7 @@ async def get_system_stats() -> JSONResponse:
             "system_info": {
                 "embedding_model": "all-mpnet-base-v2",
                 "embedding_dimension": 768,
-                "llm_model": "gpt-4o-mini",
+                "llm_model": "gpt-4o-nano",
                 "similarity_metric": "cosine"
             }
         }
@@ -566,3 +574,335 @@ async def get_system_stats() -> JSONResponse:
     except Exception as e:
         logger.error(f"❌ Failed to gather system stats: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to gather system stats: {str(e)}")
+
+@router.get("/database/status")
+async def get_database_status():
+    """
+    Get comprehensive database status and collection information.
+    """
+    try:
+        logger.info("🔍 Getting database status...")
+        
+        from app.utils.qdrant_utils import QdrantUtils
+        qdrant = QdrantUtils()
+        
+        # Get all collections
+        collections_info = qdrant.client.get_collections()
+        collections = []
+        
+        for collection in collections_info.collections:
+            collection_name = collection.name
+            collection_info = qdrant.client.get_collection(collection_name)
+            
+            # Convert vector config to serializable format
+            if hasattr(collection_info.config.params.vectors, '__dict__'):
+                # Single vector config
+                vector_config = {
+                    "size": collection_info.config.params.vectors.size,
+                    "distance": str(collection_info.config.params.vectors.distance)
+                }
+            else:
+                # Multi-vector config
+                vector_config = {}
+                for name, params in collection_info.config.params.vectors.items():
+                    vector_config[name] = {
+                        "size": params.size,
+                        "distance": str(params.distance)
+                    }
+            
+            collections.append({
+                "name": collection_name,
+                "points_count": collection_info.points_count,
+                "vector_config": vector_config,
+                "status": str(collection_info.status),
+                "indexed_vectors_count": collection_info.indexed_vectors_count
+            })
+        
+        return JSONResponse({
+            "status": "success",
+            "collections": collections,
+            "total_collections": len(collections),
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get database status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database status error: {str(e)}")
+
+@router.get("/database/collections")
+async def list_all_collections():
+    """
+    List all Qdrant collections with detailed information.
+    """
+    try:
+        logger.info("📋 Listing all collections...")
+        
+        from app.utils.qdrant_utils import QdrantUtils
+        qdrant = QdrantUtils()
+        
+        collections_info = qdrant.client.get_collections()
+        detailed_collections = {}
+        
+        for collection in collections_info.collections:
+            collection_name = collection.name
+            collection_info = qdrant.client.get_collection(collection_name)
+            
+            # Get sample data
+            try:
+                sample_points = qdrant.client.scroll(
+                    collection_name=collection_name,
+                    limit=2,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                sample_data = [point.payload for point in sample_points[0]] if sample_points[0] else []
+            except:
+                sample_data = []
+            
+            # Convert vector config to serializable format
+            if hasattr(collection_info.config.params.vectors, '__dict__'):
+                # Single vector config
+                vector_config = {
+                    "size": collection_info.config.params.vectors.size,
+                    "distance": str(collection_info.config.params.vectors.distance)
+                }
+            else:
+                # Multi-vector config
+                vector_config = {}
+                for name, params in collection_info.config.params.vectors.items():
+                    vector_config[name] = {
+                        "size": params.size,
+                        "distance": str(params.distance)
+                    }
+            
+            detailed_collections[collection_name] = {
+                "points_count": collection_info.points_count,
+                "vector_config": vector_config,
+                "status": str(collection_info.status),
+                "sample_data": sample_data
+            }
+        
+        return JSONResponse({
+            "status": "success", 
+            "collections": detailed_collections,
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to list collections: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Collections listing error: {str(e)}")
+
+@router.get("/database/cv/{cv_id}")
+async def get_cv_data(cv_id: str):
+    """
+    Show what's stored for a specific CV.
+    """
+    try:
+        logger.info(f"🔍 Getting CV data for: {cv_id}")
+        
+        from app.utils.qdrant_utils import QdrantUtils
+        qdrant = QdrantUtils()
+        
+        # Try both collection formats
+        cv_data = {}
+        
+        # Check new multi-vector collection
+        try:
+            result = qdrant.client.retrieve(
+                collection_name="cv",
+                ids=[cv_id],
+                with_payload=True,
+                with_vectors=True
+            )
+            if result:
+                cv_data["multi_vector_storage"] = {
+                    "found": True,
+                    "payload": result[0].payload,
+                    "vectors": {k: f"{len(v)} dims" for k, v in result[0].vector.items()} if hasattr(result[0], 'vector') else {}
+                }
+            else:
+                cv_data["multi_vector_storage"] = {"found": False}
+        except Exception as e:
+            cv_data["multi_vector_storage"] = {"found": False, "error": str(e)}
+        
+        # Check old single-vector collection
+        try:
+            result = qdrant.client.retrieve(
+                collection_name="cvs",
+                ids=[cv_id],
+                with_payload=True,
+                with_vectors=False
+            )
+            if result:
+                cv_data["single_vector_storage"] = {
+                    "found": True,
+                    "payload": result[0].payload
+                }
+            else:
+                cv_data["single_vector_storage"] = {"found": False}
+        except Exception as e:
+            cv_data["single_vector_storage"] = {"found": False, "error": str(e)}
+        
+        # Check individual skill embeddings
+        try:
+            skills_result = qdrant.client.scroll(
+                collection_name="skills",
+                scroll_filter={
+                    "must": [{"key": "document_id", "match": {"value": cv_id}}]
+                },
+                limit=10,
+                with_payload=True
+            )
+            cv_data["individual_skills"] = {
+                "found": len(skills_result[0]) > 0,
+                "count": len(skills_result[0]),
+                "sample": [point.payload for point in skills_result[0][:3]]
+            }
+        except Exception as e:
+            cv_data["individual_skills"] = {"found": False, "error": str(e)}
+        
+        return JSONResponse({
+            "status": "success",
+            "cv_id": cv_id,
+            "storage_locations": cv_data,
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get CV data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"CV data retrieval error: {str(e)}")
+
+@router.get("/database/jd/{jd_id}")
+async def get_jd_data(jd_id: str):
+    """
+    Show what's stored for a specific JD.
+    """
+    try:
+        logger.info(f"🔍 Getting JD data for: {jd_id}")
+        
+        from app.utils.qdrant_utils import QdrantUtils
+        qdrant = QdrantUtils()
+        
+        jd_data = {}
+        
+        # Check new multi-vector collection
+        try:
+            result = qdrant.client.retrieve(
+                collection_name="jd",
+                ids=[jd_id],
+                with_payload=True,
+                with_vectors=True
+            )
+            if result:
+                jd_data["multi_vector_storage"] = {
+                    "found": True,
+                    "payload": result[0].payload,
+                    "vectors": {k: f"{len(v)} dims" for k, v in result[0].vector.items()} if hasattr(result[0], 'vector') else {}
+                }
+            else:
+                jd_data["multi_vector_storage"] = {"found": False}
+        except Exception as e:
+            jd_data["multi_vector_storage"] = {"found": False, "error": str(e)}
+        
+        # Check old single-vector collection
+        try:
+            result = qdrant.client.retrieve(
+                collection_name="jds",
+                ids=[jd_id],
+                with_payload=True,
+                with_vectors=False
+            )
+            if result:
+                jd_data["single_vector_storage"] = {
+                    "found": True,
+                    "payload": result[0].payload
+                }
+            else:
+                jd_data["single_vector_storage"] = {"found": False}
+        except Exception as e:
+            jd_data["single_vector_storage"] = {"found": False, "error": str(e)}
+        
+        return JSONResponse({
+            "status": "success",
+            "jd_id": jd_id,
+            "storage_locations": jd_data,
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get JD data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"JD data retrieval error: {str(e)}")
+
+@router.get("/database/embeddings")
+async def get_embeddings_info():
+    """
+    Show embedding structure and samples from all collections.
+    """
+    try:
+        logger.info("🔍 Getting embeddings information...")
+        
+        from app.utils.qdrant_utils import QdrantUtils
+        qdrant = QdrantUtils()
+        
+        embeddings_info = {}
+        
+        # Check multi-vector collections
+        for collection_name in ["cv", "jd"]:
+            try:
+                collection_info = qdrant.client.get_collection(collection_name)
+                sample_points = qdrant.client.scroll(
+                    collection_name=collection_name,
+                    limit=1,
+                    with_payload=True,
+                    with_vectors=True
+                )
+                
+                if sample_points[0]:
+                    point = sample_points[0][0]
+                    embeddings_info[collection_name] = {
+                        "total_points": collection_info.points_count,
+                        "vector_structure": {k: f"{len(v)} dimensions" for k, v in point.vector.items()} if hasattr(point, 'vector') else {},
+                        "sample_payload_keys": list(point.payload.keys()) if point.payload else [],
+                        "embedding_model": "all-mpnet-base-v2"
+                    }
+                else:
+                    embeddings_info[collection_name] = {
+                        "total_points": collection_info.points_count,
+                        "vector_structure": "No data",
+                        "status": "Empty collection"
+                    }
+            except Exception as e:
+                embeddings_info[collection_name] = {"error": str(e)}
+        
+        # Check individual collections
+        for collection_name in ["skills", "responsibilities"]:
+            try:
+                collection_info = qdrant.client.get_collection(collection_name)
+                sample_points = qdrant.client.scroll(
+                    collection_name=collection_name,
+                    limit=3,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                embeddings_info[collection_name] = {
+                    "total_points": collection_info.points_count,
+                    "vector_structure": "Single 768-dim vector per item",
+                    "sample_contents": [point.payload.get("content", "") for point in sample_points[0][:3]] if sample_points[0] else [],
+                    "embedding_model": "all-mpnet-base-v2"
+                }
+            except Exception as e:
+                embeddings_info[collection_name] = {"error": str(e)}
+        
+        return JSONResponse({
+            "status": "success",
+            "embeddings_info": embeddings_info,
+            "embedding_model": "all-mpnet-base-v2",
+            "vector_dimensions": 768,
+            "distance_metric": "Cosine",
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get embeddings info: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Embeddings info error: {str(e)}")

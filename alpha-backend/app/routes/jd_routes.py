@@ -3,7 +3,6 @@ JD Routes - Consolidated Job Description API endpoints
 Handles ALL Job Description operations: upload, processing, listing, and management.
 Single responsibility: Job Description document management through REST API.
 """
-
 import logging
 import os
 import uuid
@@ -11,14 +10,12 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-
 from app.services.parsing_service import get_parsing_service
 from app.services.llm_service import get_llm_service
 from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
 
 # Constants
@@ -37,19 +34,23 @@ async def upload_jd(
 ) -> JSONResponse:
     """
     Upload and process Job Description file or text.
-    Complete pipeline: file validation -> text extraction -> LLM standardization -> embedding generation -> storage.
+    Complete pipeline: file validation -> text extraction -> PII removal -> LLM standardization -> embedding generation -> storage.
     """
     try:
+        logger.info("---------- JD UPLOAD START ----------")
+        
         # Determine input type and extract text
         if file:
-            logger.info(f"📄 Processing JD file upload: {file.filename}")
+            logger.info(f"Processing JD file upload: {file.filename}")
             
             # Validate file
             if not file.filename:
+                logger.error("❌ No filename provided")
                 raise HTTPException(status_code=400, detail="No filename provided")
             
             file_ext = os.path.splitext(file.filename)[1].lower()
             if file_ext not in SUPPORTED_EXTENSIONS:
+                logger.error(f"❌ Unsupported file type: {file_ext}")
                 raise HTTPException(
                     status_code=400,
                     detail=f"Unsupported file type: {file_ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}"
@@ -61,6 +62,7 @@ async def upload_jd(
             file.file.seek(0)
             
             if file_size > MAX_FILE_SIZE:
+                logger.error(f"❌ File too large: {file_size} bytes (max: {MAX_FILE_SIZE})")
                 raise HTTPException(
                     status_code=400,
                     detail=f"File too large: {file_size} bytes (max: {MAX_FILE_SIZE})"
@@ -76,12 +78,17 @@ async def upload_jd(
                 tmp_file_path = tmp_file.name
             
             try:
-                # Extract text from file
-                logger.info("🔍 Step 1: Extracting text from JD file")
+                # Extract text from file with PII removal
+                logger.info("---------- STEP 1: TEXT EXTRACTION & PII REMOVAL ----------")
                 parsing_service = get_parsing_service()
                 parsed_result = parsing_service.process_document(tmp_file_path, "jd")
+                
                 extracted_text = parsed_result["clean_text"]
                 filename = file.filename
+                
+                logger.info(f"Extracted text length: {len(extracted_text)} chars")
+                logger.info("PII removed from JD text")
+                logger.info("--------------------------------------------------------")
                 
             finally:
                 # Clean up temporary file
@@ -89,34 +96,54 @@ async def upload_jd(
                     os.unlink(tmp_file_path)
                     
         elif jd_text:
-            logger.info("📝 Processing JD text input")
-            extracted_text = jd_text.strip()
+            logger.info("Processing JD text input")
+            logger.info("---------- STEP 1: TEXT PROCESSING & PII REMOVAL ----------")
+            
+            # Clean text input and remove PII
+            parsing_service = get_parsing_service()
+            extracted_text, _ = parsing_service.remove_pii_data(jd_text.strip())
             filename = "text_input.txt"
             
+            logger.info(f"Clean text length: {len(extracted_text)} chars")
+            logger.info("PII removed from JD text")
+            logger.info("--------------------------------------------------------")
+            
             if len(extracted_text) < 50:
+                logger.error("❌ JD text too short")
                 raise HTTPException(
                     status_code=400,
                     detail="JD text too short (minimum 50 characters required)"
                 )
                 
         else:
+            logger.error("❌ No file or text provided")
             raise HTTPException(
                 status_code=400,
                 detail="Either file upload or jd_text must be provided"
             )
         
         # Step 2: Standardize with LLM
-        logger.info("🧠 Step 2: Standardizing JD with LLM")
+        logger.info("---------- STEP 2: LLM STANDARDIZATION ----------")
+        logger.info("Sending clean text to LLM (PII removed)")
+        logger.info("--------------------------------------------")
+        
         llm_service = get_llm_service()
         standardized_data = llm_service.standardize_jd(extracted_text, filename)
         
+        logger.info("---------- LLM RESPONSE RECEIVED ----------")
+        logger.info(f"Processing time: {standardized_data.get('processing_metadata', {}).get('processing_time', 'N/A')}s")
+        logger.info(f"Model used: {standardized_data.get('processing_metadata', {}).get('model_used', 'N/A')}")
+        logger.info(f"Standardized data keys: {list(standardized_data.keys())}")
+        logger.info("-----------------------------------------")
+        
         # Step 3: Generate embeddings
-        logger.info("🔥 Step 3: Generating embeddings")
+        logger.info("---------- STEP 3: EMBEDDING GENERATION ----------")
         embedding_service = get_embedding_service()
         
         embeddings = {}
         # Skills embeddings (JDs should have exactly 20 skills)
         if standardized_data.get("skills"):
+            logger.info(f"Generating embeddings for {len(standardized_data['skills'])} skills")
             embeddings["skills"] = embedding_service.generate_skill_embeddings(
                 standardized_data["skills"]
             )
@@ -126,12 +153,14 @@ async def upload_jd(
         if not responsibilities:
             responsibilities = standardized_data.get("responsibility_sentences", [])
         if responsibilities:
+            logger.info(f"Generating embeddings for {len(responsibilities)} responsibilities")
             embeddings["responsibilities"] = embedding_service.generate_responsibility_embeddings(
                 responsibilities
             )
         
         # Title embedding
         if standardized_data.get("job_title") and standardized_data["job_title"] != "Not specified":
+            logger.info(f"Generating embedding for job title: {standardized_data['job_title']}")
             embeddings["title"] = embedding_service.generate_single_embedding(
                 standardized_data["job_title"]
             )
@@ -139,10 +168,14 @@ async def upload_jd(
         # Experience embedding
         experience = standardized_data.get("experience_years", "")
         if experience and experience != "Not specified":
+            logger.info(f"Generating embedding for experience: {experience}")
             embeddings["experience"] = embedding_service.generate_single_embedding(experience)
         
+        logger.info(f"Total embeddings generated: {len(embeddings)}")
+        logger.info("-------------------------------------------------")
+        
         # Step 4: Store in database
-        logger.info("💾 Step 4: Storing in database")
+        logger.info("---------- STEP 4: DATABASE STORAGE ----------")
         jd_id = str(uuid.uuid4())
         qdrant_utils = get_qdrant_utils()
         
@@ -155,6 +188,7 @@ async def upload_jd(
         stored_jd_id = qdrant_utils.store_jd_embeddings(jd_id, embeddings, jd_data)
         
         logger.info(f"✅ JD processed successfully: {stored_jd_id}")
+        logger.info("-----------------------------------------")
         
         return JSONResponse({
             "status": "success",
@@ -174,6 +208,7 @@ async def upload_jd(
         raise
     except Exception as e:
         logger.error(f"❌ JD upload failed: {str(e)}")
+        logger.error("---------- JD UPLOAD FAILED ----------")
         raise HTTPException(status_code=500, detail=f"JD processing failed: {str(e)}")
 
 @router.get("/jds")
@@ -295,7 +330,7 @@ async def delete_jd(jd_id: str) -> JSONResponse:
     Removes from all collections: main document, skills, and responsibilities.
     """
     try:
-        logger.info(f"🗑️ Deleting JD: {jd_id}")
+        logger.info(f"🗑 Deleting JD: {jd_id}")
         
         qdrant_utils = get_qdrant_utils()
         

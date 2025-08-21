@@ -1,3 +1,4 @@
+# alpha-backend/app/services/matching_service.py
 """
 Matching Service - Consolidated CV-JD Matching Operations
 Handles ALL matching logic between CVs and Job Descriptions.
@@ -6,7 +7,6 @@ Single responsibility: Calculate match scores and generate detailed reports.
 
 import logging
 import time
-import uuid
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 import numpy as np
@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MatchResult:
-    """Structured match result between CV and JD."""
     cv_id: str
     jd_id: str
     overall_score: float
@@ -31,511 +30,505 @@ class MatchResult:
     processing_time: float
 
 class MatchingService:
-    """
-    Consolidated service for all CV-JD matching operations.
-    Fetches embeddings, calculates similarities, and generates comprehensive reports.
-    """
-    
-    # Weighted scoring formula
-    SCORING_WEIGHTS = {
-        "skills": 0.40,
-        "responsibilities": 0.35,
-        "title": 0.15,
-        "experience": 0.10
-    }
-    
+    SCORING_WEIGHTS = {"skills": 0.80, "responsibilities": 0.15, "title": 0.025, "experience": 0.025}
+
     def __init__(self):
-        """Initialize the matching service."""
         self.embedding_service = get_embedding_service()
         self.qdrant_utils = get_qdrant_utils()
         logger.info("🎯 MatchingService initialized")
-    
-    def match_cv_against_jd(self, cv_id: str, jd_id: str) -> MatchResult:
+
+    def match_cv_against_jd_exact(self, cv_id: str, jd_id: str) -> dict:
         """
-        Main matching function - performs comprehensive CV-JD matching.
+        EXACT matching with specified weights using stored embeddings.
+        NO redundant LLM calls - use stored embeddings only.
         
         Args:
-            cv_id: CV identifier in database
-            jd_id: Job description identifier in database
+            cv_id: CV identifier
+            jd_id: JD identifier
             
         Returns:
-            Detailed match result with scores and explanations
+            Dict with exact matching results
         """
         try:
-            logger.info(f"🔍 Matching CV {cv_id} against JD {jd_id}")
+            logger.info(f"🎯 EXACT matching: CV {cv_id} vs JD {jd_id}")
             start_time = time.time()
             
-            # Retrieve CV and JD data from database
-            cv_data = self.qdrant_utils.retrieve_document(cv_id, "cv")
-            jd_data = self.qdrant_utils.retrieve_document(jd_id, "jd")
+            # Get stored embeddings (NO LLM calls)
+            cv_embeddings = self._get_stored_embeddings(cv_id, "cv")
+            jd_embeddings = self._get_stored_embeddings(jd_id, "jd")
             
-            if not cv_data:
-                raise Exception(f"CV not found: {cv_id}")
-            if not jd_data:
-                raise Exception(f"JD not found: {jd_id}")
+            if not cv_embeddings or not jd_embeddings:
+                raise Exception("Missing embeddings for CV or JD")
             
-            # Extract standardized data
-            cv_standardized = cv_data.get("structured_info", {})
-            jd_standardized = jd_data.get("structured_info", {})
+            # Calculate similarities with EXACT weights
+            scores = {}
             
-            # Retrieve or generate embeddings
-            cv_embeddings = self._get_document_embeddings(cv_id, cv_standardized, "cv")
-            jd_embeddings = self._get_document_embeddings(jd_id, jd_standardized, "jd")
-            
-            # Calculate similarity scores
-            skills_analysis = self._calculate_skills_similarity(
-                jd_embeddings["skills"], 
-                cv_embeddings["skills"],
-                jd_standardized.get("skills", []),
-                cv_standardized.get("skills", [])
+            # 80% - Skills matching (20 skill vectors vs 20 skill vectors)
+            skills_score = self._calculate_skills_similarity_exact(
+                cv_embeddings["skill_vectors"], 
+                jd_embeddings["skill_vectors"]
             )
+            scores["skills_score"] = skills_score * 0.80
+            logger.info(f"Skills similarity: {skills_score:.3f} (weighted: {scores['skills_score']:.3f})")
             
-            responsibilities_analysis = self._calculate_responsibilities_similarity(
-                jd_embeddings["responsibilities"], 
-                cv_embeddings["responsibilities"],
-                jd_standardized.get("responsibilities", []),
-                cv_standardized.get("responsibilities", [])
+            # 15% - Responsibilities matching (10 vs 10 vectors)
+            responsibilities_score = self._calculate_responsibilities_similarity_exact(
+                cv_embeddings["responsibility_vectors"],
+                jd_embeddings["responsibility_vectors"] 
             )
+            scores["responsibilities_score"] = responsibilities_score * 0.15
+            logger.info(f"Responsibilities similarity: {responsibilities_score:.3f} (weighted: {scores['responsibilities_score']:.3f})")
             
-            title_similarity = self._calculate_title_similarity(
-                jd_embeddings.get("title"), 
-                cv_embeddings.get("title")
+            # 2.5% - Experience matching (1 vs 1 vector)
+            experience_score = self._cosine_similarity_lists(
+                cv_embeddings["experience_vector"][0],
+                jd_embeddings["experience_vector"][0]
             )
+            scores["experience_score"] = experience_score * 0.025
+            logger.info(f"Experience similarity: {experience_score:.3f} (weighted: {scores['experience_score']:.3f})")
             
-            experience_match = self._analyze_experience_match(
-                jd_standardized.get("experience_years", ""),
-                cv_standardized.get("experience_years", "")
+            # 2.5% - Job title matching (1 vs 1 vector)  
+            job_title_score = self._cosine_similarity_lists(
+                cv_embeddings["job_title_vector"][0],
+                jd_embeddings["job_title_vector"][0]
             )
+            scores["job_title_score"] = job_title_score * 0.025
+            logger.info(f"Job title similarity: {job_title_score:.3f} (weighted: {scores['job_title_score']:.3f})")
             
-            # Generate comprehensive match result
-            result = self._create_match_result(
-                cv_id=cv_id,
-                jd_id=jd_id,
-                cv_standardized=cv_standardized,
-                jd_standardized=jd_standardized,
-                skills_analysis=skills_analysis,
-                responsibilities_analysis=responsibilities_analysis,
-                title_similarity=title_similarity,
-                experience_match=experience_match,
-                processing_time=time.time() - start_time
-            )
+            # Final score calculation
+            final_score = sum(scores.values())
+            processing_time = time.time() - start_time
             
-            logger.info(f"✅ Matching completed: {result.overall_score:.1f}% overall score")
+            result = {
+                "cv_id": cv_id,
+                "jd_id": jd_id,
+                "final_score": final_score,
+                "final_score_percentage": final_score * 100,
+                "breakdown": scores,
+                "processing_time": processing_time,
+                "vector_counts": {
+                    "cv_skill_vectors": len(cv_embeddings.get("skill_vectors", [])),
+                    "cv_responsibility_vectors": len(cv_embeddings.get("responsibility_vectors", [])),
+                    "jd_skill_vectors": len(jd_embeddings.get("skill_vectors", [])),
+                    "jd_responsibility_vectors": len(jd_embeddings.get("responsibility_vectors", []))
+                }
+            }
+            
+            logger.info(f"✅ EXACT matching complete: {final_score:.3f} ({final_score*100:.1f}%) in {processing_time:.2f}s")
             return result
             
         except Exception as e:
-            logger.error(f"❌ Matching failed: {str(e)}")
-            raise Exception(f"CV-JD matching failed: {str(e)}")
+            logger.error(f"❌ EXACT matching failed: {str(e)}")
+            raise Exception(f"CV-JD exact matching failed: {str(e)}")
     
-    def bulk_match(self, jd_id: str, cv_ids: List[str], top_k: int = 10) -> List[MatchResult]:
-        """
-        Perform bulk matching of one JD against multiple CVs.
-        
-        Args:
-            jd_id: Job description identifier
-            cv_ids: List of CV identifiers
-            top_k: Number of top matches to return
-            
-        Returns:
-            List of match results sorted by overall score
-        """
+    def _get_stored_embeddings(self, doc_id: str, doc_type: str) -> dict:
+        """Get stored embeddings from the embeddings collection."""
         try:
-            logger.info(f"🚀 Bulk matching JD {jd_id} against {len(cv_ids)} CVs")
-            start_time = time.time()
+            collection_name = f"{doc_type}_embeddings"
             
-            results = []
-            for cv_id in cv_ids:
-                try:
-                    result = self.match_cv_against_jd(cv_id, jd_id)
-                    results.append(result)
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to match CV {cv_id}: {str(e)}")
-                    continue
+            # Get all embedding vectors for this document
+            search_result = self.qdrant_utils.client.scroll(
+                collection_name=collection_name,
+                scroll_filter={
+                    "must": [{"key": "document_id", "match": {"value": doc_id}}]
+                },
+                limit=50,  # Should be exactly 32 vectors
+                with_payload=True,
+                with_vectors=True
+            )
             
-            # Sort by overall score (descending)
-            results.sort(key=lambda x: x.overall_score, reverse=True)
+            if not search_result[0]:
+                logger.warning(f"No embeddings found for {doc_id} in {collection_name}")
+                return {}
             
-            # Return top k results
-            top_results = results[:top_k]
+            # Organize vectors by type
+            embeddings = {
+                "skill_vectors": [],
+                "responsibility_vectors": [],
+                "experience_vector": [],
+                "job_title_vector": []
+            }
             
-            processing_time = time.time() - start_time
-            logger.info(f"✅ Bulk matching completed: {len(top_results)} results in {processing_time:.2f}s")
+            for point in search_result[0]:
+                vector_type = point.payload.get("vector_type")
+                vector_index = point.payload.get("vector_index", 0)
+                
+                if vector_type == "skill":
+                    # Ensure we have exactly 20 skill vectors
+                    while len(embeddings["skill_vectors"]) <= vector_index:
+                        embeddings["skill_vectors"].append(None)
+                    embeddings["skill_vectors"][vector_index] = point.vector
+                elif vector_type == "responsibility":
+                    # Ensure we have exactly 10 responsibility vectors
+                    while len(embeddings["responsibility_vectors"]) <= vector_index:
+                        embeddings["responsibility_vectors"].append(None)
+                    embeddings["responsibility_vectors"][vector_index] = point.vector
+                elif vector_type == "experience":
+                    embeddings["experience_vector"] = [point.vector]
+                elif vector_type == "job_title":
+                    embeddings["job_title_vector"] = [point.vector]
             
-            return top_results
+            # Filter out None values and ensure correct sizes
+            embeddings["skill_vectors"] = [v for v in embeddings["skill_vectors"] if v is not None][:20]
+            embeddings["responsibility_vectors"] = [v for v in embeddings["responsibility_vectors"] if v is not None][:10]
             
-        except Exception as e:
-            logger.error(f"❌ Bulk matching failed: {str(e)}")
-            raise Exception(f"Bulk matching failed: {str(e)}")
-    
-    def find_top_candidates(self, jd_id: str, limit: int = 10) -> List[MatchResult]:
-        """
-        Find top CV candidates for a given JD using vector similarity search.
-        
-        Args:
-            jd_id: Job description identifier
-            limit: Maximum number of candidates to return
-            
-        Returns:
-            List of top matching candidates
-        """
-        try:
-            logger.info(f"🔍 Finding top {limit} candidates for JD {jd_id}")
-            
-            # Get all CVs from database
-            all_cvs = self.qdrant_utils.list_documents("cv")
-            cv_ids = [cv["id"] for cv in all_cvs]
-            
-            # Perform bulk matching
-            results = self.bulk_match(jd_id, cv_ids, top_k=limit)
-            
-            logger.info(f"✅ Found {len(results)} top candidates")
-            return results
-            
-        except Exception as e:
-            logger.error(f"❌ Top candidate search failed: {str(e)}")
-            raise Exception(f"Top candidate search failed: {str(e)}")
-    
-    def _get_document_embeddings(self, doc_id: str, standardized_data: Dict[str, Any], doc_type: str) -> Dict[str, Any]:
-        """
-        Retrieve or generate embeddings for a document.
-        
-        Args:
-            doc_id: Document identifier
-            standardized_data: Structured document data
-            doc_type: "cv" or "jd"
-            
-        Returns:
-            Dictionary containing all embeddings for the document
-        """
-        try:
-            # Try to retrieve existing embeddings from database
-            stored_embeddings = self.qdrant_utils.retrieve_embeddings(doc_id, doc_type)
-            
-            if stored_embeddings:
-                logger.debug(f"Using stored embeddings for {doc_type} {doc_id}")
-                return stored_embeddings
-            
-            # Generate new embeddings if not found
-            logger.info(f"Generating new embeddings for {doc_type} {doc_id}")
-            
-            embeddings = {}
-            
-            # Skills embeddings
-            skills = standardized_data.get("skills", [])
-            if skills:
-                embeddings["skills"] = self.embedding_service.generate_skill_embeddings(skills)
-            
-            # Responsibilities embeddings
-            responsibilities = standardized_data.get("responsibilities", [])
-            if not responsibilities:
-                responsibilities = standardized_data.get("responsibility_sentences", [])
-            if responsibilities:
-                embeddings["responsibilities"] = self.embedding_service.generate_responsibility_embeddings(responsibilities)
-            
-            # Title embedding
-            job_title = standardized_data.get("job_title", "")
-            if job_title and job_title != "Not specified":
-                embeddings["title"] = self.embedding_service.generate_single_embedding(job_title)
-            
-            # Experience embedding
-            experience = standardized_data.get("experience_years", "")
-            if not experience:
-                experience = standardized_data.get("years_of_experience", "")
-            if experience and experience != "Not specified":
-                embeddings["experience"] = self.embedding_service.generate_single_embedding(experience)
-            
-            # Store embeddings for future use
-            self.qdrant_utils.store_embeddings(doc_id, embeddings, doc_type)
+            logger.info(f"Retrieved {len(embeddings['skill_vectors'])} skill vectors, {len(embeddings['responsibility_vectors'])} responsibility vectors")
             
             return embeddings
             
         except Exception as e:
-            logger.error(f"❌ Failed to get embeddings for {doc_type} {doc_id}: {str(e)}")
-            raise Exception(f"Embedding retrieval failed: {str(e)}")
+            logger.error(f"❌ Failed to get stored embeddings for {doc_id}: {str(e)}")
+            return {}
     
-    def _calculate_skills_similarity(self, jd_skills_embeddings: Dict[str, np.ndarray], cv_skills_embeddings: Dict[str, np.ndarray], jd_skills: List[str], cv_skills: List[str]) -> Dict[str, Any]:
-        """Calculate detailed skills similarity analysis."""
-        if not jd_skills_embeddings or not cv_skills_embeddings:
-            return {
-                "skill_match_percentage": 0.0,
-                "matched_skills": 0,
-                "total_jd_skills": len(jd_skills),
-                "matches": [],
-                "unmatched_jd_skills": jd_skills
-            }
-        
-        logger.debug(f"Calculating skills similarity: {len(jd_skills)} JD skills vs {len(cv_skills)} CV skills")
-        
-        matches = []
-        matched_skills = 0
-        
-        for jd_skill in jd_skills:
-            if jd_skill not in jd_skills_embeddings:
-                continue
-                
-            best_match = None
-            best_similarity = 0.0
-            
-            jd_embedding = jd_skills_embeddings[jd_skill]
-            
-            for cv_skill in cv_skills:
-                if cv_skill not in cv_skills_embeddings:
-                    continue
-                    
-                cv_embedding = cv_skills_embeddings[cv_skill]
-                similarity = self.embedding_service.calculate_cosine_similarity(jd_embedding, cv_embedding)
-                
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_match = cv_skill
-            
-            if best_match and best_similarity >= self.embedding_service.SIMILARITY_THRESHOLDS["skills"]["minimum"]:
-                matched_skills += 1
-                match_quality = self.embedding_service.get_match_quality(best_similarity, "skills")
-                
-                matches.append({
-                    "jd_skill": jd_skill,
-                    "cv_skill": best_match,
-                    "similarity": best_similarity,
-                    "quality": match_quality
-                })
-        
-        # Calculate match percentage
-        total_jd_skills = len(jd_skills)
-        skill_match_percentage = (matched_skills / total_jd_skills * 100) if total_jd_skills > 0 else 0
-        
-        # Find unmatched skills
-        matched_jd_skills = [match["jd_skill"] for match in matches]
-        unmatched_jd_skills = [skill for skill in jd_skills if skill not in matched_jd_skills]
-        
-        return {
-            "skill_match_percentage": skill_match_percentage,
-            "matched_skills": matched_skills,
-            "total_jd_skills": total_jd_skills,
-            "matches": matches,
-            "unmatched_jd_skills": unmatched_jd_skills
-        }
-    
-    def _calculate_responsibilities_similarity(self, jd_resp_embeddings: Dict[str, np.ndarray], cv_resp_embeddings: Dict[str, np.ndarray], jd_responsibilities: List[str], cv_responsibilities: List[str]) -> Dict[str, Any]:
-        """Calculate detailed responsibilities similarity analysis."""
-        if not jd_resp_embeddings or not cv_resp_embeddings:
-            return {
-                "responsibility_match_percentage": 0.0,
-                "matched_responsibilities": 0,
-                "total_jd_responsibilities": len(jd_responsibilities),
-                "matches": [],
-                "unmatched_jd_responsibilities": jd_responsibilities
-            }
-        
-        logger.debug(f"Calculating responsibilities similarity: {len(jd_responsibilities)} JD vs {len(cv_responsibilities)} CV")
-        
-        matches = []
-        matched_responsibilities = 0
-        
-        for jd_resp in jd_responsibilities:
-            if jd_resp not in jd_resp_embeddings:
-                continue
-                
-            best_match = None
-            best_similarity = 0.0
-            
-            jd_embedding = jd_resp_embeddings[jd_resp]
-            
-            for cv_resp in cv_responsibilities:
-                if cv_resp not in cv_resp_embeddings:
-                    continue
-                    
-                cv_embedding = cv_resp_embeddings[cv_resp]
-                similarity = self.embedding_service.calculate_cosine_similarity(jd_embedding, cv_embedding)
-                
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_match = cv_resp
-            
-            if best_match and best_similarity >= self.embedding_service.SIMILARITY_THRESHOLDS["responsibilities"]["minimum"]:
-                matched_responsibilities += 1
-                match_quality = self.embedding_service.get_match_quality(best_similarity, "responsibilities")
-                
-                matches.append({
-                    "jd_responsibility": jd_resp,
-                    "cv_responsibility": best_match,
-                    "similarity": best_similarity,
-                    "quality": match_quality
-                })
-        
-        # Calculate match percentage
-        total_jd_responsibilities = len(jd_responsibilities)
-        responsibility_match_percentage = (matched_responsibilities / total_jd_responsibilities * 100) if total_jd_responsibilities > 0 else 0
-        
-        # Find unmatched responsibilities
-        matched_jd_responsibilities = [match["jd_responsibility"] for match in matches]
-        unmatched_jd_responsibilities = [resp for resp in jd_responsibilities if resp not in matched_jd_responsibilities]
-        
-        return {
-            "responsibility_match_percentage": responsibility_match_percentage,
-            "matched_responsibilities": matched_responsibilities,
-            "total_jd_responsibilities": total_jd_responsibilities,
-            "matches": matches,
-            "unmatched_jd_responsibilities": unmatched_jd_responsibilities
-        }
-    
-    def _calculate_title_similarity(self, jd_title_embedding: Optional[np.ndarray], cv_title_embedding: Optional[np.ndarray]) -> float:
-        """Calculate similarity between job titles."""
-        if jd_title_embedding is None or cv_title_embedding is None:
+    def _calculate_skills_similarity_exact(self, cv_skills: list, jd_skills: list) -> float:
+        """Calculate average similarity across all skill vectors (20 vs 20)."""
+        if not cv_skills or not jd_skills:
             return 0.0
         
-        return self.embedding_service.calculate_cosine_similarity(jd_title_embedding, cv_title_embedding)
-    
-    def _analyze_experience_match(self, jd_experience: str, cv_experience: str) -> Tuple[bool, float]:
-        """
-        Analyze if CV experience meets JD requirements.
+        similarities = []
+        for cv_skill in cv_skills:
+            max_sim = max([self._cosine_similarity_lists(cv_skill, jd_skill) for jd_skill in jd_skills])
+            similarities.append(max_sim)
         
-        Returns:
-            Tuple of (meets_requirement: bool, score: float)
-        """
+        return float(np.mean(similarities))
+    
+    def _calculate_responsibilities_similarity_exact(self, cv_resp: list, jd_resp: list) -> float:
+        """Calculate average similarity across all responsibility vectors (10 vs 10)."""  
+        if not cv_resp or not jd_resp:
+            return 0.0
+        
+        similarities = []
+        for cv_r in cv_resp:
+            max_sim = max([self._cosine_similarity_lists(cv_r, jd_r) for jd_r in jd_resp])
+            similarities.append(max_sim)
+        
+        return float(np.mean(similarities))
+    
+    def _cosine_similarity_lists(self, vec1: list, vec2: list) -> float:
+        """Calculate cosine similarity between two vectors as lists."""
         try:
-            import re
+            vec1_np = np.array(vec1)
+            vec2_np = np.array(vec2)
             
-            # Extract numeric years from experience strings
-            jd_years = re.findall(r'(\d+)', jd_experience)
-            cv_years = re.findall(r'(\d+)', cv_experience)
+            # Calculate cosine similarity
+            dot_product = np.dot(vec1_np, vec2_np)
+            norm1 = np.linalg.norm(vec1_np)
+            norm2 = np.linalg.norm(vec2_np)
             
-            if jd_years and cv_years:
-                required_years = int(jd_years[0])
-                candidate_years = int(cv_years[0])
-                
-                if candidate_years >= required_years:
-                    # Calculate score based on how much they exceed requirement
-                    excess_years = candidate_years - required_years
-                    score = min(100.0, 80.0 + (excess_years * 5))  # Base 80% + bonus for extra experience
-                    return True, score
-                else:
-                    # Partial credit for having some experience
-                    score = max(30.0, (candidate_years / required_years) * 60)
-                    return False, score
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
             
-            # Default to neutral if can't parse
-            return True, 75.0
+            similarity = dot_product / (norm1 * norm2)
+            return float(max(0.0, min(1.0, similarity)))  # Clamp to [0, 1]
             
         except Exception as e:
-            logger.warning(f"⚠️ Experience analysis failed: {str(e)}")
+            logger.error(f"❌ Cosine similarity calculation failed: {str(e)}")
+            return 0.0
+
+    def match_cv_against_jd(self, cv_id: str, jd_id: str) -> MatchResult:
+        try:
+            logger.info("---------- MATCHING START ----------")
+            logger.info(f"CV ID: {cv_id}")
+            logger.info(f"JD ID: {jd_id}")
+            logger.info("Using stored standardized data (no LLM call)")
+            logger.info("---------------------------------")
+            
+            start_time = time.time()
+            
+            # Step 1: Retrieve stored documents (no LLM call)
+            logger.info("---------- STEP 1: RETRIEVING STORED DATA ----------")
+            cv_data = self.qdrant_utils.retrieve_document(cv_id, "cv")
+            jd_data = self.qdrant_utils.retrieve_document(jd_id, "jd")
+            
+            if not cv_data:
+                logger.error(f"❌ CV not found: {cv_id}")
+                raise Exception(f"CV not found: {cv_id}")
+            if not jd_data:
+                logger.error(f"❌ JD not found: {jd_id}")
+                raise Exception(f"JD not found: {jd_id}")
+            
+            logger.info(f"CV data keys: {list(cv_data.keys())}")
+            logger.info(f"JD data keys: {list(jd_data.keys())}")
+            logger.info("----------------------------------------------------")
+            
+            # Step 2: Extract standardized data
+            logger.info("---------- STEP 2: EXTRACTING STANDARDIZED DATA ----------")
+            cv_std = cv_data.get("structured_info", {})
+            jd_std = jd_data.get("structured_info", {})
+            
+            logger.info(f"CV skills count: {len(cv_std.get('skills', []))}")
+            logger.info(f"JD skills count: {len(jd_std.get('skills', []))}")
+            logger.info(f"CV responsibilities count: {len(cv_std.get('responsibilities', []))}")
+            logger.info(f"JD responsibilities count: {len(jd_std.get('responsibilities', []) or jd_std.get('responsibility_sentences', []))}")
+            logger.info("----------------------------------------------------------")
+            
+            # Step 3: Get embeddings
+            logger.info("---------- STEP 3: RETRIEVING EMBEDDINGS ----------")
+            cv_emb = self._get_document_embeddings(cv_id, cv_std, "cv")
+            jd_emb = self._get_document_embeddings(jd_id, jd_std, "jd")
+            
+            logger.info(f"CV embeddings: {list(cv_emb.keys())}")
+            logger.info(f"JD embeddings: {list(jd_emb.keys())}")
+            logger.info("--------------------------------------------------")
+            
+            # Step 4: Calculate similarities
+            logger.info("---------- STEP 4: CALCULATING SIMILARITIES ----------")
+            
+            # Skills similarity
+            logger.info("Calculating skills similarity...")
+            skills_analysis = self._calculate_skills_similarity(
+                jd_emb.get("skills", {}), cv_emb.get("skills", {}),
+                jd_std.get("skills", []), cv_std.get("skills", [])
+            )
+            logger.info(f"Skills match: {skills_analysis['skill_match_percentage']:.1f}%")
+            
+            # Responsibilities similarity
+            logger.info("Calculating responsibilities similarity...")
+            responsibilities_analysis = self._calculate_responsibilities_similarity(
+                jd_emb.get("responsibilities", {}), cv_emb.get("responsibilities", {}),
+                jd_std.get("responsibilities", []) or jd_std.get("responsibility_sentences", []),
+                cv_std.get("responsibilities", [])
+            )
+            logger.info(f"Responsibilities match: {responsibilities_analysis['responsibility_match_percentage']:.1f}%")
+            
+            # Title similarity
+            logger.info("Calculating title similarity...")
+            title_similarity = self._calculate_title_similarity(jd_emb.get("title"), cv_emb.get("title"))
+            logger.info(f"Title similarity: {title_similarity:.3f}")
+            
+            # Experience match
+            logger.info("Analyzing experience match...")
+            experience_match = self._analyze_experience_match(jd_std.get("experience_years", ""), cv_std.get("experience_years", ""))
+            logger.info(f"Experience match: {experience_match[1]:.1f}% (meets requirement: {experience_match[0]})")
+            
+            logger.info("------------------------------------------------------")
+            
+            # Step 5: Create match result
+            logger.info("---------- STEP 5: CREATING MATCH RESULT ----------")
+            result = self._create_match_result(
+                cv_id=cv_id, jd_id=jd_id, cv_standardized=cv_std, jd_standardized=jd_std,
+                skills_analysis=skills_analysis, responsibilities_analysis=responsibilities_analysis,
+                title_similarity=title_similarity, experience_match=experience_match,
+                processing_time=time.time() - start_time
+            )
+            
+            logger.info(f"Overall score: {result.overall_score:.1f}%")
+            logger.info(f"Processing time: {result.processing_time:.2f}s")
+            logger.info("----------------------------------------------------")
+            
+            logger.info("---------- MATCHING COMPLETE ----------")
+            logger.info(f"Final score: {result.overall_score:.1f}%")
+            logger.info("------------------------------------")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Matching failed: {str(e)}")
+            logger.error("---------- MATCHING FAILED ----------")
+            raise Exception(f"CV-JD matching failed: {str(e)}")
+
+    def bulk_match(self, jd_id: str, cv_ids: List[str], top_k: int = 10) -> List[MatchResult]:
+        try:
+            logger.info(f"🚀 Bulk matching JD {jd_id} against {len(cv_ids)} CVs")
+            results: List[MatchResult] = []
+            for cv_id in cv_ids:
+                try:
+                    results.append(self.match_cv_against_jd(cv_id, jd_id))
+                except Exception as e:
+                    logger.warning(f"⚠ Failed to match CV {cv_id}: {str(e)}")
+                    continue
+            results.sort(key=lambda x: x.overall_score, reverse=True)
+            return results[:top_k]
+        except Exception as e:
+            logger.error(f"❌ Bulk matching failed: {str(e)}")
+            raise Exception(f"Bulk matching failed: {str(e)}")
+
+    def find_top_candidates(self, jd_id: str, limit: int = 10) -> List[MatchResult]:
+        try:
+            logger.info(f"🔍 Finding top {limit} candidates for JD {jd_id}")
+            all_cvs = self.qdrant_utils.list_documents("cv")
+            cv_ids = [cv["id"] for cv in all_cvs]
+            return self.bulk_match(jd_id, cv_ids, top_k=limit)
+        except Exception as e:
+            logger.error(f"❌ Top candidate search failed: {str(e)}")
+            raise Exception(f"Top candidate search failed: {str(e)}")
+
+    def _get_document_embeddings(self, doc_id: str, std: Dict[str, Any], doc_type: str) -> Dict[str, Any]:
+        try:
+            stored = self.qdrant_utils.retrieve_embeddings(doc_id, doc_type)
+            if stored:
+                return stored
+
+            logger.info(f"Generating new embeddings for {doc_type} {doc_id}")
+            e: Dict[str, Any] = {}
+            if std.get("skills"):
+                e["skills"] = self.embedding_service.generate_skill_embeddings(std["skills"])
+            responsibilities = std.get("responsibilities", []) or std.get("responsibility_sentences", [])
+            if responsibilities:
+                e["responsibilities"] = self.embedding_service.generate_responsibility_embeddings(responsibilities)
+            title = std.get("job_title", "")
+            if title and title != "Not specified":
+                e["title"] = self.embedding_service.generate_single_embedding(title)
+            exp = std.get("experience_years", "") or std.get("years_of_experience", "")
+            if exp and exp != "Not specified":
+                e["experience"] = self.embedding_service.generate_single_embedding(exp)
+            self.qdrant_utils.store_embeddings(doc_id, e, doc_type)
+            return e
+        except Exception as e:
+            logger.error(f"❌ Failed to get embeddings for {doc_type} {doc_id}: {str(e)}")
+            raise Exception(f"Embedding retrieval failed: {str(e)}")
+
+    def _calculate_skills_similarity(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray], jd_skills: List[str], cv_skills: List[str]) -> Dict[str, Any]:
+        if not jd_emb or not cv_emb:
+            return {"skill_match_percentage": 0.0, "matched_skills": 0, "total_jd_skills": len(jd_skills), "matches": [], "unmatched_jd_skills": jd_skills}
+        matches, matched_count = [], 0
+        for jd_skill in jd_skills:
+            v1 = jd_emb.get(jd_skill)
+            if v1 is None:
+                continue
+            best_match, best_sim = None, 0.0
+            for cv_skill in cv_skills:
+                v2 = cv_emb.get(cv_skill)
+                if v2 is None:
+                    continue
+                sim = self.embedding_service.calculate_cosine_similarity(v1, v2)
+                if sim > best_sim:
+                    best_sim, best_match = sim, cv_skill
+            if best_match and best_sim >= self.embedding_service.SIMILARITY_THRESHOLDS["skills"]["minimum"]:
+                matched_count += 1
+                matches.append({"jd_skill": jd_skill, "cv_skill": best_match, "similarity": best_sim, "quality": self.embedding_service.get_match_quality(best_sim, "skills")})
+        total = len(jd_skills) or 1
+        pct = matched_count / total * 100
+        unmatched = [s for s in jd_skills if s not in [m["jd_skill"] for m in matches]]
+        return {"skill_match_percentage": pct, "matched_skills": matched_count, "total_jd_skills": len(jd_skills), "matches": matches, "unmatched_jd_skills": unmatched}
+
+    def _calculate_responsibilities_similarity(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray], jd_resps: List[str], cv_resps: List[str]) -> Dict[str, Any]:
+        if not jd_emb or not cv_emb:
+            return {"responsibility_match_percentage": 0.0, "matched_responsibilities": 0, "total_jd_responsibilities": len(jd_resps), "matches": [], "unmatched_jd_responsibilities": jd_resps}
+        matches, matched_count = [], 0
+        for jd_r in jd_resps:
+            v1 = jd_emb.get(jd_r)
+            if v1 is None:
+                continue
+            best_match, best_sim = None, 0.0
+            for cv_r in cv_resps:
+                v2 = cv_emb.get(cv_r)
+                if v2 is None:
+                    continue
+                sim = self.embedding_service.calculate_cosine_similarity(v1, v2)
+                if sim > best_sim:
+                    best_sim, best_match = sim, cv_r
+            if best_match and best_sim >= self.embedding_service.SIMILARITY_THRESHOLDS["responsibilities"]["minimum"]:
+                matched_count += 1
+                matches.append({"jd_responsibility": jd_r, "cv_responsibility": best_match, "similarity": best_sim, "quality": self.embedding_service.get_match_quality(best_sim, "responsibilities")})
+        total = len(jd_resps) or 1
+        pct = matched_count / total * 100
+        unmatched = [r for r in jd_resps if r not in [m["jd_responsibility"] for m in matches]]
+        return {"responsibility_match_percentage": pct, "matched_responsibilities": matched_count, "total_jd_responsibilities": len(jd_resps), "matches": matches, "unmatched_jd_responsibilities": unmatched}
+
+    def _calculate_title_similarity(self, jd_title_vec: Optional[np.ndarray], cv_title_vec: Optional[np.ndarray]) -> float:
+        if jd_title_vec is None or cv_title_vec is None:
+            return 0.0
+        return self.embedding_service.calculate_cosine_similarity(jd_title_vec, cv_title_vec)
+
+    def _analyze_experience_match(self, jd_experience: str, cv_experience: str) -> Tuple[bool, float]:
+        try:
+            import re
+            jd_years = re.findall(r'(\d+)', jd_experience)
+            cv_years = re.findall(r'(\d+)', cv_experience)
+            if jd_years and cv_years:
+                req, cand = int(jd_years[0]), int(cv_years[0])
+                if cand >= req:
+                    score = min(100.0, 80.0 + (cand - req) * 5)
+                    return True, score
+                else:
+                    score = max(30.0, (cand / max(req, 1)) * 60)
+                    return False, score
             return True, 75.0
-    
-    def _create_match_result(self, cv_id: str, jd_id: str, cv_standardized: Dict[str, Any], jd_standardized: Dict[str, Any], skills_analysis: Dict[str, Any], responsibilities_analysis: Dict[str, Any], title_similarity: float, experience_match: Tuple[bool, float], processing_time: float) -> MatchResult:
-        """Create comprehensive match result with detailed analysis."""
-        
-        # Extract scores
+        except Exception as e:
+            logger.warning(f"⚠ Experience analysis failed: {str(e)}")
+            return True, 75.0
+
+    def _create_match_result(self, cv_id: str, jd_id: str, cv_standardized: Dict[str, Any], jd_standardized: Dict[str, Any],
+                              skills_analysis: Dict[str, Any], responsibilities_analysis: Dict[str, Any],
+                              title_similarity: float, experience_match: Tuple[bool, float], processing_time: float) -> MatchResult:
+
         skills_score = skills_analysis["skill_match_percentage"]
         responsibilities_score = responsibilities_analysis["responsibility_match_percentage"]
         title_score = title_similarity * 100
-        experience_meets_req, experience_score = experience_match
-        
-        # Calculate weighted overall score
+        meets, experience_score = experience_match
+
         overall_score = (
             skills_score * self.SCORING_WEIGHTS["skills"] +
             responsibilities_score * self.SCORING_WEIGHTS["responsibilities"] +
             title_score * self.SCORING_WEIGHTS["title"] +
             experience_score * self.SCORING_WEIGHTS["experience"]
         )
-        
-        # Generate explanation
-        explanation = self._generate_match_explanation(
-            skills_analysis, responsibilities_analysis, title_similarity, experience_meets_req
-        )
-        
-        # Create detailed match information
+
+        explanation_parts = []
+        if skills_score >= 80:
+            explanation_parts.append(f"Excellent skills match: {skills_analysis['matched_skills']}/{skills_analysis['total_jd_skills']} ({skills_score:.0f}%)")
+        elif skills_score >= 60:
+            explanation_parts.append(f"Good skills match: {skills_analysis['matched_skills']}/{skills_analysis['total_jd_skills']} ({skills_score:.0f}%)")
+        else:
+            explanation_parts.append(f"Limited skills match: {skills_analysis['matched_skills']}/{skills_analysis['total_jd_skills']} ({skills_score:.0f}%)")
+
+        if responsibilities_score >= 70:
+            explanation_parts.append(f"Strong experience alignment: {responsibilities_analysis['matched_responsibilities']}/{responsibilities_analysis['total_jd_responsibilities']} ({responsibilities_score:.0f}%)")
+        elif responsibilities_score >= 50:
+            explanation_parts.append(f"Moderate experience alignment: {responsibilities_analysis['matched_responsibilities']}/{responsibilities_analysis['total_jd_responsibilities']} ({responsibilities_score:.0f}%)")
+        else:
+            explanation_parts.append(f"Limited experience alignment: {responsibilities_analysis['matched_responsibilities']}/{responsibilities_analysis['total_jd_responsibilities']} ({responsibilities_score:.0f}%)")
+
+        if title_similarity >= 0.8:
+            explanation_parts.append("Job title strongly aligned")
+        elif title_similarity >= 0.6:
+            explanation_parts.append("Job title moderately aligned")
+        else:
+            explanation_parts.append("Job title limited alignment")
+
+        explanation_parts.append("Experience requirements satisfied" if meets else "Experience requirements may not be fully met")
+        explanation = ". ".join(explanation_parts) + "."
+
         match_details = {
             "skills_analysis": {
                 "total_required": skills_analysis["total_jd_skills"],
                 "matched": skills_analysis["matched_skills"],
                 "match_percentage": skills_analysis["skill_match_percentage"],
-                "matches": skills_analysis["matches"][:5],  # Top 5 for display
+                "matches": skills_analysis["matches"][:5],
                 "unmatched": skills_analysis["unmatched_jd_skills"]
             },
             "responsibilities_analysis": {
                 "total_required": responsibilities_analysis["total_jd_responsibilities"],
                 "matched": responsibilities_analysis["matched_responsibilities"],
                 "match_percentage": responsibilities_analysis["responsibility_match_percentage"],
-                "matches": responsibilities_analysis["matches"][:5],  # Top 5 for display
+                "matches": responsibilities_analysis["matches"][:5],
                 "unmatched": responsibilities_analysis["unmatched_jd_responsibilities"]
             },
             "title_analysis": {
                 "jd_title": jd_standardized.get("job_title", ""),
                 "cv_title": cv_standardized.get("job_title", ""),
                 "similarity": title_similarity,
-                "match_quality": self.embedding_service.get_match_quality(title_similarity, "skills")  # Use skills threshold
+                "match_quality": self.embedding_service.get_match_quality(title_similarity, "skills")
             },
             "experience_analysis": {
                 "jd_requirement": jd_standardized.get("experience_years", ""),
                 "cv_experience": cv_standardized.get("experience_years", ""),
-                "meets_requirement": experience_meets_req,
+                "meets_requirement": meets,
                 "score": experience_score
             },
             "scoring_weights": self.SCORING_WEIGHTS
         }
-        
+
         return MatchResult(
-            cv_id=cv_id,
-            jd_id=jd_id,
-            overall_score=overall_score,
-            skills_score=skills_score,
-            responsibilities_score=responsibilities_score,
-            title_score=title_score,
-            experience_score=experience_score,
-            explanation=explanation,
-            match_details=match_details,
-            processing_time=processing_time
+            cv_id=cv_id, jd_id=jd_id, overall_score=overall_score,
+            skills_score=skills_score, responsibilities_score=responsibilities_score,
+            title_score=title_score, experience_score=experience_score,
+            explanation=explanation, match_details=match_details, processing_time=processing_time
         )
-    
-    def _generate_match_explanation(self, skills_analysis: Dict[str, Any], responsibilities_analysis: Dict[str, Any], title_similarity: float, experience_meets_req: bool) -> str:
-        """Generate human-readable explanation of the match."""
-        explanations = []
-        
-        # Skills analysis
-        skill_pct = skills_analysis["skill_match_percentage"]
-        matched_skills = skills_analysis["matched_skills"]
-        total_skills = skills_analysis["total_jd_skills"]
-        
-        if skill_pct >= 80:
-            explanations.append(f"Excellent skills match: {matched_skills}/{total_skills} required skills matched ({skill_pct:.0f}%)")
-        elif skill_pct >= 60:
-            explanations.append(f"Good skills match: {matched_skills}/{total_skills} required skills matched ({skill_pct:.0f}%)")
-        else:
-            explanations.append(f"Limited skills match: Only {matched_skills}/{total_skills} required skills matched ({skill_pct:.0f}%)")
-        
-        # Responsibilities analysis
-        resp_pct = responsibilities_analysis["responsibility_match_percentage"]
-        matched_resp = responsibilities_analysis["matched_responsibilities"]
-        total_resp = responsibilities_analysis["total_jd_responsibilities"]
-        
-        if resp_pct >= 70:
-            explanations.append(f"Strong experience alignment: {matched_resp}/{total_resp} responsibilities matched ({resp_pct:.0f}%)")
-        elif resp_pct >= 50:
-            explanations.append(f"Moderate experience alignment: {matched_resp}/{total_resp} responsibilities matched ({resp_pct:.0f}%)")
-        else:
-            explanations.append(f"Limited experience alignment: {matched_resp}/{total_resp} responsibilities matched ({resp_pct:.0f}%)")
-        
-        # Title match
-        if title_similarity >= 0.8:
-            explanations.append("Job title strongly aligned with candidate profile")
-        elif title_similarity >= 0.6:
-            explanations.append("Job title moderately aligned with candidate profile")
-        else:
-            explanations.append("Job title shows limited alignment with candidate profile")
-        
-        # Experience match
-        if experience_meets_req:
-            explanations.append("Experience requirements satisfied")
-        else:
-            explanations.append("Experience requirements may not be fully met")
-        
-        return ". ".join(explanations) + "."
 
-# Global instance
 _matching_service: Optional[MatchingService] = None
-
 def get_matching_service() -> MatchingService:
-    """Get global matching service instance."""
     global _matching_service
     if _matching_service is None:
         _matching_service = MatchingService()

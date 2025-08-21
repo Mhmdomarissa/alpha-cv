@@ -1,9 +1,4 @@
-"""
-Embedding Service - Consolidated Vector Embedding Operations
-Handles ALL embedding generation using all-mpnet-base-v2 model.
-Single responsibility: Convert text into vector embeddings for similarity matching.
-"""
-
+# embedding_service.py
 import logging
 import time
 from typing import List, Dict, Any, Optional
@@ -68,6 +63,97 @@ class EmbeddingService:
         except Exception as e:
             logger.error(f"❌ Failed to initialize embedding model: {str(e)}")
             raise Exception(f"Embedding model initialization failed: {str(e)}")
+    
+    def generate_document_embeddings(self, structured_data: dict) -> dict:
+        """
+        Generate EXACTLY 32 vectors per document as specified.
+        
+        Args:
+            structured_data: Dict containing skills, responsibilities, experience_years, job_title
+            
+        Returns:
+            Dict with exactly 32 vectors:
+            - skill_vectors: [20 vectors - one per skill]
+            - responsibility_vectors: [10 vectors - one per responsibility]
+            - experience_vector: [1 vector for experience]
+            - job_title_vector: [1 vector for job title]
+        """
+        try:
+            logger.info(f"🔢 Generating EXACTLY 32 vectors per document")
+            
+            embeddings = {}
+            
+            # Generate 20 skill vectors (one per skill)
+            skills = structured_data.get("skills", [])[:20]  # Ensure exactly 20
+            if len(skills) < 20:
+                # Pad with generic skills if needed
+                while len(skills) < 20:
+                    skills.append("General professional skills and competencies")
+            
+            skill_vectors = []
+            for i, skill in enumerate(skills):
+                if skill and skill.strip():
+                    vector = self.generate_single_embedding(skill)
+                    skill_vectors.append(vector.tolist())
+                    logger.debug(f"Generated skill vector {i+1}/20")
+                else:
+                    # Fallback for empty skills
+                    vector = self.generate_single_embedding("General professional skills")
+                    skill_vectors.append(vector.tolist())
+            
+            embeddings["skill_vectors"] = skill_vectors
+            embeddings["skills"] = skills  # Store the actual skills for reference
+            
+            # Generate 10 responsibility vectors (one per responsibility)
+            responsibilities = structured_data.get("responsibilities", [])[:10]  # Ensure exactly 10
+            if len(responsibilities) < 10:
+                # Pad with generic responsibilities if needed
+                while len(responsibilities) < 10:
+                    responsibilities.append("General professional responsibilities and duties")
+            
+            responsibility_vectors = []
+            for i, resp in enumerate(responsibilities):
+                if resp and resp.strip():
+                    vector = self.generate_single_embedding(resp)
+                    responsibility_vectors.append(vector.tolist())
+                    logger.debug(f"Generated responsibility vector {i+1}/10")
+                else:
+                    # Fallback for empty responsibilities
+                    vector = self.generate_single_embedding("General professional responsibilities")
+                    responsibility_vectors.append(vector.tolist())
+            
+            embeddings["responsibility_vectors"] = responsibility_vectors
+            embeddings["responsibilities"] = responsibilities  # Store for reference
+            
+            # Generate 1 experience vector
+            experience_text = structured_data.get("experience_years", "0")
+            if not experience_text or not experience_text.strip():
+                experience_text = "0 years"
+            experience_vector = self.generate_single_embedding(f"Experience: {experience_text} years")
+            embeddings["experience_vector"] = [experience_vector.tolist()]
+            embeddings["experience_years"] = experience_text
+            
+            # Generate 1 job title vector
+            job_title = structured_data.get("job_title", "")
+            if not job_title or not job_title.strip():
+                job_title = "Professional"
+            job_title_vector = self.generate_single_embedding(job_title)
+            embeddings["job_title_vector"] = [job_title_vector.tolist()]
+            embeddings["job_title"] = job_title
+            
+            # Verify we have exactly 32 vectors
+            total_vectors = len(embeddings["skill_vectors"]) + len(embeddings["responsibility_vectors"]) + len(embeddings["experience_vector"]) + len(embeddings["job_title_vector"])
+            
+            logger.info(f"✅ Generated exactly {total_vectors} vectors per document (20 skills + 10 resp + 1 exp + 1 title = 32)")
+            
+            if total_vectors != 32:
+                raise ValueError(f"Expected exactly 32 vectors, got {total_vectors}")
+            
+            return embeddings
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate document embeddings: {str(e)}")
+            raise Exception(f"Document embedding generation failed: {str(e)}")
     
     def generate_single_embedding(self, text: str) -> np.ndarray:
         """
