@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
         const backendFormData = new FormData();
         backendFormData.append('files', file);
         
-        const standardizeUrl = `${backendUrl}/api/cv/cv/upload-cv`;
+        const standardizeUrl = `${backendUrl}/api/cv/upload-cv`;
         console.log('📄 [CV UPLOAD] Uploading text CV via backend:', standardizeUrl);
         
         const standardizeResponse = await fetch(standardizeUrl, {
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
         extractedData = await standardizeResponse.json();
       } else {
         // For non-text files, use the proper CV upload endpoint
-        const standardizeUrl = `${backendUrl}/api/cv/cv/upload-cv`;
+        const standardizeUrl = `${backendUrl}/api/cv/upload-cv`;
         console.log('📄 [CV UPLOAD] Processing CV file via backend:', standardizeUrl);
         
         const extractResponse = await fetch(standardizeUrl, {

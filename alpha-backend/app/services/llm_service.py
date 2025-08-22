@@ -36,7 +36,7 @@ class LLMService:
             raise ValueError("OPENAI_API_KEY environment variable is required")
             
         self.base_url = "https://api.openai.com/v1/chat/completions"
-        self.default_model = "gpt-4o-nano"
+        self.default_model = "gpt-4o-mini"
         self.max_retries = 2  # Reduce retries for faster failure
         self.base_delay = 0.5  # Faster retry delay
         
