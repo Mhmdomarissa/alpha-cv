@@ -19,7 +19,7 @@ from app.utils.qdrant_utils import get_qdrant_utils
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/cv", tags=["CV Management"])
+router = APIRouter(tags=["CV Management"])
 
 # Constants
 SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.doc', '.txt', '.png', '.jpg', '.jpeg', '.tiff', '.bmp'}
