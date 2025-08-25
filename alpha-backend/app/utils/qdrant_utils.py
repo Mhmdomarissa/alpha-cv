@@ -604,6 +604,86 @@ class QdrantUtils:
             logger.error(f"❌ Failed to store embeddings {doc_id}: {str(e)}")
             return False
 
+    def get_structured_cv(self, cv_id: str) -> Optional[Dict[str, Any]]:
+        """Get structured CV data by ID."""
+        try:
+            result = self.client.scroll(
+                collection_name="cv_structured",
+                scroll_filter=Filter(
+                    must=[{"key": "document_id", "match": {"value": cv_id}}]
+                ),
+                limit=1,
+                with_payload=True
+            )
+            
+            if result[0]:
+                point = result[0][0]
+                structured_data = point.payload.get("structured_info", {})
+                return {
+                    "id": cv_id,
+                    "name": structured_data.get("name", cv_id),
+                    "job_title": structured_data.get("job_title"),
+                    "years_of_experience": structured_data.get("years_of_experience", 0),
+                    "skills_sentences": structured_data.get("skills", [])[:20],  # Limit to 20
+                    "responsibility_sentences": structured_data.get("responsibilities", [])[:10]  # Limit to 10
+                }
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get structured CV {cv_id}: {str(e)}")
+            return None
+
+    def get_structured_jd(self, jd_id: str) -> Optional[Dict[str, Any]]:
+        """Get structured JD data by ID."""
+        try:
+            result = self.client.scroll(
+                collection_name="jd_structured",
+                scroll_filter=Filter(
+                    must=[{"key": "document_id", "match": {"value": jd_id}}]
+                ),
+                limit=1,
+                with_payload=True
+            )
+            
+            if result[0]:
+                point = result[0][0]
+                structured_data = point.payload.get("structured_info", {})
+                return {
+                    "id": jd_id,
+                    "job_title": structured_data.get("job_title"),
+                    "years_of_experience": structured_data.get("years_of_experience", 0),
+                    "skills_sentences": structured_data.get("skills", [])[:20],  # Limit to 20
+                    "responsibility_sentences": structured_data.get("responsibilities", [])[:10]  # Limit to 10
+                }
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get structured JD {jd_id}: {str(e)}")
+            return None
+
+    def list_all_cvs(self) -> List[Dict[str, str]]:
+        """List all CVs with minimal metadata."""
+        try:
+            result = self.client.scroll(
+                collection_name="cv_structured",
+                limit=1000,  # Reasonable limit
+                with_payload=True
+            )
+            
+            cvs = []
+            for point in result[0]:
+                structured_data = point.payload.get("structured_info", {})
+                cvs.append({
+                    "id": point.payload.get("document_id", str(point.id)),
+                    "name": structured_data.get("name", point.payload.get("document_id", str(point.id)))
+                })
+            
+            return cvs
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to list CVs: {str(e)}")
+            return []
+
 # Global instance
 _qdrant_utils: Optional[QdrantUtils] = None
 

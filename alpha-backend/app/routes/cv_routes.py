@@ -213,6 +213,50 @@ async def upload_cv(files: List[UploadFile] = File(..., description="CV files to
 
 # Functions continue below
 
+@router.get("/cvs")
+async def list_cvs() -> JSONResponse:
+    """
+    List all processed CVs in the database.
+    Returns comprehensive metadata for each CV.
+    """
+    try:
+        logger.info("📋 Listing all CVs")
+        
+        qdrant_utils = get_qdrant_utils()
+        cvs = qdrant_utils.list_documents("cv")
+        
+        # Enhance CV data with additional metadata
+        enhanced_cvs = []
+        for cv in cvs:
+            enhanced_cv = {
+                "id": cv["id"],
+                "filename": cv["filename"],
+                "upload_date": cv["upload_date"],
+                "full_name": cv.get("full_name", "Not specified"),
+                "job_title": cv.get("job_title", "Not specified"),
+                "years_of_experience": cv.get("years_of_experience", "Not specified"),
+                "skills_count": len(cv.get("skills", [])),
+                "skills": cv.get("skills", []),
+                "responsibilities_count": len(cv.get("responsibilities", [])),
+                "text_length": len(cv.get("extracted_text", "")),
+                "has_structured_data": bool(cv.get("structured_info"))
+            }
+            enhanced_cvs.append(enhanced_cv)
+        
+        # Sort by upload date (newest first)
+        enhanced_cvs.sort(key=lambda x: x["upload_date"], reverse=True)
+        
+        logger.info(f"📋 Found {len(enhanced_cvs)} CVs")
+        
+        return JSONResponse({
+            "status": "success",
+            "count": len(enhanced_cvs),
+            "cvs": enhanced_cvs
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to list CVs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list CVs: {str(e)}")
 
 @router.get("/cv/{cv_id}")
 async def get_cv_details(cv_id: str) -> JSONResponse:

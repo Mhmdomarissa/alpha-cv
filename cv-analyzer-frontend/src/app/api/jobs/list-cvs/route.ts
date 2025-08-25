@@ -4,9 +4,9 @@ import { getApiBaseUrl } from '@/lib/config';
 export async function GET() {
   try {
     const backendUrl = getApiBaseUrl('server');
-    console.log('🔄 Proxying list-cvs request to backend:', `${backendUrl}/api/jobs/list-cvs`);
+    console.log('🔄 Proxying list-cvs request to backend:', `${backendUrl}/api/cv/cvs`);
     
-    const response = await fetch(`${backendUrl}/api/jobs/list-cvs`, {
+    const response = await fetch(`${backendUrl}/api/cv/cvs`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

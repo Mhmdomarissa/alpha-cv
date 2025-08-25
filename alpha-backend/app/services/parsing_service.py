@@ -6,7 +6,7 @@ Single responsibility: Extract clean text from documents.
 import logging
 import os
 import re
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
 import tempfile
 import shutil
@@ -17,6 +17,8 @@ import docx  # python-docx for DOCX
 import pytesseract  # OCR for images
 from PIL import Image
 from io import BytesIO
+
+
 
 logger = logging.getLogger(__name__)
 

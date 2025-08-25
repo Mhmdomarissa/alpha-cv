@@ -56,6 +56,60 @@ export interface MatchResult {
   raw_cv_data?: string;
 }
 
+// New Matching API Types
+export type MatchWeights = { 
+  skills: number; 
+  responsibilities: number; 
+  job_title: number; 
+  experience: number; 
+};
+
+export type MatchRequest = {
+  jd_id?: string; 
+  jd_text?: string;
+  cv_ids?: string[];
+  weights?: MatchWeights;
+  top_alternatives?: number;
+};
+
+export type AssignmentItem = {
+  type: "skill" | "responsibility";
+  jd_index: number; 
+  jd_item: string;
+  cv_index: number; 
+  cv_item: string;
+  score: number;
+};
+
+export type AlternativesItem = { 
+  jd_index: number; 
+  items: { cv_index: number; cv_item: string; score: number }[] 
+};
+
+export type CandidateBreakdown = {
+  cv_id: string; 
+  cv_name: string; 
+  cv_job_title?: string; 
+  cv_years: number;
+  skills_score: number; 
+  responsibilities_score: number; 
+  job_title_score: number; 
+  years_score: number;
+  overall_score: number;
+  skills_assignments: AssignmentItem[];
+  responsibilities_assignments: AssignmentItem[];
+  skills_alternatives: AlternativesItem[];
+  responsibilities_alternatives: AlternativesItem[];
+};
+
+export type MatchResponse = {
+  jd_id?: string; 
+  jd_job_title?: string; 
+  jd_years: number;
+  normalized_weights: MatchWeights;
+  candidates: CandidateBreakdown[];
+};
+
 export interface AnalysisRequest {
   jd_text: string;
   cv_texts: string[];
@@ -609,5 +663,32 @@ export const createApiMethod = <T>(
     throw error;
   });
 };
+
+export async function matchCandidates(payload: MatchRequest): Promise<MatchResponse> {
+  const { data } = await client.post<MatchResponse>("/match", payload);
+  return data;
+}
+
+// CV API functions
+export async function fetchCVs(): Promise<CV[]> {
+  const { data } = await client.get<{ status: string; count: number; cvs: CV[] }>("/list-cvs");
+  return data.cvs;
+}
+
+export async function fetchCVDetails(cvId: string): Promise<CV> {
+  const { data } = await client.get<CV>(`/cv/${cvId}`);
+  return data;
+}
+
+// JD API functions  
+export async function fetchJDs(): Promise<JobDescription[]> {
+  const { data } = await client.get<{ status: string; count: number; jds: JobDescription[] }>("/list-jds");
+  return data.jds;
+}
+
+export async function fetchJDDetails(jdId: string): Promise<JobDescription> {
+  const { data } = await client.get<JobDescription>(`/jd/${jdId}`);
+  return data;
+}
 
 export default api;

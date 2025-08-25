@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { CV, JobDescription, MatchResult, SystemStatus } from '@/lib/api';
+import { CV, JobDescription, MatchResult, SystemStatus, MatchWeights, MatchResponse, matchCandidates, MatchRequest, fetchCVs, fetchJDs } from '@/lib/api';
 
 interface LoadingState {
   isLoading: boolean;
@@ -42,6 +42,12 @@ interface AppState {
   analysisProgress: number;
   analysisStep: string;
   
+  // Matching State
+  matchWeights: MatchWeights;
+  matchResult: MatchResponse | null;
+  isMatching: boolean;
+  matchError: string | null;
+  
   // Actions
   setLoading: (loading: boolean) => void;
   setCurrentTab: (tab: 'upload' | 'database' | 'results') => void;
@@ -72,11 +78,17 @@ interface AppState {
   setAnalysisStep: (step: string) => void;
   resetAnalysis: () => void;
   
+  // Matching Actions
+  setMatchWeights: (weights: MatchWeights) => void;
+  runMatch: (req: { jd_id?: string; jd_text?: string; cv_ids?: string[] }) => Promise<void>;
+  
   // Data Actions
   addCV: (cv: CV) => void;
   removeCV: (cvId: string) => void;
   addJD: (jd: JobDescription) => void;
   removeJD: (jdId: string) => void;
+  loadCVs: () => Promise<void>;
+  loadJDs: () => Promise<void>;
 }
 
 export const useAppStore = create<AppState>()(
@@ -109,6 +121,12 @@ export const useAppStore = create<AppState>()(
       isAnalyzing: false,
       analysisProgress: 0,
       analysisStep: '',
+      
+      // Matching State
+      matchWeights: { skills: 80, responsibilities: 15, job_title: 2.5, experience: 2.5 },
+      matchResult: null,
+      isMatching: false,
+      matchError: null,
 
       // UI Actions
       setLoading: (loading) => set({ isLoading: loading }),
@@ -179,6 +197,28 @@ export const useAppStore = create<AppState>()(
       resetAnalysis: () =>
         set({ isAnalyzing: false, analysisProgress: 0, analysisStep: '' }),
 
+      // Matching Actions
+      setMatchWeights: (weights) => set({ matchWeights: weights }),
+      
+      runMatch: async (req) => {
+        const { matchWeights } = useAppStore.getState();
+        set({ isMatching: true, matchError: null });
+        try {
+          const res = await matchCandidates({
+            jd_id: req.jd_id,
+            jd_text: req.jd_text,
+            cv_ids: req.cv_ids,
+            weights: matchWeights,
+            top_alternatives: 3
+          });
+          set({ matchResult: res });
+        } catch (e: any) {
+          set({ matchError: e?.response?.data?.detail ?? e.message });
+        } finally {
+          set({ isMatching: false });
+        }
+      },
+
       // Data Management Actions
       addCV: (cv) =>
         set((state) => ({
@@ -199,6 +239,31 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           jobDescriptions: state.jobDescriptions.filter((j) => j.id !== jdId),
         })),
+
+      // Load data from backend
+      loadCVs: async () => {
+        set({ isLoading: true });
+        try {
+          const cvs = await fetchCVs();
+          set({ cvs, hasLoadedDatabaseData: true });
+        } catch (error) {
+          console.error('Failed to load CVs:', error);
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      loadJDs: async () => {
+        set({ isLoading: true });
+        try {
+          const jds = await fetchJDs();
+          set({ jobDescriptions: jds, hasLoadedDatabaseData: true });
+        } catch (error) {
+          console.error('Failed to load JDs:', error);
+        } finally {
+          set({ isLoading: false });
+        }
+      },
     }),
     {
       name: 'cv-analyzer-store',
