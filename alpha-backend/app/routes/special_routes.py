@@ -11,12 +11,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.services.matching_service import get_matching_service
-from app.services.embedding_service import get_embedding_service
-from app.services.llm_service import get_llm_service
+from app.services.matching_service import get_matching_service, normalize_weights, years_score, hungarian_mean
+from app.services.embedding_service import get_embedding_service, get_model
+from app.services.llm_service import get_llm_service, extract_jd
 from app.services.parsing_service import get_parsing_service
 from app.utils.qdrant_utils import get_qdrant_utils
 from app.utils.cache import get_cache_service
+from app.schemas.matching import MatchRequest as NewMatchRequest, MatchResponse, CandidateBreakdown, AssignmentItem, AlternativesItem, MatchWeights
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -906,3 +908,187 @@ async def get_embeddings_info():
     except Exception as e:
         logger.error(f"❌ Failed to get embeddings info: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Embeddings info error: {str(e)}")
+
+@router.post("/match", response_model=MatchResponse)
+async def match_candidates(req: NewMatchRequest):
+    """
+    Match candidates against a job description using Hungarian algorithm.
+    Returns deterministic, explainable matching results.
+    """
+    try:
+        logger.info(f"🎯 Starting matching request: JD={req.jd_id or 'text'}, CVs={len(req.cv_ids) if req.cv_ids else 'all'}")
+        
+        # 1) Resolve JD
+        if not (req.jd_id or req.jd_text):
+            raise HTTPException(status_code=400, detail="Provide jd_id or jd_text")
+
+        qdrant = get_qdrant_utils()
+        
+        if req.jd_id:
+            jd = qdrant.get_structured_jd(req.jd_id)
+            if not jd:
+                raise HTTPException(status_code=404, detail="JD not found")
+        else:
+            # Extract with LLM service then structure exactly like DB structured JD
+            jd = await extract_jd(req.jd_text)
+
+        jd_title = jd.get("job_title") or ""
+        jd_years = int(jd.get("years_of_experience") or 0)
+        jd_skills = [s for s in jd.get("skills_sentences", []) if s]
+        jd_resps = [r for r in jd.get("responsibility_sentences", []) if r]
+
+        # 2) Candidates list
+        candidates_meta = []
+        if req.cv_ids:
+            for cid in req.cv_ids:
+                c = qdrant.get_structured_cv(cid)
+                if c: 
+                    candidates_meta.append(c)
+        else:
+            # all CVs
+            for meta in qdrant.list_all_cvs():
+                c = qdrant.get_structured_cv(meta["id"])
+                if c: 
+                    candidates_meta.append(c)
+
+        if not candidates_meta:
+            raise HTTPException(status_code=404, detail="No CVs available for matching")
+
+        # 3) Weights
+        w = req.weights.dict() if req.weights else MatchWeights().dict()
+        w_norm = normalize_weights(w)
+
+        # 4) Embeddings model
+        model = get_model()
+
+        # Precompute JD embeddings
+        emb_jd_sk = model.encode(jd_skills, normalize_embeddings=True) if (w_norm["skills"] > 0 and jd_skills) else np.array([])
+        emb_jd_rs = model.encode(jd_resps, normalize_embeddings=True) if (w_norm["responsibilities"] > 0 and jd_resps) else np.array([])
+        emb_jd_ti = model.encode([jd_title], normalize_embeddings=True) if (w_norm["job_title"] > 0 and jd_title) else None
+
+        resp_candidates = []
+        for c in candidates_meta:
+            cv_id = c["id"]
+            cv_name = c.get("name") or cv_id
+            cv_title = c.get("job_title") or ""
+            cv_years = int(c.get("years_of_experience") or 0)
+            cv_skills = [s for s in c.get("skills_sentences", []) if s]
+            cv_resps = [r for r in c.get("responsibility_sentences", []) if r]
+
+            # Encode CV
+            emb_cv_sk = model.encode(cv_skills, normalize_embeddings=True) if (w_norm["skills"] > 0 and cv_skills and emb_jd_sk.size) else np.array([])
+            emb_cv_rs = model.encode(cv_resps, normalize_embeddings=True) if (w_norm["responsibilities"] > 0 and cv_resps and emb_jd_rs.size) else np.array([])
+
+            # Similarity matrices and Hungarian assignment
+            skills_score = 0.0
+            skills_assign = []
+            skills_alts = []
+            if emb_jd_sk.size and emb_cv_sk.size:
+                sim = np.matmul(emb_jd_sk, emb_cv_sk.T)  # cosine because normalized
+                score, pairs = hungarian_mean(sim)
+                skills_score = score
+                skills_assign = [
+                    AssignmentItem(
+                        type="skill",
+                        jd_index=rr,
+                        jd_item=jd_skills[rr],
+                        cv_index=cc,
+                        cv_item=cv_skills[cc],
+                        score=float(sim[rr, cc])
+                    )
+                    for (rr, cc, _) in pairs
+                ]
+                
+                # Alternatives (top-K excluding assigned)
+                jd_to_assigned_cv = {rr: cc for (rr, cc, _) in pairs}
+                topK = int(req.top_alternatives or 3)
+                for j in range(sim.shape[0]):
+                    row = [(i, float(sim[j, i])) for i in range(sim.shape[1])]
+                    row.sort(key=lambda x: x[1], reverse=True)
+                    items = []
+                    for i, sc in row:
+                        if jd_to_assigned_cv.get(j) == i:  # skip assigned
+                            continue
+                        items.append({"cv_index": i, "cv_item": cv_skills[i], "score": sc})
+                        if len(items) >= topK: 
+                            break
+                    skills_alts.append(AlternativesItem(jd_index=j, items=items))
+
+            resp_score = 0.0
+            resp_assign = []
+            resp_alts = []
+            if emb_jd_rs.size and emb_cv_rs.size:
+                simr = np.matmul(emb_jd_rs, emb_cv_rs.T)
+                score_r, pairs_r = hungarian_mean(simr)
+                resp_score = score_r
+                resp_assign = [
+                    AssignmentItem(
+                        type="responsibility",
+                        jd_index=rr,
+                        jd_item=jd_resps[rr],
+                        cv_index=cc,
+                        cv_item=cv_resps[cc],
+                        score=float(simr[rr, cc])
+                    )
+                    for (rr, cc, _) in pairs_r
+                ]
+                
+                jd_to_assigned_cv_r = {rr: cc for (rr, cc, _) in pairs_r}
+                topK = int(req.top_alternatives or 3)
+                for j in range(simr.shape[0]):
+                    row = [(i, float(simr[j, i])) for i in range(simr.shape[1])]
+                    row.sort(key=lambda x: x[1], reverse=True)
+                    items = []
+                    for i, sc in row:
+                        if jd_to_assigned_cv_r.get(j) == i:
+                            continue
+                        items.append({"cv_index": i, "cv_item": cv_resps[i], "score": sc})
+                        if len(items) >= topK: 
+                            break
+                    resp_alts.append(AlternativesItem(jd_index=j, items=items))
+
+            title_score = 0.0
+            if w_norm["job_title"] > 0 and emb_jd_ti is not None and cv_title:
+                emb_cv_ti = model.encode([cv_title], normalize_embeddings=True)
+                title_score = float(np.dot(emb_jd_ti, emb_cv_ti.T)[0][0])
+
+            exp_score = years_score(jd_years, cv_years) if w_norm["experience"] > 0 else 0.0
+
+            overall = (w_norm["skills"] * skills_score +
+                      w_norm["responsibilities"] * resp_score +
+                      w_norm["job_title"] * title_score +
+                      w_norm["experience"] * exp_score)
+
+            resp_candidates.append(CandidateBreakdown(
+                cv_id=cv_id,
+                cv_name=cv_name,
+                cv_job_title=cv_title,
+                cv_years=cv_years,
+                skills_score=skills_score,
+                responsibilities_score=resp_score,
+                job_title_score=title_score,
+                years_score=exp_score,
+                overall_score=overall,
+                skills_assignments=skills_assign,
+                responsibilities_assignments=resp_assign,
+                skills_alternatives=skills_alts,
+                responsibilities_alternatives=resp_alts
+            ))
+
+        resp_candidates.sort(key=lambda x: x.overall_score, reverse=True)
+        
+        logger.info(f"✅ Matching complete: {len(resp_candidates)} candidates processed")
+        
+        return MatchResponse(
+            jd_id=req.jd_id,
+            jd_job_title=jd_title,
+            jd_years=jd_years,
+            normalized_weights=MatchWeights(**w_norm),
+            candidates=resp_candidates
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Matching failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Matching error: {str(e)}")

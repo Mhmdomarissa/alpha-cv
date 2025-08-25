@@ -600,6 +600,23 @@ JOB DESCRIPTION:
         return combined
 
 # Global instance
+async def extract_jd(jd_text: str) -> Dict[str, Any]:
+    """Extract JD structure from raw text - thin wrapper for matching endpoint."""
+    service = get_llm_service()
+    response = service.standardize_jd_content(jd_text)
+    
+    if not response.success:
+        raise Exception(f"JD extraction failed: {response.error_message}")
+    
+    # Return in same format as structured JD from database
+    data = response.data
+    return {
+        "job_title": data.get("job_title", ""),
+        "years_of_experience": data.get("years_of_experience", 0),
+        "skills_sentences": data.get("skills", [])[:20],
+        "responsibility_sentences": data.get("responsibilities", [])[:10]
+    }
+
 _llm_service: Optional[LLMService] = None
 
 def get_llm_service() -> LLMService:

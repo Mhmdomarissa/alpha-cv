@@ -10,11 +10,42 @@ import time
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils
 
 logger = logging.getLogger(__name__)
+
+def normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
+    """Normalize weights to sum to 1.0"""
+    total = sum(weights.values())
+    if total <= 0:
+        return {"skills": 0.25, "responsibilities": 0.25, "job_title": 0.25, "experience": 0.25}
+    return {k: v/total for k, v in weights.items()}
+
+def years_score(jd_years: int, cv_years: int) -> float:
+    """Calculate experience score based on years ratio"""
+    if jd_years <= 0:
+        return 1.0
+    return min(1.0, float(cv_years) / float(jd_years))
+
+def hungarian_mean(sim_matrix: np.ndarray) -> Tuple[float, List[Tuple[int, int, float]]]:
+    """Apply Hungarian algorithm for optimal assignment and return mean score"""
+    if sim_matrix.size == 0:
+        return 0.0, []
+    
+    # Use negative matrix for maximization
+    row_indices, col_indices = linear_sum_assignment(-sim_matrix)
+    
+    # Create assignment pairs with scores
+    pairs = []
+    for r, c in zip(row_indices, col_indices):
+        pairs.append((int(r), int(c), float(sim_matrix[r, c])))
+    
+    # Calculate mean score
+    score = float(np.mean([p[2] for p in pairs])) if pairs else 0.0
+    return score, pairs
 
 @dataclass
 class MatchResult:

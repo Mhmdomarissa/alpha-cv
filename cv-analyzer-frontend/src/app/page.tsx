@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useCallback, lazy, Suspense, memo } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
 import { Toaster } from 'react-hot-toast';
 import { useAppStore } from '@/stores/appStore';
 import Layout from '@/components/common/Layout';
@@ -14,15 +14,7 @@ const UploadPage = lazy(() => import('@/components/cv/UploadPage'));
 const DatabasePage = lazy(() => import('@/components/matching/DatabasePage'));
 const ResultsPage = lazy(() => import('@/components/matching/ResultsPage'));
 
-// Create a client
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5, // 5 minutes
-      gcTime: 1000 * 60 * 10, // 10 minutes (renamed from cacheTime)
-    },
-  },
-});
+
 
 const AppContent = memo(function AppContent() {
   const { 
@@ -147,7 +139,7 @@ const AppContent = memo(function AppContent() {
 
 export default function Home() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <>
       <AppContent />
       <Toaster
         position="top-right"
@@ -176,6 +168,6 @@ export default function Home() {
           },
         }}
       />
-    </QueryClientProvider>
+    </>
   );
 }

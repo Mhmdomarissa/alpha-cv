@@ -478,3 +478,8 @@ def get_embedding_service() -> EmbeddingService:
     if _embedding_service is None:
         _embedding_service = EmbeddingService()
     return _embedding_service
+
+def get_model() -> SentenceTransformer:
+    """Get the loaded SentenceTransformer model for direct use."""
+    service = get_embedding_service()
+    return service.model

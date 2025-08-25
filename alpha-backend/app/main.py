@@ -5,7 +5,7 @@ Single responsibility: Application configuration and startup.
 """
 import logging
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -135,41 +135,7 @@ async def http_exception_handler(request, exc):
         content={"error": exc.detail,"status_code": exc.status_code,"type": "http_error"}
     )
 
-@app.get("/health-check")
-async def health_check_alternative():
-    try:
-        qdrant_utils = get_qdrant_utils()
-        qdrant_health = qdrant_utils.health_check()
-        return {
-            "status": "healthy" if qdrant_health["status"] == "healthy" else "degraded",
-            "qdrant": qdrant_health,
-            "api_version": "2.0.0",
-            "environment": {
-                "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
-                "qdrant_host": os.getenv("QDRANT_HOST", "qdrant"),
-                "qdrant_port": os.getenv("QDRANT_PORT", "6333")
-            }
-        }
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"status":"unhealthy","error":str(e),"api_version":"2.0.0"})
 
-@app.get("/health")
-async def health_legacy():
-    try:
-        qdrant_utils = get_qdrant_utils()
-        qdrant_health = qdrant_utils.health_check()
-        return {
-            "status": "healthy" if qdrant_health["status"] == "healthy" else "degraded",
-            "qdrant": qdrant_health,
-            "api_version": "2.0.0",
-            "environment": {
-                "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
-                "qdrant_host": os.getenv("QDRANT_HOST", "qdrant"),
-                "qdrant_port": os.getenv("QDRANT_PORT", "6333")
-            }
-        }
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"status":"unhealthy","error":str(e),"api_version":"2.0.0"})
 
 if __name__ == "__main__":
     import uvicorn, os

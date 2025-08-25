@@ -341,7 +341,9 @@ const DatabasePage = () => {
     isLoading,
     setLoading,
     hasLoadedDatabaseData,
-    setHasLoadedDatabaseData
+    setHasLoadedDatabaseData,
+    loadCVs,
+    loadJDs
   } = useAppStore();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -368,29 +370,24 @@ const DatabasePage = () => {
     setLoading(true);
     
     try {
-      // 🚀 FORCE LOAD - DIRECT BACKEND CALL
-      console.log('🚀 [FORCE LOAD] Using direct backend route...');
-      const response = await fetch('/api/force-load');
-      const data = await response.json();
+      // Load CVs and JDs using proper API endpoints
+      console.log('📋 Loading CVs and JDs from backend...');
       
-      console.log('🚀 [FORCE LOAD] Response:', data);
+      const [cvsData, jdsData] = await Promise.all([
+        loadCVs(),
+        loadJDs()
+      ]);
       
-      if (data.success) {
-        const realCVs = data.cvs || [];
-        const realJDs = data.jds || [];
-        
-        console.log('🚀 [FORCE LOAD] Setting state:', { cvs: realCVs.length, jds: realJDs.length });
-        setCVs(realCVs);
-        setJobDescriptions(realJDs);
-        
-        toast.success(`🎉 LOADED: ${realCVs.length} CVs and ${realJDs.length} JDs!`);
-        
-        // Set loading complete flags to prevent re-loading
-        setHasLoadedDatabaseData(true);
-        console.log('🚀 [FORCE LOAD] SUCCESS! hasLoadedDatabaseData set to true');
-      } else {
-        throw new Error(data.error || 'Failed to load data');
-      }
+      console.log('📋 Data loaded successfully:', { 
+        cvs: cvs.length, 
+        jds: jobDescriptions.length 
+      });
+      
+      toast.success(`🎉 LOADED: ${cvs.length} CVs and ${jobDescriptions.length} JDs!`);
+      
+      // Set loading complete flags to prevent re-loading
+      setHasLoadedDatabaseData(true);
+      console.log('📋 SUCCESS! hasLoadedDatabaseData set to true');
     } catch (error) {
       console.error('Failed to load data:', error);
       toast.error('Failed to load database content. Using demo data.');
