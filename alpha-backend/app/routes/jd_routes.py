@@ -187,6 +187,12 @@ async def upload_jd(
         
         stored_jd_id = qdrant_utils.store_jd_embeddings(jd_id, embeddings, jd_data)
         
+        # Store structured data for matching
+        qdrant_utils.store_structured_data(jd_id, "jd", {
+            "document_id": jd_id,
+            "structured_info": standardized_data
+        })
+        
         logger.info(f"✅ JD processed successfully: {stored_jd_id}")
         logger.info("-----------------------------------------")
         

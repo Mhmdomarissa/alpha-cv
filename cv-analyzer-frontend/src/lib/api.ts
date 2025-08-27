@@ -1,694 +1,160 @@
-import axios, { AxiosInstance } from 'axios';
-import { config, getApiBaseUrl } from './config';
-import logger from './logger';
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import { v4 as uuidv4 } from 'uuid';
+import { config } from './config';
+import { logger } from './logger';
 import { ApiErrorHandler, RequestRetryHandler } from './error-handler';
+import {
+  MatchRequest,
+  MatchResponse,
+  CVListResponse,
+  JDListResponse,
+  HealthResponse,
+  UploadResponse,
+} from './types';
 
-// API Types
-export interface CV {
-  id: string;
-  filename: string;
-  content: string;
-  upload_date: string;
-  file_size: number;
-  processed: boolean;
-  full_name?: string;
-  job_title?: string;
-  email?: string;
-  phone?: string;
-  years_of_experience?: string;
-  skills?: string;
-  education?: string;
-  summary?: string;
-  extracted_text?: string;
-  structured_info?: Record<string, unknown>;
-}
+class ApiClient {
+  private client: AxiosInstance;
 
-export interface JobDescription {
-  id: string;
-  filename: string;
-  content: string;
-  upload_date: string;
-  file_size: number;
-  processed: boolean;
-  job_title?: string;
-  years_of_experience?: string;
-  skills?: string;
-  education?: string;
-  summary?: string;
-  extracted_text?: string;
-  structured_info?: Record<string, unknown>;
-}
-
-export interface MatchResult {
-  cv_id: string;
-  cv_filename: string;
-  overall_score: number;
-  skills_score: number;
-  experience_score: number;
-  education_score: number;
-  title_score: number;
-  standardized_cv?: Record<string, unknown>;
-  match_details?: Record<string, unknown>;
-  // Additional properties from mock data
-  matching_skills?: string[];
-  missing_skills?: string[];
-  candidate_summary?: string;
-  raw_cv_data?: string;
-}
-
-// New Matching API Types
-export type MatchWeights = { 
-  skills: number; 
-  responsibilities: number; 
-  job_title: number; 
-  experience: number; 
-};
-
-export type MatchRequest = {
-  jd_id?: string; 
-  jd_text?: string;
-  cv_ids?: string[];
-  weights?: MatchWeights;
-  top_alternatives?: number;
-};
-
-export type AssignmentItem = {
-  type: "skill" | "responsibility";
-  jd_index: number; 
-  jd_item: string;
-  cv_index: number; 
-  cv_item: string;
-  score: number;
-};
-
-export type AlternativesItem = { 
-  jd_index: number; 
-  items: { cv_index: number; cv_item: string; score: number }[] 
-};
-
-export type CandidateBreakdown = {
-  cv_id: string; 
-  cv_name: string; 
-  cv_job_title?: string; 
-  cv_years: number;
-  skills_score: number; 
-  responsibilities_score: number; 
-  job_title_score: number; 
-  years_score: number;
-  overall_score: number;
-  skills_assignments: AssignmentItem[];
-  responsibilities_assignments: AssignmentItem[];
-  skills_alternatives: AlternativesItem[];
-  responsibilities_alternatives: AlternativesItem[];
-};
-
-export type MatchResponse = {
-  jd_id?: string; 
-  jd_job_title?: string; 
-  jd_years: number;
-  normalized_weights: MatchWeights;
-  candidates: CandidateBreakdown[];
-};
-
-export interface AnalysisRequest {
-  jd_text: string;
-  cv_texts: string[];
-  filenames?: string[];
-}
-
-export interface HealthStatus {
-  status: string;
-  qdrant: {
-    connected: boolean;
-    collections: number;
-  };
-  environment: {
-    python_version: string;
-    openai_configured: boolean;
-  };
-  version: string;
-}
-
-export interface SystemStatus {
-  status: string;
-  timestamp: string;
-  system_stats: {
-    cpu_usage: number;
-    memory_usage: number;
-    disk_usage: number;
-    total_cvs: number;
-    total_jds: number;
-    processed_cvs: number;
-    processed_jds: number;
-  };
-  services: {
-    qdrant: {
-      status: string;
-      collections: number;
-      total_vectors: number;
-    };
-    openai: {
-      status: string;
-      model: string;
-    };
-  };
-  performance: {
-    average_response_time: number;
-    requests_per_minute: number;
-  };
-}
-
-export interface ApiResponse {
-  success: boolean;
-  data?: Record<string, unknown>;
-  error?: string;
-  message?: string;
-}
-
-// Create axios instance with base configuration
-const api: AxiosInstance = axios.create({
-  baseURL: getApiBaseUrl(),
-  timeout: config.api.timeout,
+  constructor() {
+    this.client = axios.create({
+      baseURL: config.apiUrl,
+      timeout: config.requestTimeout,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Request interceptor
-api.interceptors.request.use(
-  (config) => {
-    logger.info(`Making ${config.method?.toUpperCase()} request to ${config.url}`);
-    return config;
-  },
-  (error) => {
-    logger.error('Request interceptor error:', error);
-    return Promise.reject(error);
-  }
-);
+    // Request interceptor - add request ID
+    this.client.interceptors.request.use((config) => {
+      const requestId = uuidv4();
+      config.headers['x-request-id'] = requestId;
+      
+      logger.info(`API Request: ${config.method?.toUpperCase()} ${config.url}`, {
+        requestId,
+        data: config.data,
+      });
 
-// Response interceptor with enhanced error logging
-api.interceptors.response.use(
+    return config;
+    });
+
+    // Response interceptor - log responses and handle errors
+    this.client.interceptors.response.use(
   (response) => {
-    logger.info(`Response received: ${response.status} ${response.statusText}`);
+        const requestId = response.config.headers['x-request-id'] as string;
+        logger.info(`API Response: ${response.status}`, {
+          requestId,
+          url: response.config.url,
+          status: response.status,
+        });
     return response;
   },
   (error) => {
-    const apiError = ApiErrorHandler.handleApiError(error);
-    
-    // Create a clean error object without undefined values
-    const errorDetails: Record<string, unknown> = {};
-    if (error.response?.status) errorDetails.status = error.response.status;
-    if (apiError.message) errorDetails.message = apiError.message;
-    if (error.config?.url) errorDetails.url = error.config.url;
-    if (error.response?.statusText) errorDetails.statusText = error.response.statusText;
-    if (error.code) errorDetails.code = error.code;
-    
-    // Only log if we have some error details
-    if (Object.keys(errorDetails).length > 0) {
-      logger.error('Response failed:', errorDetails);
-    } else {
-      logger.error('Response failed: Unknown error');
-    }
-    
-    return Promise.reject(apiError);
+        const requestId = error.config?.headers?.['x-request-id'] as string;
+        throw ApiErrorHandler.handle(error, requestId);
+      }
+    );
   }
-);
 
-// API Methods
-export const apiMethods = {
-  // Health and Status
-  getHealth: (): Promise<HealthStatus> =>
-    api.get('/health').then(res => res.data),
+  // Health endpoints
+  async healthCheck(): Promise<HealthResponse> {
+    const response = await this.client.get<HealthResponse>('/api/health');
+    return response.data;
+  }
 
-  getSystemStatus: (): Promise<SystemStatus> =>
-    api.get('/api/upload/system-status').then(res => res.data),
-
-  // CV Operations
-  uploadCV: (file: File): Promise<ApiResponse> => {
-    console.log('📄 Uploading CV file:', file.name, file.type, file.size);
+  // CV endpoints
+  async uploadCV(files: File[]): Promise<UploadResponse> {
     const formData = new FormData();
-    formData.append('file', file);
-    
-    // Use axios with relative URL for Next.js API routes
-    return axios.create({
-      baseURL: '', // Empty base URL for relative requests
-      timeout: 90000, // 90 second timeout for file processing
-    }).post('/api/jobs/upload-cv', formData, {
+    files.forEach((file) => {
+      formData.append('files', file);
+    });
+
+    const response = await this.client.post<UploadResponse>('/api/cv/upload-cv', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
-    }).then(res => {
-      console.log('✅ [CV UPLOAD] Next.js API route response:', {
-        hasData: !!res.data,
-        cvId: res.data?.cv_id,
-        filename: res.data?.filename,
-        hasStandardizedData: !!res.data?.standardized_data
-      });
-      return res.data;
-    }).catch(error => {
-      const errorDetails = {
-        status: error.response?.status || 'unknown',
-        statusText: error.response?.statusText || 'unknown',
-        data: error.response?.data || {},
-        message: error.message || 'unknown error',
-        url: '/api/jobs/upload-cv',
-        errorType: error.constructor.name,
-        code: error.code || 'unknown'
-      };
-      console.error('❌ [CV UPLOAD] Next.js API route error details:', errorDetails);
-      console.error('❌ [CV UPLOAD] Raw error response data:', error.response?.data);
-      
-      const responseData = error.response?.data || {};
-      let errorMessage = responseData.error || error.message || 'CV upload failed';
-      
-      // Special handling for OpenAI API errors
-      if (responseData.details?.includes('OpenAI API') || responseData.details?.includes('server_error')) {
-        errorMessage = '🤖 AI processing temporarily unavailable (OpenAI server issue). Please retry in a few minutes.';
-      } else if (responseData.isRetryable) {
-        errorMessage = `⚠️ ${errorMessage} (Retryable)`;
-      }
-      
-      // Create a more informative error object
-      const enhancedError = {
-        message: errorMessage,
-        status: error.response?.status || 500,
-        code: error.code || 'UPLOAD_ERROR',
-        isRetryable: responseData.isRetryable || false,
-        isOpenAIError: responseData.details?.includes('OpenAI API') || responseData.details?.includes('server_error'),
-        details: responseData,
-        extractedText: responseData.extractedText, // Include extracted text even if GPT failed
-        filename: responseData.filename
-      };
-      
-      console.error('❌ [CV UPLOAD] Enhanced error object:', enhancedError);
-      throw enhancedError;
     });
-  },
+    return response.data;
+  }
 
-  getCVs: (): Promise<{ cvs: CV[] }> => 
-    api.get('/api/jobs/list-cvs').then(res => res.data),
+  async listCVs(): Promise<CVListResponse> {
+    const response = await this.client.get<CVListResponse>('/api/cv/cvs');
+    return response.data;
+  }
 
-  // JD Operations
-  uploadJD: (file: File): Promise<ApiResponse> => {
-    console.log('📋 Uploading JD file:', file.name, file.type, file.size);
-    
-    // Handle text files by reading content
-    if (file.type === 'text/plain') {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const content = e.target?.result as string;
-          console.log('📋 Text file content length:', content.length);
-          
-          // Use local Next.js API route with correct baseURL
-          const localApi = axios.create({
-            baseURL: '',
-            timeout: 120000, // Increase to 2 minutes for complex processing
-          });
-          
-          localApi.post('/api/jobs/standardize-jd-text', { content })
-            .then(res => {
-              console.log('📋 Text upload response:', res.data);
-              resolve(res.data);
-            })
-            .catch(reject);
-        };
-        reader.onerror = () => reject(new Error('Failed to read file'));
-        reader.readAsText(file);
-      });
-    }
-    
-    // For other file types, use FormData with Next.js API route
-    console.log('📋 Non-text file, using FormData upload via Next.js API route');
+  async getCVDetails(cvId: string): Promise<any> {
+    const response = await this.client.get(`/api/cv/cv/${cvId}`);
+    return response.data;
+  }
+
+  // JD endpoints
+  async uploadJD(file: File): Promise<UploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
-    console.log('📋 FormData created, sending to local Next.js API route: /api/jobs/standardize-jd');
-    
-    // Use axios with relative URL for Next.js API routes
-    return axios.create({
-      baseURL: '', // Empty base URL for relative requests
-      timeout: 120000, // 2 minute timeout for file processing
-    }).post('/api/jobs/standardize-jd', formData, {
+
+    const response = await this.client.post<UploadResponse>('/api/jd/upload-jd', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
-    }).then(res => {
-      console.log('✅ [JD UPLOAD] Next.js API route response:', {
-        hasData: !!res.data,
-        hasStandardizedData: !!res.data?.standardized_data,
-        jdId: res.data?.jd_id,
-        filename: res.data?.filename
-      });
-      return res.data;
-    }).catch(error => {
-      console.error('❌ [JD UPLOAD] Next.js API route error details:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message,
-        url: '/api/jobs/standardize-jd'
-      });
-      
-      // Create a more informative error object
-      const enhancedError = {
-        message: error.response?.data?.error || error.message || 'JD upload failed',
-        status: error.response?.status || 500,
-        code: error.code || 'UPLOAD_ERROR',
-        details: error.response?.data
-      };
-      
-      console.error('❌ [JD UPLOAD] Enhanced error object:', enhancedError);
-      throw enhancedError;
     });
-  },
+    return response.data;
+  }
 
-  getJobDescriptions: (): Promise<{ jds: JobDescription[] }> => 
-    api.get('/api/jobs/list-jds').then(res => res.data),
+  async listJDs(): Promise<JDListResponse> {
+    const response = await this.client.get<JDListResponse>('/api/jd/jds');
+    return response.data;
+  }
 
-  // Individual CV processing function for complex batches and fallbacks
-  async processIndividualCVs(data: AnalysisRequest, onProgress?: (progress: number, step: string) => void): Promise<{ results: MatchResult[] }> {
-    const results: MatchResult[] = [];
-    console.log(`🔄 INDIVIDUAL PROCESSING: Processing ${data.cv_texts.length} CVs one by one`);
-    
-    for (let i = 0; i < data.cv_texts.length; i++) {
-      try {
-        const progressStep = 75 + (i / data.cv_texts.length) * 20; // 75-95% range
-        if (onProgress) onProgress(progressStep, `Analyzing CV ${i + 1} of ${data.cv_texts.length}...`);
-        
-        const result = await processSingleCV(i, data.cv_texts[i], data.filenames?.[i] || `CV_${i + 1}`, data.jd_text);
-        results.push(result);
-        console.log(`✅ CV ${i + 1} completed successfully - Score: ${result.overall_score.toFixed(2)}`);
-      } catch (cvError) {
-        console.error(`❌ CV ${i + 1} failed:`, cvError);
-        const filename = data.filenames?.[i] || `CV_${i + 1}`;
-        results.push(calculateQuickScore(data.jd_text, data.cv_texts[i], filename));
-      }
-    }
-    
-    const sortedResults = results.sort((a, b) => b.overall_score - a.overall_score);
-    console.log(`🎉 Individual processing completed. ${results.length}/${data.cv_texts.length} successful.`);
-    
-    if (onProgress) onProgress(98, 'Finalizing results and ranking candidates...');
-    return { results: sortedResults };
-  },
+  async getJDDetails(jdId: string): Promise<any> {
+    const response = await this.client.get(`/api/jd/jd/${jdId}`);
+    return response.data;
+  }
 
-  // ENHANCED: Smart analysis using bulk API with intelligent chunking
-  analyzeAndMatch: async (data: AnalysisRequest, onProgress?: (progress: number, step: string) => void): Promise<{ results: MatchResult[] }> => {
-    // Calculate total text complexity to determine processing strategy
-    const totalTextLength = data.cv_texts.reduce((sum, text) => sum + text.length, 0) + data.jd_text.length;
-    const avgCvLength = totalTextLength / data.cv_texts.length;
-    const isComplexBatch = avgCvLength > 3000 || data.cv_texts.length > 3;
-    
-    console.log(`🚀 SMART PROCESSING: ${data.cv_texts.length} CVs (avg: ${Math.round(avgCvLength)} chars, complex: ${isComplexBatch})`);
-    
-    // Use bulk API for smaller/simpler batches, individual processing for complex ones
-    if (!isComplexBatch) {
-      console.log(`📦 Using BULK API mode for simple batch`);
-      if (onProgress) onProgress(80, 'Sending bulk request to AI for analysis...');
-    } else {
-      console.log(`🔄 Using INDIVIDUAL processing mode for complex batch`);
-      if (onProgress) onProgress(78, 'Complex batch detected, using individual processing...');
-      return await apiMethods.processIndividualCVs(data, onProgress);
-    }
-    
-    try {
-      // Create the bulk analysis request
-      const bulkRequest = {
-        jd_text: data.jd_text,
-        cv_texts: data.cv_texts,
-        cv_filenames: data.filenames || data.cv_texts.map((_, i) => `CV_${i + 1}.txt`),
-        jd_filename: "job_description.txt"
-      };
-      
-      console.log(`📊 Bulk request: 1 JD + ${data.cv_texts.length} CVs`);
-      console.log(`📦 Sending ALL CVs in ONE API call to /api/jobs/process-bulk-analysis`);
-      
-      // Make the single bulk API call with extended timeout for complex batches
-      const response = await api.post('/api/jobs/process-bulk-analysis', bulkRequest, {
-        timeout: 90000, // 90 seconds for bulk processing
-      });
-      const bulkResult = response.data;
-      
-      console.log('✅ Bulk analysis completed:', bulkResult.status);
-      console.log(`⚡ Total processing time: ${bulkResult.summary?.total_processing_time || 'N/A'}s`);
-      console.log(`📊 Successful matches: ${bulkResult.summary?.successful_matches || 0}/${data.cv_texts.length}`);
-      
-      if (onProgress) onProgress(95, 'Processing bulk results and calculating scores...');
-      
-      if (bulkResult.status === 'success' && bulkResult.results) {
-        // Transform bulk API results to match expected MatchResult format
-        const transformedResults: MatchResult[] = bulkResult.results.map((result: any, index: number) => {
-          const breakdown = result.breakdown || {};
-          
-          return {
-            cv_id: `bulk_cv_${result.cv_index ?? index}_${Math.random().toString(36).substr(2, 9)}`,
-            cv_filename: result.cv_filename || `CV_${(result.cv_index ?? index) + 1}`,
-            overall_score: Number(result.overall_score) || 0,
-            skills_score: Number(breakdown.skills_score) || 0,
-            experience_score: Number(breakdown.experience_score) || 0,
-            education_score: Number(breakdown.education_score || breakdown.responsibility_score) || 0,
-            title_score: Number(breakdown.title_score) || 0,
-            standardized_cv: result.standardized_cv,
-            match_details: {
-              overall_score: Number(result.overall_score) || 0,
-              breakdown: breakdown,
-              explanation: result.explanation || ''
-            }
-          };
-        });
-        
-        // Sort results by overall score (highest first)
-        const sortedResults = transformedResults.sort((a, b) => b.overall_score - a.overall_score);
-        
-        console.log(`🎉 SUCCESS: Processed ALL ${sortedResults.length} CVs in ONE bulk call!`);
-        console.log(`📊 First result transformed:`, sortedResults[0]);
-        return { results: sortedResults };
-      } else {
-        throw new Error(`Bulk analysis failed: ${bulkResult.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('❌ Bulk API failed, falling back to individual processing:', error);
-      
-      if (onProgress) onProgress(75, 'Bulk processing timed out, switching to individual processing...');
-      
-      return await apiMethods.processIndividualCVs(data, onProgress);
-    }
-  },
+  // Matching endpoints
+  async matchCandidates(request: MatchRequest): Promise<MatchResponse> {
+    const response = await this.client.post<MatchResponse>('/api/match', request);
+    return response.data;
+  }
 
-  bulkUploadCVs: (files: File[]): Promise<ApiResponse> => {
-    // Backend expects text content, not file upload
-    return Promise.all(files.map(file => 
-      new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target?.result as string);
-        reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
-        reader.readAsText(file);
-      })
-    )).then(async (texts) => {
-      const response = await api.post('/api/jobs/bulk-upload-cvs', {
-        cv_texts: texts,
-        filenames: files.map(f => f.name)
-      });
+  // System endpoints
+  async getSystemStats(): Promise<any> {
+    const response = await this.client.get('/api/system-stats');
       return response.data;
-    });
-  },
-
-  // Matching operations
-  getTopMatches: (jdId: string, limit: number = 10): Promise<{ matches: MatchResult[] }> =>
-    api.post('/api/jobs/cosine-top-k-match', {
-      jd_id: jdId,
-      top_k: limit
-    }).then(res => res.data),
-
-  getStandardizedMatch: (jdId: string, cvId: string): Promise<MatchResult> =>
-    api.post('/api/jobs/standardized-match', {
-      jd_id: jdId,
-      cv_id: cvId
-    }).then(res => res.data),
-};
-
-// Helper function to process a single CV
-async function processSingleCV(index: number, cvText: string, filename: string, jdText: string): Promise<MatchResult> {
-  console.log(`📄 Processing CV ${index + 1}: ${filename}`);
-  
-  // Retry logic for intermittent backend failures
-  // let lastError: unknown;
-  const maxRetries = 2;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`⏱️ Attempting backend analysis for CV ${index + 1} (90s timeout) - Attempt ${attempt}/${maxRetries}...`);
-      console.log(`📊 Sending data: JD=${jdText.length} chars, CV=${cvText.length} chars`);
-      
-      // Use relative URL for Next.js API routes - this will always hit the correct Next.js server
-      const localApiUrl = '/api/jobs/standardize-and-match-text';
-      console.log(`🔗 Calling local Next.js API route: ${localApiUrl}`);
-      
-      // Create fresh axios instance without base URL to ensure relative URLs work correctly
-      const response = await axios.create({
-        baseURL: '', // Empty base URL for relative requests
-        timeout: 90000, // 90 second timeout to match backend processing time
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }).post(localApiUrl, {
-        jd_text: jdText,
-        cv_text: cvText
-      });
-      
-      console.log(`✅ Backend analysis response for CV ${index + 1}:`, response.status, response.data?.match_result?.overall_score);
-      
-      const backendData = response.data;
-      
-      if (backendData.match_result) {
-        const matchResult: MatchResult = {
-          cv_id: backendData.cv_id || `cv_${index + 1}`,
-          cv_filename: filename,
-          overall_score: backendData.match_result.overall_score || 0,
-          skills_score: backendData.match_result.breakdown?.skills_score || 0,
-          experience_score: backendData.match_result.breakdown?.experience_score || 0,
-          education_score: backendData.match_result.breakdown?.responsibility_score || 0,
-          title_score: backendData.match_result.breakdown?.title_score || 0,
-          standardized_cv: backendData.cv_standardized_data,
-          match_details: backendData.match_result
-        };
-        console.log(`✅ CV ${index + 1} processed successfully with backend - Score: ${matchResult.overall_score.toFixed(2)}`);
-        return matchResult; // Success - return result
-      } else {
-        throw new Error('No match_result from backend');
-      }
-    } catch (apiError: unknown) {
-      // lastError = apiError;
-      const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
-      console.warn(`⚠️ Backend analysis failed for CV ${index + 1} (attempt ${attempt}/${maxRetries}):`, errorMessage);
-      
-      // Enhanced error debugging
-      if (axios.isAxiosError(apiError)) {
-        console.log(`🔍 Axios error details for CV ${index + 1} (attempt ${attempt}):`, {
-          status: apiError.response?.status,
-          statusText: apiError.response?.statusText,
-          url: apiError.config?.url,
-          code: apiError.code,
-          message: apiError.message
-        });
-      }
-      
-      // If this was the last attempt, we'll fall back to quick scoring
-      if (attempt === maxRetries) {
-        console.warn(`❌ All ${maxRetries} attempts failed for CV ${index + 1}, falling back to quick scoring`);
-        break;
-      } else {
-        console.log(`🔄 Retrying CV ${index + 1} analysis in 2 seconds...`);
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay between retries
-      }
-    }
-  }
-  
-  // If we reach here, all attempts failed - use quick scoring as fallback
-  console.warn(`🔄 All attempts failed for CV ${index + 1}, using quick scoring as fallback`);
-  const fallbackResult = calculateQuickScore(jdText, cvText, filename);
-  console.log(`✅ CV ${index + 1} processed with quick scoring - Score: ${fallbackResult.overall_score.toFixed(2)}`);
-  return fallbackResult;
-}
-
-// Quick scoring function for fallback
-function calculateQuickScore(jdText: string, cvText: string, filename: string): MatchResult {
-  const jdLower = jdText.toLowerCase();
-  const cvLower = cvText.toLowerCase();
-  
-  // Common tech skills
-  const techSkills = ['python', 'javascript', 'react', 'django', 'flask', 'sql', 'postgresql', 'mongodb', 'aws', 'docker', 'kubernetes', 'git', 'node.js', 'express', 'vue', 'angular'];
-  const jdSkills = techSkills.filter(skill => jdLower.includes(skill));
-  const cvSkills = techSkills.filter(skill => cvLower.includes(skill));
-  const skillsMatch = jdSkills.filter(skill => cvSkills.includes(skill));
-  const skillsScore = jdSkills.length > 0 ? (skillsMatch.length / jdSkills.length) * 100 : 50;
-  
-  // Experience keywords
-  const expKeywords = ['year', 'experience', 'senior', 'junior', 'lead', 'manager'];
-  const expScore = expKeywords.some(keyword => cvLower.includes(keyword)) ? 75 : 50;
-  
-  // Title matching
-  const titleKeywords = jdLower.match(/\b(developer|engineer|analyst|manager|architect)\b/g) || [];
-  const titleScore = titleKeywords.some(title => cvLower.includes(title)) ? 80 : 40;
-  
-  const overallScore = (skillsScore * 0.4) + (expScore * 0.3) + (titleScore * 0.3);
-  
-  return {
-    cv_id: `cv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    cv_filename: filename,
-    overall_score: Math.min(100, Math.max(20, overallScore)),
-    skills_score: skillsScore,
-    experience_score: expScore,
-    education_score: 60, // Default
-    title_score: titleScore,
-    standardized_cv: {
-      full_name: filename.replace(/\.(pdf|docx|txt)$/, ''),
-      skills: cvSkills,
-      experience: cvLower.includes('senior') ? '5+ years' : cvLower.includes('junior') ? '1-3 years' : '3-5 years'
-    },
-    match_details: {
-      overall_score: overallScore,
-      breakdown: {
-        skills_score: skillsScore,
-        experience_score: expScore,
-        responsibility_score: 60,
-        title_score: titleScore
-      }
-    }
-  };
-}
-
-/**
- * Enhanced API wrapper with retry logic and error handling
- */
-export const createApiMethod = <T>(
-  operation: () => Promise<T>,
-  context: string,
-  useRetry: boolean = true
-): Promise<T> => {
-  logger.setContext(context);
-  
-  if (!useRetry || !config.features.enableRetry) {
-    return operation().catch(error => {
-      ApiErrorHandler.logError(error, context);
-      throw error;
-    });
   }
 
-  return RequestRetryHandler.withRetry(operation, {
-    maxRetries: config.api.retryAttempts,
-    delay: config.api.retryDelay,
-  }).catch(error => {
-    ApiErrorHandler.logError(error, context);
-    throw error;
-  });
+  async getDatabaseStatus(): Promise<any> {
+    const response = await this.client.get('/api/database/status');
+    return response.data;
+  }
+
+  async getDatabaseView(): Promise<any> {
+    const response = await this.client.get('/api/database/view');
+    return response.data;
+  }
+}
+
+// Create singleton instance
+export const apiClient = new ApiClient();
+
+// Export individual functions for easier consumption
+export const api = {
+  // Health
+  healthCheck: () => RequestRetryHandler.withRetry(() => apiClient.healthCheck()),
+  
+  // CV operations
+  uploadCV: (files: File[]) => RequestRetryHandler.withRetry(() => apiClient.uploadCV(files)),
+  listCVs: () => RequestRetryHandler.withRetry(() => apiClient.listCVs()),
+  getCVDetails: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVDetails(cvId)),
+  
+  // JD operations
+  uploadJD: (file: File) => RequestRetryHandler.withRetry(() => apiClient.uploadJD(file)),
+  listJDs: () => RequestRetryHandler.withRetry(() => apiClient.listJDs()),
+  getJDDetails: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.getJDDetails(jdId)),
+  
+  // Matching
+  matchCandidates: (request: MatchRequest) => RequestRetryHandler.withRetry(() => apiClient.matchCandidates(request)),
+  
+  // System
+  getSystemStats: () => RequestRetryHandler.withRetry(() => apiClient.getSystemStats()),
+  getDatabaseStatus: () => RequestRetryHandler.withRetry(() => apiClient.getDatabaseStatus()),
+  getDatabaseView: () => RequestRetryHandler.withRetry(() => apiClient.getDatabaseView()),
 };
-
-export async function matchCandidates(payload: MatchRequest): Promise<MatchResponse> {
-  const { data } = await client.post<MatchResponse>("/match", payload);
-  return data;
-}
-
-// CV API functions
-export async function fetchCVs(): Promise<CV[]> {
-  const { data } = await client.get<{ status: string; count: number; cvs: CV[] }>("/list-cvs");
-  return data.cvs;
-}
-
-export async function fetchCVDetails(cvId: string): Promise<CV> {
-  const { data } = await client.get<CV>(`/cv/${cvId}`);
-  return data;
-}
-
-// JD API functions  
-export async function fetchJDs(): Promise<JobDescription[]> {
-  const { data } = await client.get<{ status: string; count: number; jds: JobDescription[] }>("/list-jds");
-  return data.jds;
-}
-
-export async function fetchJDDetails(jdId: string): Promise<JobDescription> {
-  const { data } = await client.get<JobDescription>(`/jd/${jdId}`);
-  return data;
-}
-
-export default api;

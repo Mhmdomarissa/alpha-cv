@@ -1,0 +1,79 @@
+Senior Full Stack Developer Job Description
+
+Company: InnovateTech Solutions
+Location: Remote/Hybrid
+Employment Type: Full-time
+Experience Required: 5-8 years
+
+JOB OVERVIEW
+We are seeking a highly skilled Senior Full Stack Developer to join our growing engineering team. The ideal candidate will have extensive experience in both frontend and backend development, with a passion for creating innovative solutions that drive business growth.
+
+REQUIRED QUALIFICATIONS
+• Bachelor's degree in Computer Science, Software Engineering, or related field
+• 5-8 years of professional software development experience
+• Strong expertise in modern web development technologies
+• Experience with cloud platforms and microservices architecture
+• Proven track record of leading development projects
+• Excellent problem-solving and analytical skills
+
+TECHNICAL REQUIREMENTS
+Programming Languages:
+• Proficiency in Python (Django, FastAPI, Flask)
+• Advanced JavaScript/TypeScript skills
+• Experience with Java or C# for enterprise applications
+• Familiarity with Go or Rust for performance-critical applications
+
+Frontend Technologies:
+• Expert-level React.js with hooks and context API
+• Experience with Next.js for server-side rendering
+• Proficiency in Vue.js or Angular
+• Strong CSS/SASS skills and responsive design principles
+• Knowledge of modern build tools (Webpack, Vite, Rollup)
+
+Backend Technologies:
+• RESTful API design and development
+• GraphQL implementation and optimization
+• Microservices architecture patterns
+• Database design and optimization (PostgreSQL, MySQL)
+• NoSQL databases (MongoDB, Redis)
+• Message queue systems (Kafka, RabbitMQ)
+
+Cloud & DevOps:
+• AWS services (EC2, S3, Lambda, RDS, EKS)
+• Azure or Google Cloud Platform experience
+• Docker containerization and Kubernetes orchestration
+• CI/CD pipeline implementation (Jenkins, GitLab CI, GitHub Actions)
+• Infrastructure as Code (Terraform, CloudFormation)
+• Monitoring and logging (Prometheus, Grafana, ELK stack)
+
+KEY RESPONSIBILITIES
+• Architect and develop full-stack web applications using modern technologies
+• Design and implement scalable microservices and APIs
+• Lead technical decision-making for new features and system improvements
+• Collaborate with product managers, designers, and other stakeholders
+• Mentor junior developers and conduct code reviews
+• Optimize application performance and ensure system reliability
+• Implement security best practices and maintain code quality standards
+• Participate in agile development processes and sprint planning
+• Research and evaluate emerging technologies for potential adoption
+• Troubleshoot complex technical issues across the entire stack
+
+PREFERRED QUALIFICATIONS
+• Master's degree in Computer Science or related field
+• Experience with machine learning frameworks (TensorFlow, PyTorch)
+• Knowledge of blockchain technologies and smart contracts
+• Familiarity with mobile development (React Native, Flutter)
+• Previous experience in a leadership or technical lead role
+• Contributions to open-source projects
+• Experience in fintech, healthcare, or e-commerce domains
+
+WHAT WE OFFER
+• Competitive salary range: $120,000 - $160,000 annually
+• Comprehensive health, dental, and vision insurance
+• 401(k) retirement plan with company matching
+• Flexible work arrangements (remote/hybrid options)
+• Professional development budget for courses and conferences
+• Stock options and performance bonuses
+• 25 days paid time off plus holidays
+• Modern equipment and development tools
+• Collaborative and inclusive work environment

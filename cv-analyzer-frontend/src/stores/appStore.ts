@@ -1,268 +1,289 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { CV, JobDescription, MatchResult, SystemStatus, MatchWeights, MatchResponse, matchCandidates, MatchRequest, fetchCVs, fetchJDs } from '@/lib/api';
+import {
+  MatchWeights,
+  MatchResponse,
+  CVListItem,
+  JDListItem,
+  HealthResponse,
+  MatchRequest,
+} from '@/lib/types';
+import { api } from '@/lib/api';
+import { logger } from '@/lib/logger';
 
 interface LoadingState {
   isLoading: boolean;
   error?: string | null;
-  lastUpdated?: string;
 }
 
 interface AppState {
-  // UI State
-  isLoading: boolean;
-  currentTab: 'upload' | 'database' | 'results';
+  // Current tab
+  currentTab: 'dashboard' | 'upload' | 'database' | 'match' | 'reports' | 'system';
   
-  // Enhanced Loading States
-  loadingStates: {
-    systemStatus: LoadingState;
-    cvList: LoadingState;
-    jdList: LoadingState;
-    cvUpload: LoadingState;
-    jdUpload: LoadingState;
-    analysis: LoadingState;
-    fileProcessing: LoadingState;
-  };
+  // Data
+  cvs: CVListItem[];
+  jds: JDListItem[];
+  selectedJD: string | null;
+  selectedCVs: string[];
   
-  // Data State
-  cvs: CV[];
-  jobDescriptions: JobDescription[];
-  currentJD: JobDescription | null;
-  matchResults: MatchResult[];
-  systemStatus: SystemStatus | null;
-  hasLoadedDatabaseData: boolean;
-  
-  // Upload State
-  uploadProgress: Record<string, number>;
-  uploadStatus: Record<string, 'uploading' | 'success' | 'error'>;
-  uploadedFiles: File[];
-  
-  // Analysis State
-  isAnalyzing: boolean;
-  analysisProgress: number;
-  analysisStep: string;
-  
-  // Matching State
+  // Matching
   matchWeights: MatchWeights;
   matchResult: MatchResponse | null;
-  isMatching: boolean;
-  matchError: string | null;
+  
+  // Health
+  systemHealth: HealthResponse | null;
+  
+  // Loading states
+  loadingStates: {
+    cvs: LoadingState;
+    jds: LoadingState;
+    upload: LoadingState;
+    matching: LoadingState;
+    health: LoadingState;
+  };
   
   // Actions
-  setLoading: (loading: boolean) => void;
-  setCurrentTab: (tab: 'upload' | 'database' | 'results') => void;
-  setCVs: (cvs: CV[]) => void;
-  setJobDescriptions: (jds: JobDescription[]) => void;
-  setCurrentJD: (jd: JobDescription | null) => void;
-  setMatchResults: (results: MatchResult[]) => void;
-  setSystemStatus: (status: SystemStatus) => void;
-  setHasLoadedDatabaseData: (loaded: boolean) => void;
+  setCurrentTab: (tab: AppState['currentTab']) => void;
   
-  // Enhanced Loading Actions
-  setLoadingState: (
-    operation: keyof AppState['loadingStates'], 
-    state: Partial<LoadingState>
-  ) => void;
-  getLoadingState: (operation: keyof AppState['loadingStates']) => LoadingState;
-  
-  // Upload Actions
-  setUploadProgress: (fileId: string, progress: number) => void;
-  setUploadStatus: (fileId: string, status: 'uploading' | 'success' | 'error') => void;
-  addUploadedFile: (file: File) => void;
-  removeUploadedFile: (fileId: string) => void;
-  clearUploadedFiles: () => void;
-  
-  // Analysis Actions
-  setAnalyzing: (analyzing: boolean) => void;
-  setAnalysisProgress: (progress: number) => void;
-  setAnalysisStep: (step: string) => void;
-  resetAnalysis: () => void;
-  
-  // Matching Actions
-  setMatchWeights: (weights: MatchWeights) => void;
-  runMatch: (req: { jd_id?: string; jd_text?: string; cv_ids?: string[] }) => Promise<void>;
-  
-  // Data Actions
-  addCV: (cv: CV) => void;
-  removeCV: (cvId: string) => void;
-  addJD: (jd: JobDescription) => void;
-  removeJD: (jdId: string) => void;
+  // CV actions
   loadCVs: () => Promise<void>;
+  selectCV: (cvId: string) => void;
+  deselectCV: (cvId: string) => void;
+  selectAllCVs: () => void;
+  deselectAllCVs: () => void;
+  uploadCVs: (files: File[]) => Promise<void>;
+  
+  // JD actions
   loadJDs: () => Promise<void>;
+  selectJD: (jdId: string | null) => void;
+  uploadJD: (file: File) => Promise<void>;
+  
+  // Matching actions
+  setMatchWeights: (weights: Partial<MatchWeights>) => void;
+  runMatch: (request?: Partial<MatchRequest>) => Promise<void>;
+  clearMatchResult: () => void;
+  
+  // System actions
+  loadSystemHealth: () => Promise<void>;
+  
+  // Utility actions
+  setLoading: (operation: keyof AppState['loadingStates'], loading: boolean, error?: string) => void;
+  clearError: (operation: keyof AppState['loadingStates']) => void;
 }
+
+const defaultWeights: MatchWeights = {
+  skills: 80,
+  responsibilities: 15,
+  job_title: 2.5,
+  experience: 2.5,
+};
 
 export const useAppStore = create<AppState>()(
   devtools(
-    (set) => ({
-      // Initial State
-      isLoading: false,
-      currentTab: 'upload',
-      
-      // Initialize loading states
-      loadingStates: {
-        systemStatus: { isLoading: false, error: null },
-        cvList: { isLoading: false, error: null },
-        jdList: { isLoading: false, error: null },
-        cvUpload: { isLoading: false, error: null },
-        jdUpload: { isLoading: false, error: null },
-        analysis: { isLoading: false, error: null },
-        fileProcessing: { isLoading: false, error: null },
-      },
-      
+    (set, get) => ({
+      // Initial state
+      currentTab: 'dashboard',
       cvs: [],
-      jobDescriptions: [],
-      currentJD: null,
-      matchResults: [],
-      systemStatus: null,
-      hasLoadedDatabaseData: false,
-      uploadProgress: {},
-      uploadStatus: {},
-      uploadedFiles: [],
-      isAnalyzing: false,
-      analysisProgress: 0,
-      analysisStep: '',
-      
-      // Matching State
-      matchWeights: { skills: 80, responsibilities: 15, job_title: 2.5, experience: 2.5 },
+      jds: [],
+      selectedJD: null,
+      selectedCVs: [],
+      matchWeights: defaultWeights,
       matchResult: null,
-      isMatching: false,
-      matchError: null,
-
-      // UI Actions
-      setLoading: (loading) => set({ isLoading: loading }),
-      setCurrentTab: (tab) => set({ currentTab: tab }),
-
-      // Data Actions
-      setCVs: (cvs) => set({ cvs }),
-      setJobDescriptions: (jds) => set({ jobDescriptions: jds }),
-      setCurrentJD: (jd) => set({ currentJD: jd }),
-      setMatchResults: (results) => set({ matchResults: results }),
-      setSystemStatus: (status) => set({ systemStatus: status }),
-      setHasLoadedDatabaseData: (loaded) => set({ hasLoadedDatabaseData: loaded }),
-
-      // Enhanced Loading State Actions
-      setLoadingState: (operation, state) =>
-        set((currentState) => ({
-          loadingStates: {
-            ...currentState.loadingStates,
-            [operation]: {
-              ...currentState.loadingStates[operation],
-              ...state,
-              lastUpdated: new Date().toISOString(),
-            },
-          },
-        })),
-
-      getLoadingState: () => {
-        // This will be accessed through the store hook
-        return { isLoading: false, error: null };
+      systemHealth: null,
+      
+      loadingStates: {
+        cvs: { isLoading: false, error: null },
+        jds: { isLoading: false, error: null },
+        upload: { isLoading: false, error: null },
+        matching: { isLoading: false, error: null },
+        health: { isLoading: false, error: null },
       },
 
-      // Upload Actions
-      setUploadProgress: (fileId, progress) =>
-        set((state) => ({
-          uploadProgress: { ...state.uploadProgress, [fileId]: progress },
-        })),
-      
-      setUploadStatus: (fileId, status) =>
-        set((state) => ({
-          uploadStatus: { ...state.uploadStatus, [fileId]: status },
-        })),
-      
-      addUploadedFile: (file) =>
-        set((state) => ({
-          uploadedFiles: [...state.uploadedFiles, file],
-        })),
-      
-      removeUploadedFile: (fileId) =>
-        set((state) => {
-          const newUploadProgress = { ...state.uploadProgress };
-          const newUploadStatus = { ...state.uploadStatus };
-          delete newUploadProgress[fileId];
-          delete newUploadStatus[fileId];
-          return {
-            uploadedFiles: state.uploadedFiles.filter((f) => (f as File & {id?: string}).id !== fileId),
-            uploadProgress: newUploadProgress,
-            uploadStatus: newUploadStatus,
-          };
-        }),
-      
-      clearUploadedFiles: () =>
-        set({ uploadedFiles: [], uploadProgress: {}, uploadStatus: {} }),
-
-      // Analysis Actions
-      setAnalyzing: (analyzing) => set({ isAnalyzing: analyzing }),
-      setAnalysisProgress: (progress) => set({ analysisProgress: progress }),
-      setAnalysisStep: (step) => set({ analysisStep: step }),
-      resetAnalysis: () =>
-        set({ isAnalyzing: false, analysisProgress: 0, analysisStep: '' }),
-
-      // Matching Actions
-      setMatchWeights: (weights) => set({ matchWeights: weights }),
-      
-      runMatch: async (req) => {
-        const { matchWeights } = useAppStore.getState();
-        set({ isMatching: true, matchError: null });
-        try {
-          const res = await matchCandidates({
-            jd_id: req.jd_id,
-            jd_text: req.jd_text,
-            cv_ids: req.cv_ids,
-            weights: matchWeights,
-            top_alternatives: 3
-          });
-          set({ matchResult: res });
-        } catch (e: any) {
-          set({ matchError: e?.response?.data?.detail ?? e.message });
-        } finally {
-          set({ isMatching: false });
+      // Actions
+      setCurrentTab: (tab) => {
+        set({ currentTab: tab });
+        
+        // Auto-load data when switching to relevant tabs
+        const state = get();
+        if (tab === 'database' && state.cvs.length === 0) {
+          state.loadCVs();
+          state.loadJDs();
+        } else if (tab === 'system' && !state.systemHealth) {
+          state.loadSystemHealth();
         }
       },
 
-      // Data Management Actions
-      addCV: (cv) =>
-        set((state) => ({
-          cvs: [...state.cvs.filter((c) => c.id !== cv.id), cv],
-        })),
-      
-      removeCV: (cvId) =>
-        set((state) => ({
-          cvs: state.cvs.filter((c) => c.id !== cvId),
-        })),
-      
-      addJD: (jd) =>
-        set((state) => ({
-          jobDescriptions: [...state.jobDescriptions.filter((j) => j.id !== jd.id), jd],
-        })),
-      
-      removeJD: (jdId) =>
-        set((state) => ({
-          jobDescriptions: state.jobDescriptions.filter((j) => j.id !== jdId),
-        })),
-
-      // Load data from backend
+      // CV actions
       loadCVs: async () => {
-        set({ isLoading: true });
+        const { setLoading } = get();
+        setLoading('cvs', true);
+        
         try {
-          const cvs = await fetchCVs();
-          set({ cvs, hasLoadedDatabaseData: true });
-        } catch (error) {
-          console.error('Failed to load CVs:', error);
-        } finally {
-          set({ isLoading: false });
+          logger.info('Loading CVs from API');
+          const response = await api.listCVs();
+          set({ cvs: response.cvs });
+          setLoading('cvs', false);
+          logger.info(`Loaded ${response.cvs.length} CVs`);
+        } catch (error: any) {
+          logger.error('Failed to load CVs', error);
+          setLoading('cvs', false, error.message);
         }
       },
 
-      loadJDs: async () => {
-        set({ isLoading: true });
+      selectCV: (cvId) => {
+        set((state) => ({
+          selectedCVs: state.selectedCVs.includes(cvId)
+            ? state.selectedCVs
+            : [...state.selectedCVs, cvId],
+        }));
+      },
+
+      deselectCV: (cvId) => {
+        set((state) => ({
+          selectedCVs: state.selectedCVs.filter(id => id !== cvId),
+        }));
+      },
+
+      selectAllCVs: () => {
+        const { cvs } = get();
+        set({ selectedCVs: cvs.map(cv => cv.id) });
+      },
+
+      deselectAllCVs: () => {
+        set({ selectedCVs: [] });
+      },
+
+      uploadCVs: async (files) => {
+        const { setLoading, loadCVs } = get();
+        setLoading('upload', true);
+        
         try {
-          const jds = await fetchJDs();
-          set({ jobDescriptions: jds, hasLoadedDatabaseData: true });
-        } catch (error) {
-          console.error('Failed to load JDs:', error);
-        } finally {
-          set({ isLoading: false });
+          logger.info(`Uploading ${files.length} CV files`);
+          await api.uploadCV(files);
+          
+          // Reload CVs after successful upload
+          await loadCVs();
+          setLoading('upload', false);
+          logger.info('CV upload completed successfully');
+        } catch (error: any) {
+          logger.error('Failed to upload CVs', error);
+          setLoading('upload', false, error.message);
         }
+      },
+
+      // JD actions
+      loadJDs: async () => {
+        const { setLoading } = get();
+        setLoading('jds', true);
+        
+        try {
+          logger.info('Loading JDs from API');
+          const response = await api.listJDs();
+          set({ jds: response.jds });
+          setLoading('jds', false);
+          logger.info(`Loaded ${response.jds.length} JDs`);
+        } catch (error: any) {
+          logger.error('Failed to load JDs', error);
+          setLoading('jds', false, error.message);
+        }
+      },
+
+      selectJD: (jdId) => {
+        set({ selectedJD: jdId });
+      },
+
+      uploadJD: async (file) => {
+        const { setLoading, loadJDs } = get();
+        setLoading('upload', true);
+        
+        try {
+          logger.info('Uploading JD file', { filename: file.name });
+          await api.uploadJD(file);
+          
+          // Reload JDs after successful upload
+          await loadJDs();
+          setLoading('upload', false);
+          logger.info('JD upload completed successfully');
+        } catch (error: any) {
+          logger.error('Failed to upload JD', error);
+          setLoading('upload', false, error.message);
+        }
+      },
+
+      // Matching actions
+      setMatchWeights: (weights) => {
+        set((state) => ({
+          matchWeights: { ...state.matchWeights, ...weights },
+        }));
+      },
+
+      runMatch: async (request = {}) => {
+        const { setLoading, selectedJD, selectedCVs, matchWeights } = get();
+        setLoading('matching', true);
+        
+        try {
+          if (!selectedJD && !request.jd_text) {
+            throw new Error('Please select a job description first');
+          }
+
+          const matchRequest: MatchRequest = {
+            jd_id: selectedJD || undefined,
+            cv_ids: selectedCVs.length > 0 ? selectedCVs : undefined,
+            weights: matchWeights,
+            top_alternatives: 3,
+            ...request,
+          };
+
+          logger.info('Starting candidate matching', matchRequest);
+          const result = await api.matchCandidates(matchRequest);
+          
+          set({ matchResult: result });
+          setLoading('matching', false);
+          logger.info(`Matching completed: ${result.candidates.length} candidates processed`);
+        } catch (error: any) {
+          logger.error('Failed to run matching', error);
+          setLoading('matching', false, error.message);
+        }
+      },
+
+      clearMatchResult: () => {
+        set({ matchResult: null });
+      },
+
+      // System actions
+      loadSystemHealth: async () => {
+        const { setLoading } = get();
+        setLoading('health', true);
+        
+        try {
+          logger.info('Checking system health');
+          const health = await api.healthCheck();
+          set({ systemHealth: health });
+          setLoading('health', false);
+          logger.info('System health check completed', { status: health.status });
+        } catch (error: any) {
+          logger.error('Failed to check system health', error);
+          setLoading('health', false, error.message);
+        }
+      },
+
+      // Utility actions
+      setLoading: (operation, loading, error) => {
+        set((state) => ({
+          loadingStates: {
+            ...state.loadingStates,
+            [operation]: { isLoading: loading, error: error || null },
+          },
+        }));
+      },
+
+      clearError: (operation) => {
+        set((state) => ({
+          loadingStates: {
+            ...state.loadingStates,
+            [operation]: { ...state.loadingStates[operation], error: null },
+          },
+        }));
       },
     }),
     {
