@@ -12,6 +12,37 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.services.matching_service import get_matching_service, normalize_weights, years_score, hungarian_mean
+
+def safe_parse_years(years_value) -> int:
+    """Safely parse years of experience, handling string values like 'Not specified' or '5-8'."""
+    if not years_value:
+        return 0
+    
+    if isinstance(years_value, int):
+        return years_value
+    
+    if isinstance(years_value, str):
+        # Handle cases like "Not specified", "X years", etc.
+        if years_value.lower() in ["not specified", "x years", "not applicable", "n/a", ""]:
+            return 0
+        
+        # Handle ranges like "5-8", "3-5" by taking the minimum
+        if "-" in years_value:
+            try:
+                parts = years_value.split("-")
+                return int(parts[0].strip())
+            except (ValueError, IndexError):
+                return 0
+        
+        # Handle simple numbers like "5", "10"
+        try:
+            # Remove common suffixes
+            clean_value = years_value.replace(" years", "").replace("+", "").strip()
+            return int(clean_value)
+        except ValueError:
+            return 0
+    
+    return 0
 from app.services.embedding_service import get_embedding_service, get_model
 from app.services.llm_service import get_llm_service, extract_jd
 from app.services.parsing_service import get_parsing_service
@@ -933,7 +964,7 @@ async def match_candidates(req: NewMatchRequest):
             jd = await extract_jd(req.jd_text)
 
         jd_title = jd.get("job_title") or ""
-        jd_years = int(jd.get("years_of_experience") or 0)
+        jd_years = safe_parse_years(jd.get("years_of_experience"))
         jd_skills = [s for s in jd.get("skills_sentences", []) if s]
         jd_resps = [r for r in jd.get("responsibility_sentences", []) if r]
 
@@ -971,7 +1002,7 @@ async def match_candidates(req: NewMatchRequest):
             cv_id = c["id"]
             cv_name = c.get("name") or cv_id
             cv_title = c.get("job_title") or ""
-            cv_years = int(c.get("years_of_experience") or 0)
+            cv_years = safe_parse_years(c.get("years_of_experience"))
             cv_skills = [s for s in c.get("skills_sentences", []) if s]
             cv_resps = [r for r in c.get("responsibility_sentences", []) if r]
 
@@ -1092,3 +1123,85 @@ async def match_candidates(req: NewMatchRequest):
     except Exception as e:
         logger.error(f"❌ Matching failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Matching error: {str(e)}")
+
+@router.get("/database/view")
+async def view_database() -> JSONResponse:
+    """
+    Get formatted database view with all CVs and JDs for visualization.
+    Returns structured data optimized for frontend display.
+    """
+    try:
+        logger.info("📊 Getting formatted database view")
+        
+        qdrant_utils = get_qdrant_utils()
+        
+        # Get all CVs with detailed information
+        cvs_raw = qdrant_utils.list_documents("cv")
+        formatted_cvs = []
+        
+        for cv in cvs_raw:
+            formatted_cv = {
+                "id": cv["id"],
+                "name": cv.get("full_name", "Unknown"),
+                "filename": cv.get("filename", "Unknown"),
+                "job_title": cv.get("job_title", "Not specified"),
+                "skills_count": len(cv.get("skills", [])),
+                "experience_years": cv.get("years_of_experience", "Not specified"),
+                "upload_date": cv.get("upload_date", "Unknown"),
+                "text_length": len(cv.get("extracted_text", "")),
+                "top_skills": cv.get("skills", [])[:5],  # Top 5 skills for preview
+                "responsibilities_count": len(cv.get("responsibilities", [])),
+                "has_structured_data": bool(cv.get("structured_info"))
+            }
+            formatted_cvs.append(formatted_cv)
+        
+        # Get all JDs with detailed information  
+        jds_raw = qdrant_utils.list_documents("jd")
+        formatted_jds = []
+        
+        for jd in jds_raw:
+            formatted_jd = {
+                "id": jd["id"],
+                "filename": jd.get("filename", "Unknown"),
+                "job_title": jd.get("job_title", "Not specified"),
+                "required_skills": len(jd.get("skills", [])),
+                "required_years": jd.get("years_of_experience", "Not specified"),
+                "upload_date": jd.get("upload_date", "Unknown"),
+                "text_length": len(jd.get("extracted_text", "")),
+                "top_skills": jd.get("skills", [])[:5],  # Top 5 required skills
+                "responsibilities_count": len(jd.get("responsibility_sentences", [])),
+                "has_structured_data": bool(jd.get("structured_info"))
+            }
+            formatted_jds.append(formatted_jd)
+        
+        # Sort by upload date (newest first)
+        formatted_cvs.sort(key=lambda x: x["upload_date"], reverse=True)
+        formatted_jds.sort(key=lambda x: x["upload_date"], reverse=True)
+        
+        # Calculate summary statistics
+        summary_stats = {
+            "total_documents": len(formatted_cvs) + len(formatted_jds),
+            "total_cvs": len(formatted_cvs),
+            "total_jds": len(formatted_jds),
+            "avg_cv_skills": sum(cv["skills_count"] for cv in formatted_cvs) / len(formatted_cvs) if formatted_cvs else 0,
+            "avg_jd_skills": sum(jd["required_skills"] for jd in formatted_jds) / len(formatted_jds) if formatted_jds else 0,
+            "ready_for_matching": len(formatted_cvs) > 0 and len(formatted_jds) > 0
+        }
+        
+        logger.info(f"✅ Database view retrieved: {len(formatted_cvs)} CVs, {len(formatted_jds)} JDs")
+        
+        return JSONResponse({
+            "success": True,
+            "data": {
+                "cvs": formatted_cvs,
+                "jds": formatted_jds,
+                "summary": summary_stats
+            },
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get database view: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database view error: {str(e)}")
+
+

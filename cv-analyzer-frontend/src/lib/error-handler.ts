@@ -1,120 +1,103 @@
-/**
- * Centralized error handling following best practices
- */
+import { logger } from './logger';
 
 export interface ApiError {
+  status: number;
   message: string;
-  status?: number;
-  code?: string;
-  details?: Record<string, unknown>;
+  detail?: string;
+  requestId?: string;
 }
 
 export class ApiErrorHandler {
-  /**
-   * Standardizes API error responses
-   */
-  static handleApiError(error: unknown): ApiError {
-    // Network error
+  static handle(error: any, requestId?: string): ApiError {
+    const id = requestId || `err_${Date.now()}`;
+    
+    // Network errors
     if (!error.response) {
+      logger.error('Network error', { error: error.message }, id);
       return {
-        message: 'Network error. Please check your connection.',
-        code: 'NETWORK_ERROR',
-        details: error.message,
+        status: 0,
+        message: 'Unable to connect to the server. Please check your connection.',
+        detail: error.message,
+        requestId: id,
       };
     }
 
+    // HTTP errors with response
     const { status, data } = error.response;
+    
+    let message = 'An unexpected error occurred';
+    let detail = '';
 
-    // Server errors
-    if (status >= 500) {
-      return {
-        message: 'Server error. Please try again later.',
-        status,
-        code: 'SERVER_ERROR',
-        details: data,
-      };
+    switch (status) {
+      case 400:
+        message = 'Invalid request';
+        detail = data?.detail || 'Please check your input and try again.';
+        break;
+      case 401:
+        message = 'Authentication required';
+        detail = 'Please log in to continue.';
+        break;
+      case 403:
+        message = 'Access denied';
+        detail = 'You do not have permission to perform this action.';
+        break;
+      case 404:
+        message = 'Resource not found';
+        detail = data?.detail || 'The requested resource could not be found.';
+        break;
+      case 422:
+        message = 'Validation error';
+        detail = data?.detail || 'Please check your input format.';
+        break;
+      case 500:
+        message = 'Server error';
+        detail = 'Something went wrong on our end. Please try again later.';
+        break;
+      case 503:
+        message = 'Service unavailable';
+        detail = 'The service is temporarily unavailable. Please try again later.';
+        break;
+      default:
+        message = `HTTP ${status} Error`;
+        detail = data?.detail || error.message;
     }
 
-    // Client errors
-    if (status >= 400) {
-      return {
-        message: data?.message || data?.detail || 'Request failed',
-        status,
-        code: 'CLIENT_ERROR',
-        details: data,
-      };
-    }
+    logger.error(`API Error: ${status}`, { message, detail, data }, id);
 
-    // Fallback
     return {
-      message: 'An unexpected error occurred',
       status,
-      code: 'UNKNOWN_ERROR',
-      details: data,
+      message,
+      detail,
+      requestId: id,
     };
-  }
-
-  /**
-   * Logs errors with proper formatting
-   */
-  static logError(error: ApiError, context?: string) {
-    const logData = {
-      context,
-      ...error,
-      timestamp: new Date().toISOString(),
-    };
-
-    console.error(`🚨 API Error${context ? ` [${context}]` : ''}:`, logData);
   }
 }
 
-/**
- * Retry logic for failed requests with enhanced configuration
- */
 export class RequestRetryHandler {
   static async withRetry<T>(
-    operation: () => Promise<T>,
-    options: {
-      maxRetries?: number;
-      delay?: number;
-      exponentialBackoff?: boolean;
-      retryCondition?: (error: unknown) => boolean;
-    } = {}
+    fn: () => Promise<T>,
+    maxRetries = 3,
+    delay = 1000
   ): Promise<T> {
-    const {
-      maxRetries = 3,
-      delay: initialDelay = 1000,
-      exponentialBackoff = true,
-      retryCondition = (error) => {
-        // Default: retry on network errors and 5xx server errors
-        return !error.response || (error.response.status >= 500);
-      }
-    } = options;
-
-    let lastError: unknown;
-    let currentDelay = initialDelay;
+    let lastError: any;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        return await operation();
-      } catch (error: unknown) {
+        return await fn();
+      } catch (error) {
         lastError = error;
         
-        if (attempt === maxRetries || !retryCondition(error)) {
-          throw error;
+        // Don't retry on client errors (4xx)
+        if (error && typeof error === 'object' && 'response' in error) {
+          const axiosError = error as any;
+          if (axiosError.response?.status >= 400 && axiosError.response?.status < 500) {
+            throw error;
+          }
         }
 
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        const errorStatus = (error as Record<string, unknown>)?.response?.status;
-        console.warn(
-          `⚠️ Request failed (attempt ${attempt}/${maxRetries}), retrying in ${currentDelay}ms...`,
-          { error: errorMessage, status: errorStatus }
-        );
-        
-        await new Promise(resolve => setTimeout(resolve, currentDelay));
-        
-        if (exponentialBackoff) {
-          currentDelay *= 2;
+        if (attempt < maxRetries) {
+          logger.warn(`Request failed, retrying (${attempt}/${maxRetries})`, { error });
+          await new Promise(resolve => setTimeout(resolve, delay * attempt));
         }
       }
     }
@@ -122,6 +105,3 @@ export class RequestRetryHandler {
     throw lastError;
   }
 }
-
-// Re-export logger from the main logging module
-export { logger as Logger } from './logger';

@@ -400,7 +400,7 @@ async def reprocess_cv(cv_id: str) -> JSONResponse:
         
         # Store document, structured data, and embeddings
         qdrant_utils.store_document(cv_id, filename, original_text, "cv")
-        qdrant_utils.store_structured_data(cv_id, standardized_data, "cv")
+        qdrant_utils.store_structured_data(cv_id, "cv", standardized_data)
         qdrant_utils.store_embeddings_exact(cv_id, embeddings, "cv")
         
         logger.info(f"✅ CV reprocessed successfully: {cv_id}")

@@ -1,1 +1,56 @@
-Test CV Content
+John Smith
+Senior Software Engineer
+Email: john.smith@example.com
+Phone: +1-555-123-4567
+
+PROFESSIONAL SUMMARY
+Experienced software engineer with 8 years of expertise in full-stack development, specializing in Python, JavaScript, and cloud technologies. Proven track record of leading development teams and delivering scalable solutions.
+
+WORK EXPERIENCE
+
+Senior Software Engineer | TechCorp Inc. | 2019 - Present
+• Led development of microservices architecture serving 1M+ users
+• Implemented CI/CD pipelines reducing deployment time by 75%
+• Mentored 5 junior developers and conducted code reviews
+• Designed RESTful APIs using Python Django and FastAPI
+• Optimized database queries improving application performance by 40%
+
+Software Engineer | StartupXYZ | 2016 - 2019
+• Developed responsive web applications using React and Vue.js
+• Built data processing pipelines using Apache Spark and Kafka
+• Implemented automated testing strategies achieving 95% code coverage
+• Collaborated with DevOps team to deploy applications on AWS
+• Maintained and upgraded legacy systems written in Java and C++
+
+TECHNICAL SKILLS
+• Programming Languages: Python, JavaScript, Java, C++, Go, Scala
+• Web Frameworks: Django, FastAPI, Flask, React, Vue.js, Node.js
+• Databases: PostgreSQL, MySQL, MongoDB, Redis
+• Cloud Platforms: AWS, Azure, Google Cloud Platform
+• DevOps Tools: Docker, Kubernetes, Jenkins, GitLab CI, Terraform
+• Message Queues: Apache Kafka, RabbitMQ, AWS SQS
+• Monitoring: Prometheus, Grafana, ELK Stack, DataDog
+• Version Control: Git, SVN
+• Testing: Jest, PyTest, Selenium, JUnit
+
+EDUCATION
+Bachelor of Science in Computer Science
+University of Technology | 2012 - 2016
+GPA: 3.8/4.0
+
+CERTIFICATIONS
+• AWS Certified Solutions Architect (2020)
+• Docker Certified Associate (2019)
+• Certified Kubernetes Administrator (2021)
+
+RESPONSIBILITIES
+• Design and implement scalable software solutions
+• Lead technical architecture decisions for new projects
+• Collaborate with cross-functional teams including product managers and designers
+• Conduct performance optimization and system monitoring
+• Implement security best practices and code quality standards
+• Manage project timelines and deliverables
+• Provide technical guidance and mentorship to team members
+• Research and evaluate new technologies for adoption
+• Troubleshoot complex technical issues in production environments
+• Document technical specifications and system architecture

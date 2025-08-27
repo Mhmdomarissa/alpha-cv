@@ -501,7 +501,8 @@ class QdrantUtils:
                         vector=dummy_vector,
                         payload={
                             "id": doc_id,
-                            **structured_data
+                            "document_id": doc_id,
+                            "structured_info": structured_data
                         }
                     )
                 ]
@@ -605,8 +606,30 @@ class QdrantUtils:
             return False
 
     def get_structured_cv(self, cv_id: str) -> Optional[Dict[str, Any]]:
-        """Get structured CV data by ID."""
+        """Get structured CV data by ID from cv collection."""
         try:
+            # Try to retrieve from the main cv collection first
+            result = self.client.retrieve(
+                collection_name="cv",
+                ids=[cv_id],
+                with_payload=True
+            )
+            
+            if result:
+                point = result[0]
+                payload = point.payload
+                
+                # Extract data directly from payload
+                return {
+                    "id": cv_id,
+                    "name": payload.get("full_name", cv_id),
+                    "job_title": payload.get("job_title", ""),
+                    "years_of_experience": payload.get("years_of_experience", 0),
+                    "skills_sentences": payload.get("skills", [])[:20],  # Limit to 20
+                    "responsibility_sentences": payload.get("responsibilities", [])[:10]  # Limit to 10
+                }
+            
+            # Fallback: try cv_structured collection
             result = self.client.scroll(
                 collection_name="cv_structured",
                 scroll_filter=Filter(
@@ -621,12 +644,13 @@ class QdrantUtils:
                 structured_data = point.payload.get("structured_info", {})
                 return {
                     "id": cv_id,
-                    "name": structured_data.get("name", cv_id),
-                    "job_title": structured_data.get("job_title"),
+                    "name": structured_data.get("full_name", structured_data.get("name", cv_id)),
+                    "job_title": structured_data.get("job_title", ""),
                     "years_of_experience": structured_data.get("years_of_experience", 0),
                     "skills_sentences": structured_data.get("skills", [])[:20],  # Limit to 20
                     "responsibility_sentences": structured_data.get("responsibilities", [])[:10]  # Limit to 10
                 }
+            
             return None
             
         except Exception as e:
@@ -634,8 +658,31 @@ class QdrantUtils:
             return None
 
     def get_structured_jd(self, jd_id: str) -> Optional[Dict[str, Any]]:
-        """Get structured JD data by ID."""
+        """Get structured JD data by ID from jd collection."""
         try:
+            # Try to retrieve from the main jd collection first
+            result = self.client.retrieve(
+                collection_name="jd",
+                ids=[jd_id],
+                with_payload=True
+            )
+            
+            if result:
+                point = result[0]
+                payload = point.payload
+                
+                # Extract data directly from payload or structured_info
+                structured_data = payload.get("structured_info", payload)
+                
+                return {
+                    "id": jd_id,
+                    "job_title": structured_data.get("job_title", ""),
+                    "years_of_experience": structured_data.get("years_of_experience", 0),
+                    "skills_sentences": structured_data.get("skills", [])[:20],  # Limit to 20
+                    "responsibility_sentences": structured_data.get("responsibilities", structured_data.get("responsibility_sentences", []))[:10]  # Limit to 10
+                }
+            
+            # Fallback: try jd_structured collection
             result = self.client.scroll(
                 collection_name="jd_structured",
                 scroll_filter=Filter(
@@ -650,11 +697,12 @@ class QdrantUtils:
                 structured_data = point.payload.get("structured_info", {})
                 return {
                     "id": jd_id,
-                    "job_title": structured_data.get("job_title"),
+                    "job_title": structured_data.get("job_title", ""),
                     "years_of_experience": structured_data.get("years_of_experience", 0),
                     "skills_sentences": structured_data.get("skills", [])[:20],  # Limit to 20
-                    "responsibility_sentences": structured_data.get("responsibilities", [])[:10]  # Limit to 10
+                    "responsibility_sentences": structured_data.get("responsibilities", structured_data.get("responsibility_sentences", []))[:10]  # Limit to 10
                 }
+            
             return None
             
         except Exception as e:
@@ -662,20 +710,38 @@ class QdrantUtils:
             return None
 
     def list_all_cvs(self) -> List[Dict[str, str]]:
-        """List all CVs with minimal metadata."""
+        """List all CVs with minimal metadata from cv collection."""
         try:
+            # First try to get from main cv collection
             result = self.client.scroll(
-                collection_name="cv_structured",
+                collection_name="cv",
                 limit=1000,  # Reasonable limit
                 with_payload=True
             )
             
             cvs = []
             for point in result[0]:
+                payload = point.payload
+                cvs.append({
+                    "id": str(point.id),
+                    "name": payload.get("full_name", str(point.id))
+                })
+            
+            if cvs:
+                return cvs
+            
+            # Fallback: try cv_structured collection
+            result = self.client.scroll(
+                collection_name="cv_structured",
+                limit=1000,  # Reasonable limit
+                with_payload=True
+            )
+            
+            for point in result[0]:
                 structured_data = point.payload.get("structured_info", {})
                 cvs.append({
                     "id": point.payload.get("document_id", str(point.id)),
-                    "name": structured_data.get("name", point.payload.get("document_id", str(point.id)))
+                    "name": structured_data.get("full_name", structured_data.get("name", point.payload.get("document_id", str(point.id))))
                 })
             
             return cvs
