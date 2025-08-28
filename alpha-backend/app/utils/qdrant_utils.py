@@ -1,760 +1,424 @@
-# qdrant_utils.py
+# app/utils/qdrant_utils.py
 import logging
-import time
-import uuid
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 from datetime import datetime
+import hashlib
+import uuid
+
 import numpy as np
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter
-from qdrant_client.http.models import CollectionInfo
+from qdrant_client.http.models import (
+    Distance,
+    VectorParams,
+    PointStruct,
+    Filter,
+    FieldCondition,
+    MatchValue,
+    FilterSelector,
+)
 
 logger = logging.getLogger(__name__)
 
 class QdrantUtils:
     """
-    Utility class for all Qdrant database operations.
-    Handles document storage, retrieval, and search operations.
+    Qdrant utilities with a CONSISTENT 6-collection layout:
+
+    - cv_documents / jd_documents       : raw text + file metadata (dummy single vector)
+    - cv_structured / jd_structured     : standardized JSON (dummy single vector)
+    - cv_embeddings / jd_embeddings     : EXACT 32 vectors per doc (20 skills, 10 resp, 1 title, 1 experience)
     """
-    
+
     def __init__(self, host: str = "qdrant", port: int = 6333):
-        """Initialize Qdrant client with connection details."""
         self.host = host
         self.port = port
         self.client = QdrantClient(host=host, port=port)
         logger.info(f"🗄 Connected to Qdrant at {host}:{port}")
-        
-        # Initialize collections
         self._ensure_collections_exist()
-    
+
+    # ---------- collection management ----------
+
     def _ensure_collections_exist(self):
-        """Ensure all 6 required collections exist in Qdrant."""
-        
-        # Define EXACT 6 collections as specified
-        collections_config = {
-            # Document Storage (Full Documents)
-            "cv_documents": {
-                "description": "Store complete CV files and metadata",
-                "config": VectorParams(size=768, distance=Distance.COSINE)
-            },
-            "jd_documents": {
-                "description": "Store complete JD files and metadata", 
-                "config": VectorParams(size=768, distance=Distance.COSINE)
-            },
-            
-            # Structured Data Storage  
-            "cv_structured": {
-                "description": "Store standardized CV data",
-                "config": VectorParams(size=768, distance=Distance.COSINE)
-            },
-            "jd_structured": {
-                "description": "Store standardized JD data",
-                "config": VectorParams(size=768, distance=Distance.COSINE)
-            },
-            
-            # Vector Storage (Embeddings)
-            "cv_embeddings": {
-                "description": "Store CV vector embeddings (32 vectors per CV)",
-                "config": VectorParams(size=768, distance=Distance.COSINE)
-            },
-            "jd_embeddings": {
-                "description": "Store JD vector embeddings (32 vectors per JD)",
-                "config": VectorParams(size=768, distance=Distance.COSINE)
-            }
+        collections = {
+            "cv_documents":   VectorParams(size=768, distance=Distance.COSINE),
+            "jd_documents":   VectorParams(size=768, distance=Distance.COSINE),
+            "cv_structured":  VectorParams(size=768, distance=Distance.COSINE),
+            "jd_structured":  VectorParams(size=768, distance=Distance.COSINE),
+            "cv_embeddings":  VectorParams(size=768, distance=Distance.COSINE),
+            "jd_embeddings":  VectorParams(size=768, distance=Distance.COSINE),
         }
-        
-        for collection_name, config in collections_config.items():
-            if not self.client.collection_exists(collection_name):
-                logger.info(f"📋 Creating collection: {collection_name} - {config['description']}")
-                self.client.create_collection(
-                    collection_name=collection_name,
-                    vectors_config=config["config"]
-                )
-                logger.info(f"✅ Collection created: {collection_name}")
+        for name, cfg in collections.items():
+            if not self.client.collection_exists(name):
+                logger.info(f"📋 Creating collection: {name}")
+                self.client.create_collection(collection_name=name, vectors_config=cfg)
+                logger.info(f"✅ Collection created: {name}")
             else:
-                logger.info(f"✅ Collection exists: {collection_name}")
-    
-    def _convert_embeddings_to_vector_format(self, embeddings: Dict[str, Any]) -> Dict[str, List[float]]:
-        """Convert embeddings from dictionary format to list format for Qdrant."""
-        result = {}
-        
-        for key, value in embeddings.items():
-            if isinstance(value, dict):
-                # This is a dictionary of skill/responsibility to embedding
-                # We need to average all embeddings to create a single vector
-                embedding_vectors = list(value.values())
-                if embedding_vectors:
-                    # Stack all embeddings and compute the mean
-                    stacked = np.stack(embedding_vectors)
-                    avg_embedding = np.mean(stacked, axis=0)
-                    result[key] = avg_embedding.tolist()
-                else:
-                    result[key] = []
-            elif isinstance(value, list) and all(isinstance(x, (int, float)) for x in value):
-                # Already in the correct format
-                result[key] = value
-            else:
-                # Handle other cases (like numpy arrays)
-                try:
-                    result[key] = value.tolist() if hasattr(value, 'tolist') else list(value)
-                except:
-                    result[key] = []
-        
-        return result
-    
-    def store_cv_embeddings(self, cv_id: str, embeddings: Dict[str, Any], cv_data: Dict[str, Any]) -> str:
-        """
-        Store CV embeddings and metadata in Qdrant.
-        
-        Args:
-            cv_id: Unique identifier for the CV
-            embeddings: Dictionary of embeddings for different aspects
-            cv_data: CV metadata and structured data
-            
-        Returns:
-            The CV ID if successful
-        """
-        try:
-            logger.info(f"💾 Storing CV embeddings: {cv_id}")
-            
-            # Extract structured data
-            structured_info = cv_data.get("structured_info", {})
-            
-            # Convert embeddings to the correct format
-            converted_embeddings = self._convert_embeddings_to_vector_format(embeddings)
-            
-            # Prepare point with all metadata
-            point = PointStruct(
-                id=cv_id,
-                vector=converted_embeddings,
-                payload={
-                    "id": cv_id,
-                    "filename": cv_data.get("filename", ""),
-                    "upload_date": datetime.utcnow().isoformat(),
-                    "document_type": "cv",
-                    "extracted_text": cv_data.get("extracted_text", ""),
-                    # Store structured data at the top level for easy retrieval
-                    "full_name": structured_info.get("full_name", "Not specified"),
-                    "email": structured_info.get("email", "Not specified"),
-                    "phone": structured_info.get("phone", "Not specified"),
-                    "job_title": structured_info.get("job_title", "Not specified"),
-                    "years_of_experience": structured_info.get("experience_years", "Not specified"),
-                    "skills": structured_info.get("skills", []),
-                    "responsibilities": structured_info.get("responsibilities", []),
-                    # Store the full structured info as well
-                    "structured_info": structured_info
-                }
-            )
-            
-            # Store in Qdrant
-            self.client.upsert(
-                collection_name="cv",
-                points=[point]
-            )
-            
-            logger.info(f"✅ CV embeddings stored successfully: {cv_id}")
-            return cv_id
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to store CV embeddings: {str(e)}")
-            raise Exception(f"Failed to store CV embeddings: {str(e)}")
-    
-    def store_jd_embeddings(self, jd_id: str, embeddings: Dict[str, Any], jd_data: Dict[str, Any]) -> str:
-        """
-        Store JD embeddings and metadata in Qdrant.
-        
-        Args:
-            jd_id: Unique identifier for the job description
-            embeddings: Dictionary of embeddings for different aspects
-            jd_data: JD metadata and structured data
-            
-        Returns:
-            The JD ID if successful
-        """
-        try:
-            logger.info(f"💾 Storing JD embeddings: {jd_id}")
-            
-            # Extract structured data
-            structured_info = jd_data.get("structured_info", {})
-            
-            # Convert embeddings to the correct format
-            converted_embeddings = self._convert_embeddings_to_vector_format(embeddings)
-            
-            # Prepare point with all metadata
-            point = PointStruct(
-                id=jd_id,
-                vector=converted_embeddings,
-                payload={
-                    "id": jd_id,
-                    "filename": jd_data.get("filename", ""),
-                    "upload_date": datetime.utcnow().isoformat(),
-                    "document_type": "jd",
-                    "extracted_text": jd_data.get("extracted_text", ""),
-                    # Store structured data at the top level for easy retrieval
-                    "job_title": structured_info.get("job_title", "Not specified"),
-                    "years_of_experience": structured_info.get("experience_years", "Not specified"),
-                    "skills": structured_info.get("skills", []),
-                    "responsibilities": structured_info.get("responsibilities", []),
-                    "responsibility_sentences": structured_info.get("responsibilities", []),
-                    # Store the full structured info as well
-                    "structured_info": structured_info
-                }
-            )
-            
-            # Store in Qdrant
-            self.client.upsert(
-                collection_name="jd",
-                points=[point]
-            )
-            
-            logger.info(f"✅ JD embeddings stored successfully: {jd_id}")
-            return jd_id
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to store JD embeddings: {str(e)}")
-            raise Exception(f"Failed to store JD embeddings: {str(e)}")
-    
-    def store_embeddings(self, doc_id: str, embeddings: Dict[str, Any], doc_type: str) -> bool:
-        """
-        Store embeddings for a document.
-        
-        Args:
-            doc_id: Document ID
-            embeddings: Dictionary of embeddings
-            doc_type: "cv" or "jd"
-            
-        Returns:
-            True if successful
-        """
-        try:
-            if doc_type == "cv":
-                cv_data = self.retrieve_document(doc_id, doc_type)
-                if cv_data:
-                    self.store_cv_embeddings(doc_id, embeddings, cv_data)
-                    return True
-            elif doc_type == "jd":
-                jd_data = self.retrieve_document(doc_id, doc_type)
-                if jd_data:
-                    self.store_jd_embeddings(doc_id, embeddings, jd_data)
-                    return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to store embeddings: {str(e)}")
-            return False
-    
-    def retrieve_document(self, doc_id: str, doc_type: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve document metadata from Qdrant.
-        
-        Args:
-            doc_id: Document ID to retrieve
-            doc_type: "cv" or "jd"
-            
-        Returns:
-            Document metadata or None if not found
-        """
-        try:
-            logger.debug(f"🔍 Retrieving document: {doc_id} ({doc_type})")
-            
-            result = self.client.retrieve(
-                collection_name=doc_type,
-                ids=[doc_id]
-            )
-            
-            if result and len(result) > 0:
-                return result[0].payload
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to retrieve document: {str(e)}")
-            return None
-    
-    def retrieve_embeddings(self, doc_id: str, doc_type: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve embeddings for a document.
-        
-        Args:
-            doc_id: Document ID
-            doc_type: "cv" or "jd"
-            
-        Returns:
-            Dictionary of embeddings or None if not found
-        """
-        try:
-            logger.debug(f"🔍 Retrieving embeddings: {doc_id} ({doc_type})")
-            
-            result = self.client.retrieve(
-                collection_name=doc_type,
-                ids=[doc_id],
-                with_vectors=True
-            )
-            
-            if result and len(result) > 0:
-                return result[0].vector
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to retrieve embeddings: {str(e)}")
-            return None
-    
-    def list_documents(self, doc_type: str) -> List[Dict[str, Any]]:
-        """
-        List all documents of a specific type.
-        
-        Args:
-            doc_type: "cv" or "jd"
-            
-        Returns:
-            List of document metadata
-        """
-        try:
-            logger.info(f"📋 Listing {doc_type} documents")
-            
-            # Use scroll to get all documents
-            all_points = []
-            offset = None
-            limit = 100  # Process in batches
-            
-            while True:
-                result = self.client.scroll(
-                    collection_name=doc_type,
-                    limit=limit,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=False
-                )
-                
-                points, next_offset = result
-                all_points.extend(points)
-                
-                if next_offset is None:
-                    break
-                    
-                offset = next_offset
-            
-            # Extract payloads
-            documents = [point.payload for point in all_points]
-            
-            logger.info(f"📋 Found {len(documents)} {doc_type} documents")
-            return documents
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to list documents: {str(e)}")
-            return []
-    
-    def delete_document(self, doc_id: str, doc_type: str) -> bool:
-        """
-        Delete a document from Qdrant.
-        
-        Args:
-            doc_id: Document ID to delete
-            doc_type: "cv" or "jd"
-            
-        Returns:
-            True if successful
-        """
-        try:
-            logger.info(f"🗑 Deleting document: {doc_id} ({doc_type})")
-            
-            self.client.delete(
-                collection_name=doc_type,
-                points_selector=[doc_id]
-            )
-            
-            logger.info(f"✅ Document deleted successfully: {doc_id}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to delete document: {str(e)}")
-            return False
-    
-    def clear_all_data(self) -> bool:
-        """
-        Clear all data from all collections.
-        
-        Returns:
-            True if successful
-        """
-        try:
-            logger.warning("🧹 Clearing all data from database")
-            
-            collections = ["cv", "jd"]
-            
-            for collection_name in collections:
-                if self.client.collection_exists(collection_name):
-                    logger.info(f"🗑 Clearing collection: {collection_name}")
-                    self.client.delete_collection(collection_name)
-                    logger.info(f"✅ Collection cleared: {collection_name}")
-                    
-                    # Recreate the collection
-                    self._ensure_collections_exist()
-            
-            logger.warning("⚠ All data cleared from database")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to clear database: {str(e)}")
-            return False
-    
+                logger.info(f"✅ Collection exists: {name}")
+
+    # ---------- basic health ----------
+
     def health_check(self) -> Dict[str, Any]:
-        """
-        Check the health of the Qdrant connection.
-        
-        Returns:
-            Health status information
-        """
         try:
-            logger.debug("🏥 Checking Qdrant health")
-            
-            # Try to get collection info
-            collections = self.client.get_collections()
-            collection_names = [collection.name for collection in collections.collections]
-            
+            cols = self.client.get_collections()
             return {
                 "status": "healthy",
-                "collections": collection_names,
+                "collections": [c.name for c in cols.collections],
                 "host": self.host,
-                "port": self.port
+                "port": self.port,
             }
-            
         except Exception as e:
-            logger.error(f"❌ Qdrant health check failed: {str(e)}")
-            return {
-                "status": "unhealthy",
-                "error": str(e),
-                "host": self.host,
-                "port": self.port
-            }
-    
-    def store_document(self, doc_id: str, doc_type: str, filename: str, file_format: str, raw_content: str, upload_date: str) -> bool:
+            logger.error(f"❌ Qdrant health check failed: {e}")
+            return {"status": "unhealthy", "error": str(e), "host": self.host, "port": self.port}
+
+    # ---------- document + structured storage ----------
+
+    def store_document(
+        self,
+        doc_id: str,
+        doc_type: str,
+        filename: str,
+        file_format: str,
+        raw_content: str,
+        upload_date: str,
+    ) -> bool:
         """
-        Store document in appropriate collection (cv_documents/jd_documents).
-        
-        Args:
-            doc_id: Document ID ("cv_123" or "jd_123")
-            doc_type: "cv" or "jd"
-            filename: Original filename
-            file_format: File format (pdf, doc, docx, txt, image)
-            raw_content: Full extracted text
-            upload_date: Upload timestamp
+        Store document into {doc_type}_documents with a dummy 768 vector.
         """
         try:
             collection_name = f"{doc_type}_documents"
-            
-            # Create a simple embedding of the raw content for indexing
-            # This is just for storage/retrieval, not for matching
-            import hashlib
-            content_hash = hashlib.md5(raw_content.encode()).hexdigest()
-            dummy_vector = [0.0] * 768  # Placeholder vector for storage
-            
-            document_data = {
+            dummy_vector = [0.0] * 768
+            payload = {
                 "id": doc_id,
                 "filename": filename,
                 "file_format": file_format,
                 "raw_content": raw_content,
                 "upload_date": upload_date,
-                "content_hash": content_hash
+                "content_hash": hashlib.md5(raw_content.encode()).hexdigest(),
+                "document_type": doc_type,
             }
-            
             self.client.upsert(
                 collection_name=collection_name,
-                points=[
-                    PointStruct(
-                        id=doc_id,
-                        vector=dummy_vector,
-                        payload=document_data
-                    )
-                ]
+                points=[PointStruct(id=doc_id, vector=dummy_vector, payload=payload)],
             )
-            
-            logger.info(f"✅ Document stored in {collection_name}: {doc_id}")
+            logger.info(f"✅ Document stored: {doc_id} → {collection_name}")
             return True
-            
         except Exception as e:
-            logger.error(f"❌ Failed to store document {doc_id}: {str(e)}")
+            logger.error(f"❌ store_document({doc_id}) failed: {e}")
             return False
-    
+
     def store_structured_data(self, doc_id: str, doc_type: str, structured_data: Dict[str, Any]) -> bool:
         """
-        Store structured data in appropriate collection (cv_structured/jd_structured).
-        
-        Args:
-            doc_id: Document ID ("cv_123" or "jd_123")
-            doc_type: "cv" or "jd"
-            structured_data: Standardized data from LLM
+        Store standardized JSON into {doc_type}_structured with a dummy 768 vector.
+        structured_data expected to include "document_id" and "structured_info".
         """
         try:
             collection_name = f"{doc_type}_structured"
-            
-            # Create embedding of the structured data for indexing
-            dummy_vector = [0.0] * 768  # Placeholder vector for storage
-            
+            dummy_vector = [0.0] * 768
+            payload = {
+                "id": doc_id,
+                "document_id": doc_id,
+                "structured_info": structured_data.get("structured_info", structured_data),
+                "stored_at": datetime.utcnow().isoformat(),
+            }
             self.client.upsert(
                 collection_name=collection_name,
-                points=[
-                    PointStruct(
-                        id=doc_id,
-                        vector=dummy_vector,
-                        payload={
-                            "id": doc_id,
-                            "document_id": doc_id,
-                            "structured_info": structured_data
-                        }
-                    )
-                ]
+                points=[PointStruct(id=doc_id, vector=dummy_vector, payload=payload)],
             )
-            
-            logger.info(f"✅ Structured data stored in {collection_name}: {doc_id}")
+            logger.info(f"✅ Structured stored: {doc_id} → {collection_name}")
             return True
-            
         except Exception as e:
-            logger.error(f"❌ Failed to store structured data {doc_id}: {str(e)}")
-            return False
-    
-    def store_embeddings_exact(self, doc_id: str, doc_type: str, embeddings_data: Dict[str, Any]) -> bool:
-        """
-        Store EXACTLY 32 vectors per document in embeddings collection.
-        
-        Args:
-            doc_id: Document ID (UUID)
-            doc_type: "cv" or "jd"
-            embeddings_data: Dict containing:
-                - skill_vectors: [20 vectors - one per skill]
-                - responsibility_vectors: [10 vectors - one per responsibility]  
-                - experience_vector: [1 vector for experience]
-                - job_title_vector: [1 vector for job title]
-                Total: 32 vectors per document
-        """
-        try:
-            import uuid
-            collection_name = f"{doc_type}_embeddings"
-            
-            # Store each vector as a separate point with metadata
-            points = []
-            
-            # Store 20 skill vectors
-            for i, skill_vector in enumerate(embeddings_data.get("skill_vectors", [])[:20]):
-                points.append(PointStruct(
-                    id=str(uuid.uuid4()),  # Generate unique UUID for each vector
-                    vector=skill_vector,
-                    payload={
-                        "document_id": doc_id,
-                        "vector_type": "skill",
-                        "vector_index": i,
-                        "content": embeddings_data.get("skills", [])[i] if i < len(embeddings_data.get("skills", [])) else ""
-                    }
-                ))
-            
-            # Store 10 responsibility vectors
-            for i, resp_vector in enumerate(embeddings_data.get("responsibility_vectors", [])[:10]):
-                points.append(PointStruct(
-                    id=str(uuid.uuid4()),  # Generate unique UUID for each vector
-                    vector=resp_vector,
-                    payload={
-                        "document_id": doc_id,
-                        "vector_type": "responsibility",
-                        "vector_index": i,
-                        "content": embeddings_data.get("responsibilities", [])[i] if i < len(embeddings_data.get("responsibilities", [])) else ""
-                    }
-                ))
-            
-            # Store 1 experience vector
-            if embeddings_data.get("experience_vector"):
-                points.append(PointStruct(
-                    id=str(uuid.uuid4()),  # Generate unique UUID for each vector
-                    vector=embeddings_data["experience_vector"][0],
-                    payload={
-                        "document_id": doc_id,
-                        "vector_type": "experience",
-                        "vector_index": 0,
-                        "content": embeddings_data.get("experience_years", "")
-                    }
-                ))
-            
-            # Store 1 job title vector
-            if embeddings_data.get("job_title_vector"):
-                points.append(PointStruct(
-                    id=str(uuid.uuid4()),  # Generate unique UUID for each vector
-                    vector=embeddings_data["job_title_vector"][0],
-                    payload={
-                        "document_id": doc_id,
-                        "vector_type": "job_title",
-                        "vector_index": 0,
-                        "content": embeddings_data.get("job_title", "")
-                    }
-                ))
-            
-            # Batch upsert all vectors
-            if points:
-                self.client.upsert(
-                    collection_name=collection_name,
-                    points=points
-                )
-                
-                logger.info(f"✅ Stored {len(points)} embedding vectors in {collection_name}: {doc_id}")
-                return True
-            else:
-                logger.warning(f"⚠️ No embedding vectors to store for {doc_id}")
-                return False
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to store embeddings {doc_id}: {str(e)}")
+            logger.error(f"❌ store_structured_data({doc_id}) failed: {e}")
             return False
 
-    def get_structured_cv(self, cv_id: str) -> Optional[Dict[str, Any]]:
-        """Get structured CV data by ID from cv collection."""
+    # ---------- EXACT 32 vectors storage (per doc) ----------
+
+    def store_embeddings_exact(self, doc_id: str, doc_type: str, embeddings_data: Dict[str, Any]) -> bool:
+        """
+        Store EXACTLY 32 vectors as INDIVIDUAL POINTS in {doc_type}_embeddings.
+        Expected keys in embeddings_data:
+          - skill_vectors (20), responsibility_vectors (10), experience_vector (1), job_title_vector (1)
+          - plus 'skills', 'responsibilities', 'experience_years', 'job_title' for payload context
+        """
         try:
-            # Try to retrieve from the main cv collection first
-            result = self.client.retrieve(
-                collection_name="cv",
-                ids=[cv_id],
-                with_payload=True
-            )
-            
-            if result:
-                point = result[0]
-                payload = point.payload
-                
-                # Extract data directly from payload
-                return {
-                    "id": cv_id,
-                    "name": payload.get("full_name", cv_id),
-                    "job_title": payload.get("job_title", ""),
-                    "years_of_experience": payload.get("years_of_experience", 0),
-                    "skills_sentences": payload.get("skills", [])[:20],  # Limit to 20
-                    "responsibility_sentences": payload.get("responsibilities", [])[:10]  # Limit to 10
-                }
-            
-            # Fallback: try cv_structured collection
-            result = self.client.scroll(
-                collection_name="cv_structured",
-                scroll_filter=Filter(
-                    must=[{"key": "document_id", "match": {"value": cv_id}}]
-                ),
-                limit=1,
-                with_payload=True
-            )
-            
-            if result[0]:
-                point = result[0][0]
-                structured_data = point.payload.get("structured_info", {})
-                return {
-                    "id": cv_id,
-                    "name": structured_data.get("full_name", structured_data.get("name", cv_id)),
-                    "job_title": structured_data.get("job_title", ""),
-                    "years_of_experience": structured_data.get("years_of_experience", 0),
-                    "skills_sentences": structured_data.get("skills", [])[:20],  # Limit to 20
-                    "responsibility_sentences": structured_data.get("responsibilities", [])[:10]  # Limit to 10
-                }
-            
-            return None
-            
+            collection_name = f"{doc_type}_embeddings"
+            points: List[PointStruct] = []
+
+            # 20 skills
+            for i, vec in enumerate(embeddings_data.get("skill_vectors", [])[:20]):
+                points.append(
+                    PointStruct(
+                        id=str(uuid.uuid4()),
+                        vector=vec,
+                        payload={
+                            "document_id": doc_id,
+                            "vector_type": "skill",
+                            "vector_index": i,
+                            "content": (embeddings_data.get("skills", []) or [""])[i] if i < len(embeddings_data.get("skills", [])) else "",
+                        },
+                    )
+                )
+
+            # 10 responsibilities
+            for i, vec in enumerate(embeddings_data.get("responsibility_vectors", [])[:10]):
+                points.append(
+                    PointStruct(
+                        id=str(uuid.uuid4()),
+                        vector=vec,
+                        payload={
+                            "document_id": doc_id,
+                            "vector_type": "responsibility",
+                            "vector_index": i,
+                            "content": (embeddings_data.get("responsibilities", []) or [""])[i] if i < len(embeddings_data.get("responsibilities", [])) else "",
+                        },
+                    )
+                )
+
+            # 1 experience
+            if embeddings_data.get("experience_vector"):
+                points.append(
+                    PointStruct(
+                        id=str(uuid.uuid4()),
+                        vector=embeddings_data["experience_vector"][0],
+                        payload={
+                            "document_id": doc_id,
+                            "vector_type": "experience",
+                            "vector_index": 0,
+                            "content": embeddings_data.get("experience_years", ""),
+                        },
+                    )
+                )
+
+            # 1 job title
+            if embeddings_data.get("job_title_vector"):
+                points.append(
+                    PointStruct(
+                        id=str(uuid.uuid4()),
+                        vector=embeddings_data["job_title_vector"][0],
+                        payload={
+                            "document_id": doc_id,
+                            "vector_type": "job_title",
+                            "vector_index": 0,
+                            "content": embeddings_data.get("job_title", ""),
+                        },
+                    )
+                )
+
+            if not points:
+                logger.warning(f"⚠️ No vectors to store for {doc_id}")
+                return False
+
+            self.client.upsert(collection_name=collection_name, points=points)
+            logger.info(f"✅ Stored {len(points)} vectors for {doc_id} → {collection_name}")
+            return True
         except Exception as e:
-            logger.error(f"❌ Failed to get structured CV {cv_id}: {str(e)}")
+            logger.error(f"❌ store_embeddings_exact({doc_id}) failed: {e}")
+            return False
+
+    # ---------- retrieval helpers ----------
+
+    def retrieve_document(self, doc_id: str, doc_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Merge *_documents and *_structured (if exists) into one payload.
+        """
+        try:
+            # base document
+            doc = self.client.retrieve(collection_name=f"{doc_type}_documents", ids=[doc_id])
+            payload = doc[0].payload if doc else {}
+
+            # structured (optional)
+            st = self.client.retrieve(collection_name=f"{doc_type}_structured", ids=[doc_id])
+            if st:
+                payload = payload or {}
+                payload["structured_info"] = st[0].payload.get("structured_info", {})
+
+            return payload or None
+        except Exception as e:
+            logger.error(f"❌ retrieve_document({doc_id}) failed: {e}")
+            return None
+
+    def retrieve_embeddings(self, doc_id: str, doc_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Read the EXACT-32 vectors back from {doc_type}_embeddings and return a dict:
+          { "skill_vectors": [...], "responsibility_vectors": [...], "experience_vector": [...], "job_title_vector": [...] }
+        """
+        try:
+            points, _ = self.client.scroll(
+                collection_name=f"{doc_type}_embeddings",
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="document_id", match=MatchValue(value=doc_id))]
+                ),
+                limit=50,
+                with_payload=True,
+                with_vectors=True,
+            )
+            if not points:
+                return None
+
+            out = {
+                "skill_vectors": [],
+                "responsibility_vectors": [],
+                "experience_vector": [],
+                "job_title_vector": [],
+            }
+
+            for p in points:
+                vt = p.payload.get("vector_type")
+                vi = int(p.payload.get("vector_index", 0))
+                if vt == "skill":
+                    while len(out["skill_vectors"]) <= vi:
+                        out["skill_vectors"].append(None)
+                    out["skill_vectors"][vi] = p.vector
+                elif vt == "responsibility":
+                    while len(out["responsibility_vectors"]) <= vi:
+                        out["responsibility_vectors"].append(None)
+                    out["responsibility_vectors"][vi] = p.vector
+                elif vt == "experience":
+                    out["experience_vector"] = [p.vector]
+                elif vt == "job_title":
+                    out["job_title_vector"] = [p.vector]
+
+            out["skill_vectors"] = [v for v in out["skill_vectors"] if v is not None][:20]
+            out["responsibility_vectors"] = [v for v in out["responsibility_vectors"] if v is not None][:10]
+            return out
+        except Exception as e:
+            logger.error(f"❌ retrieve_embeddings({doc_id}) failed: {e}")
+            return None
+
+    def list_documents(self, doc_type: str) -> List[Dict[str, Any]]:
+        """
+        List payloads in {doc_type}_documents.
+        """
+        try:
+            all_pts: List[Any] = []
+            offset = None
+            while True:
+                pts, offset = self.client.scroll(
+                    collection_name=f"{doc_type}_documents",
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                all_pts.extend(pts)
+                if offset is None:
+                    break
+            return [p.payload for p in all_pts]
+        except Exception as e:
+            logger.error(f"❌ list_documents({doc_type}) failed: {e}")
+            return []
+
+    def delete_document(self, doc_id: str, doc_type: str) -> bool:
+        """
+        Delete from *_documents, *_structured, and *_embeddings.
+        """
+        try:
+            self.client.delete(collection_name=f"{doc_type}_documents", points_selector=[doc_id])
+            self.client.delete(collection_name=f"{doc_type}_structured", points_selector=[doc_id])
+
+            self.client.delete(
+                collection_name=f"{doc_type}_embeddings",
+                points_selector=FilterSelector(
+                    filter=Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=doc_id))])
+                ),
+            )
+            logger.info(f"✅ Deleted {doc_id} from all {doc_type} collections")
+            return True
+        except Exception as e:
+            logger.error(f"❌ delete_document({doc_id}) failed: {e}")
+            return False
+
+    def clear_all_data(self) -> bool:
+        """
+        Drop and recreate the 6 collections.
+        """
+        try:
+            logger.warning("🧹 Clearing ALL Qdrant data (all 6 collections)")
+            for name in ["cv_documents", "jd_documents", "cv_structured", "jd_structured", "cv_embeddings", "jd_embeddings"]:
+                if self.client.collection_exists(name):
+                    self.client.delete_collection(name)
+                    logger.info(f"🗑 Dropped: {name}")
+            self._ensure_collections_exist()
+            logger.warning("⚠ All collections cleared and recreated")
+            return True
+        except Exception as e:
+            logger.error(f"❌ clear_all_data failed: {e}")
+            return False
+
+    # ---------- convenience helpers used by matching ----------
+
+    def list_all_cvs(self) -> List[Dict[str, str]]:
+        """
+        Minimal list of CV ids + names taken from *_structured when available.
+        """
+        try:
+            pts, _ = self.client.scroll(
+                collection_name="cv_structured",
+                limit=1000,
+                with_payload=True,
+                with_vectors=False,
+            )
+            out = []
+            for p in pts:
+                si = p.payload.get("structured_info", {})
+                out.append({
+                    "id": p.payload.get("document_id", str(p.id)),
+                    "name": si.get("full_name", si.get("name", str(p.id))),
+                })
+            if out:
+                return out
+
+            # Fallback to documents if structured is empty
+            docs = self.list_documents("cv")
+            return [{"id": d.get("id", ""), "name": d.get("filename", d.get("id", ""))} for d in docs]
+        except Exception as e:
+            logger.error(f"❌ list_all_cvs failed: {e}")
+            return []
+
+    def get_structured_cv(self, cv_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Return a normalized structured CV for matching.
+        """
+        try:
+            doc = self.retrieve_document(cv_id, "cv")
+            if not doc:
+                return None
+            s = doc.get("structured_info", {})
+            return {
+                "id": cv_id,
+                "name": s.get("full_name", s.get("name", cv_id)),
+                "job_title": s.get("job_title", ""),
+                "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                "skills_sentences": (s.get("skills", []) or [])[:20],
+                "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
+            }
+        except Exception as e:
+            logger.error(f"❌ get_structured_cv({cv_id}) failed: {e}")
             return None
 
     def get_structured_jd(self, jd_id: str) -> Optional[Dict[str, Any]]:
-        """Get structured JD data by ID from jd collection."""
+        """
+        Return a normalized structured JD for matching.
+        """
         try:
-            # Try to retrieve from the main jd collection first
-            result = self.client.retrieve(
-                collection_name="jd",
-                ids=[jd_id],
-                with_payload=True
-            )
-            
-            if result:
-                point = result[0]
-                payload = point.payload
-                
-                # Extract data directly from payload or structured_info
-                structured_data = payload.get("structured_info", payload)
-                
-                return {
-                    "id": jd_id,
-                    "job_title": structured_data.get("job_title", ""),
-                    "years_of_experience": structured_data.get("years_of_experience", 0),
-                    "skills_sentences": structured_data.get("skills", [])[:20],  # Limit to 20
-                    "responsibility_sentences": structured_data.get("responsibilities", structured_data.get("responsibility_sentences", []))[:10]  # Limit to 10
-                }
-            
-            # Fallback: try jd_structured collection
-            result = self.client.scroll(
-                collection_name="jd_structured",
-                scroll_filter=Filter(
-                    must=[{"key": "document_id", "match": {"value": jd_id}}]
-                ),
-                limit=1,
-                with_payload=True
-            )
-            
-            if result[0]:
-                point = result[0][0]
-                structured_data = point.payload.get("structured_info", {})
-                return {
-                    "id": jd_id,
-                    "job_title": structured_data.get("job_title", ""),
-                    "years_of_experience": structured_data.get("years_of_experience", 0),
-                    "skills_sentences": structured_data.get("skills", [])[:20],  # Limit to 20
-                    "responsibility_sentences": structured_data.get("responsibilities", structured_data.get("responsibility_sentences", []))[:10]  # Limit to 10
-                }
-            
-            return None
-            
+            doc = self.retrieve_document(jd_id, "jd")
+            if not doc:
+                return None
+            s = doc.get("structured_info", doc)
+            return {
+                "id": jd_id,
+                "job_title": s.get("job_title", ""),
+                "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                "skills_sentences": (s.get("skills", []) or [])[:20],
+                "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
+            }
         except Exception as e:
-            logger.error(f"❌ Failed to get structured JD {jd_id}: {str(e)}")
+            logger.error(f"❌ get_structured_jd({jd_id}) failed: {e}")
             return None
 
-    def list_all_cvs(self) -> List[Dict[str, str]]:
-        """List all CVs with minimal metadata from cv collection."""
-        try:
-            # First try to get from main cv collection
-            result = self.client.scroll(
-                collection_name="cv",
-                limit=1000,  # Reasonable limit
-                with_payload=True
-            )
-            
-            cvs = []
-            for point in result[0]:
-                payload = point.payload
-                cvs.append({
-                    "id": str(point.id),
-                    "name": payload.get("full_name", str(point.id))
-                })
-            
-            if cvs:
-                return cvs
-            
-            # Fallback: try cv_structured collection
-            result = self.client.scroll(
-                collection_name="cv_structured",
-                limit=1000,  # Reasonable limit
-                with_payload=True
-            )
-            
-            for point in result[0]:
-                structured_data = point.payload.get("structured_info", {})
-                cvs.append({
-                    "id": point.payload.get("document_id", str(point.id)),
-                    "name": structured_data.get("full_name", structured_data.get("name", point.payload.get("document_id", str(point.id))))
-                })
-            
-            return cvs
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to list CVs: {str(e)}")
-            return []
 
-# Global instance
+# Global singleton
 _qdrant_utils: Optional[QdrantUtils] = None
 
 def get_qdrant_utils() -> QdrantUtils:
-    """Get global Qdrant utils instance."""
     global _qdrant_utils
     if _qdrant_utils is None:
         _qdrant_utils = QdrantUtils()
