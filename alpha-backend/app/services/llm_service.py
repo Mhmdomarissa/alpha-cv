@@ -23,320 +23,196 @@ class LLMResponse:
     model_used: str
     error_message: Optional[str] = None
 
+
 class LLMService:
     """
     Consolidated service for all LLM operations.
-    Combines OpenAI API calls, prompt management, and response processing.
+    Uses OpenAI Chat Completions endpoint (via requests.Session).
     """
-    
+
     def __init__(self):
-        """Initialize the LLM service."""
         self.api_key = os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
-            
+
+        # We use the HTTP endpoint directly to avoid SDK differences
         self.base_url = "https://api.openai.com/v1/chat/completions"
-        self.default_model = "gpt-4o-mini"
-        self.max_retries = 2  # Reduce retries for faster failure
-        self.base_delay = 0.5  # Faster retry delay
-        
-        # Session for connection reuse
+        self.default_model = "gpt-4o-mini"  # keep in sync with infra
+        self.max_retries = 2
+        self.base_delay = 0.5
+
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         })
-        
+
         logger.info("🧠 LLMService initialized")
-    
+
+    # ------------ Public: standardization ------------
+
     def standardize_cv(self, raw_text: str, filename: str = "cv.txt") -> Dict[str, Any]:
-        """
-        Single LLM call to extract and standardize CV data.
-        
-        Args:
-            raw_text: Raw extracted text from CV
-            filename: Original filename for context
-            
-        Returns:
-            Standardized CV data: {skills: [], responsibilities: [], experience_years: "", job_title: "", ...}
-        """
+        """Extract and standardize CV content to a normalized JSON."""
         try:
             logger.info(f"🔍 Standardizing CV: {filename} ({len(raw_text):,} chars)")
-            
-            # Handle very long documents with truncation for performance
-            if len(raw_text) > 50000:  # Reduce threshold from 120k to 50k chars
-                logger.warning(f"⚠️ Large CV detected ({len(raw_text):,} chars), truncating for performance")
+            if len(raw_text) > 50000:
+                logger.warning(f"⚠️ Large CV detected ({len(raw_text):,}); truncating to 50k")
                 raw_text = raw_text[:50000] + "\n\n[TRUNCATED FOR PROCESSING]"
-            
-            prompt = self._build_cv_prompt(raw_text)
-            
-            # Log the data being sent to LLM
-            logger.info("---------- DATA SENT TO LLM (CV) ----------")
-            logger.info(f"Filename: {filename}")
-            logger.info(f"Text length: {len(raw_text)} characters")
-            logger.info(f"Prompt:\n{prompt[0]['content']}")
-            logger.info("----------------------------------------")
-            
-            response = self._call_openai_api(prompt)
-            
-            # Log the response received from LLM
-            logger.info("---------- RESPONSE RECEIVED FROM LLM (CV) ----------")
-            logger.info(f"Success: {response.success}")
-            logger.info(f"Processing time: {response.processing_time:.2f}s")
-            logger.info(f"Model used: {response.model_used}")
-            if response.success:
-                logger.info(f"Response data:\n{json.dumps(response.data, indent=2)}")
-            else:
-                logger.info(f"Error message: {response.error_message}")
-            logger.info("---------------------------------------------")
-            
-            if response.success:
-                # Validate and clean the response
-                validated_data = self._validate_cv_response(response.data)
-                validated_data["processing_metadata"] = {
-                    "filename": filename,
-                    "processing_time": response.processing_time,
-                    "model_used": response.model_used,
-                    "text_length": len(raw_text)
-                }
-                
-                logger.info(f"✅ CV standardized: {len(validated_data.get('skills', []))} skills, {len(validated_data.get('responsibilities', []))} responsibilities")
-                return validated_data
-            else:
-                raise Exception(f"LLM processing failed: {response.error_message}")
-                
+
+            messages = self._build_cv_prompt(raw_text)
+            self._log_llm_outbound("CV", filename, raw_text, messages)
+            response = self._call_openai_api(messages)
+
+            self._log_llm_inbound("CV", response)
+            if not response.success:
+                raise Exception(response.error_message or "Unknown LLM error")
+
+            normalized = self._validate_cv_response(response.data)
+            # attach processing metadata
+            normalized["processing_metadata"] = {
+                "filename": filename,
+                "processing_time": response.processing_time,
+                "model_used": response.model_used,
+                "text_length": len(raw_text),
+            }
+            logger.info(f"✅ CV standardized: {len(normalized.get('skills', []))} skills, "
+                        f"{len(normalized.get('responsibilities', []))} responsibilities")
+            return normalized
         except Exception as e:
-            logger.error(f"❌ CV standardization failed: {str(e)}")
-            raise Exception(f"CV standardization failed: {str(e)}")
-    
+            logger.error(f"❌ CV standardization failed: {e}")
+            raise
+
     def standardize_jd(self, raw_text: str, filename: str = "jd.txt") -> Dict[str, Any]:
-        """
-        Single LLM call to extract and standardize Job Description data.
-        
-        Args:
-            raw_text: Raw extracted text from JD
-            filename: Original filename for context
-            
-        Returns:
-            Standardized JD data: {skills: [], responsibilities: [], experience_years: "", job_title: ""}
-        """
+        """Extract and standardize JD content to a normalized JSON."""
         try:
             logger.info(f"🔍 Standardizing JD: {filename} ({len(raw_text):,} chars)")
-            
-            # Handle very long documents with truncation for performance
-            if len(raw_text) > 30000:  # JDs are typically shorter
-                logger.warning(f"⚠️ Large JD detected ({len(raw_text):,} chars), truncating for performance")
+            if len(raw_text) > 30000:
+                logger.warning(f"⚠️ Large JD detected ({len(raw_text):,}); truncating to 30k")
                 raw_text = raw_text[:30000] + "\n\n[TRUNCATED FOR PROCESSING]"
 
-            
-            prompt = self._build_jd_prompt(raw_text)
-            
-            # Log the data being sent to LLM
-            logger.info("---------- DATA SENT TO LLM (JD) ----------")
-            logger.info(f"Filename: {filename}")
-            logger.info(f"Text length: {len(raw_text)} characters")
-            logger.info(f"Prompt:\n{prompt[0]['content']}")
-            logger.info("----------------------------------------")
-            
-            response = self._call_openai_api(prompt)
-            
-            # Log the response received from LLM
-            logger.info("---------- RESPONSE RECEIVED FROM LLM (JD) ----------")
-            logger.info(f"Success: {response.success}")
-            logger.info(f"Processing time: {response.processing_time:.2f}s")
-            logger.info(f"Model used: {response.model_used}")
-            if response.success:
-                logger.info(f"Response data:\n{json.dumps(response.data, indent=2)}")
-            else:
-                logger.info(f"Error message: {response.error_message}")
-            logger.info("---------------------------------------------")
-            
-            if response.success:
-                # Validate and clean the response
-                validated_data = self._validate_jd_response(response.data)
-                validated_data["processing_metadata"] = {
-                    "filename": filename,
-                    "processing_time": response.processing_time,
-                    "model_used": response.model_used,
-                    "text_length": len(raw_text)
-                }
-                
-                logger.info(f"✅ JD standardized: {len(validated_data.get('skills', []))} skills, {len(validated_data.get('responsibilities', []))} responsibilities")
-                return validated_data
-            else:
-                raise Exception(f"LLM processing failed: {response.error_message}")
-                
+            messages = self._build_jd_prompt(raw_text)
+            self._log_llm_outbound("JD", filename, raw_text, messages)
+            response = self._call_openai_api(messages)
+
+            self._log_llm_inbound("JD", response)
+            if not response.success:
+                raise Exception(response.error_message or "Unknown LLM error")
+
+            normalized = self._validate_jd_response(response.data)
+            normalized["processing_metadata"] = {
+                "filename": filename,
+                "processing_time": response.processing_time,
+                "model_used": response.model_used,
+                "text_length": len(raw_text),
+            }
+            logger.info(f"✅ JD standardized: {len(normalized.get('skills', []))} skills, "
+                        f"{len(normalized.get('responsibilities', []))} responsibilities")
+            return normalized
         except Exception as e:
-            logger.error(f"❌ JD standardization failed: {str(e)}")
-            raise Exception(f"JD standardization failed: {str(e)}")
-    
-    def _call_openai_api(self, messages: List[Dict[str, str]], model: str = None, max_tokens: int = 1500, temperature: float = 0.0) -> LLMResponse:
-        """
-        Core OpenAI API call with robust error handling and retry logic.
-        """
-        if model is None:
+            logger.error(f"❌ JD standardization failed: {e}")
+            raise
+
+    # ------------ Internal: OpenAI call ------------
+
+    def _call_openai_api(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        max_tokens: int = 1500,
+        temperature: float = 0.0
+    ) -> LLMResponse:
+        if not model:
             model = self.default_model
-            
-        data = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature
-        }
-        
-        start_time = time.time()
-        
+
+        body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
+        start = time.time()
+
         for attempt in range(self.max_retries):
             try:
                 logger.info(f"🤖 OpenAI API call (attempt {attempt + 1}/{self.max_retries}) - Model: {model}")
-                
-                response = self.session.post(
-                    self.base_url,
-                    json=data,
-                    timeout=60  # Reduce timeout from 120s to 60s
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    
-                    if 'choices' not in result or len(result['choices']) == 0:
-                        raise Exception(f"Invalid API response: {result}")
-                    
-                    content = result['choices'][0]['message']['content']
-                    
-                    if not content or len(content.strip()) == 0:
+                r = self.session.post(self.base_url, json=body, timeout=60)
+                if r.status_code == 200:
+                    payload = r.json()
+                    if not payload.get("choices"):
+                        raise Exception(f"Invalid API response: {payload}")
+                    content = payload["choices"][0]["message"]["content"]
+                    if not content or not content.strip():
                         raise Exception("Empty response from OpenAI")
-                    
-                    # Parse JSON response
+
                     try:
-                        parsed_data = self._parse_json_response(content)
-                        processing_time = time.time() - start_time
-                        
+                        data = self._parse_json_response(content)
                         return LLMResponse(
                             success=True,
-                            data=parsed_data,
-                            processing_time=processing_time,
-                            model_used=model
+                            data=data,
+                            processing_time=time.time() - start,
+                            model_used=model,
                         )
-                    except json.JSONDecodeError as json_error:
-                        logger.error(f"JSON parsing failed: {str(json_error)}")
+                    except json.JSONDecodeError as je:
+                        logger.error(f"JSON parsing failed: {je}")
                         logger.error(f"Raw response: {content}")
-                        raise Exception(f"JSON parsing failed: {str(json_error)}")
-                
-                elif response.status_code in [429, 503, 502, 504]:
-                    # Rate limit or server errors - retry with backoff
+                        raise
+
+                # retryable errors
+                if r.status_code in (429, 502, 503, 504):
                     if attempt < self.max_retries - 1:
                         delay = self.base_delay * (2 ** attempt)
-                        logger.warning(f"⏳ API error {response.status_code}, retrying in {delay}s...")
+                        logger.warning(f"⏳ API error {r.status_code}, retrying in {delay}s...")
                         time.sleep(delay)
                         continue
-                    else:
-                        raise Exception(f"API error after {self.max_retries} attempts: {response.status_code}")
-                else:
-                    raise Exception(f"API error: {response.status_code} - {response.text}")
-                    
+                raise Exception(f"API error: {r.status_code} - {r.text}")
             except requests.exceptions.Timeout:
                 if attempt < self.max_retries - 1:
                     delay = self.base_delay * (2 ** attempt)
                     logger.warning(f"⏳ Timeout, retrying in {delay}s...")
                     time.sleep(delay)
                     continue
-                else:
-                    raise Exception(f"Timeout after {self.max_retries} attempts")
-                    
+                return LLMResponse(False, {}, time.time() - start, model, "Timeout")
             except Exception as e:
                 if attempt < self.max_retries - 1:
                     delay = self.base_delay * (2 ** attempt)
-                    logger.warning(f"⏳ Error: {str(e)}, retrying in {delay}s...")
+                    logger.warning(f"⏳ Error: {e}, retrying in {delay}s...")
                     time.sleep(delay)
                     continue
-                else:
-                    processing_time = time.time() - start_time
-                    return LLMResponse(
-                        success=False,
-                        data={},
-                        processing_time=processing_time,
-                        model_used=model,
-                        error_message=str(e)
-                    )
-        
-        # Should never reach here
-        processing_time = time.time() - start_time
-        return LLMResponse(
-            success=False,
-            data={},
-            processing_time=processing_time,
-            model_used=model,
-            error_message="All retry attempts failed"
-        )
-    
+                return LLMResponse(False, {}, time.time() - start, model, str(e))
+
+        return LLMResponse(False, {}, time.time() - start, model, "All retries failed")
+
+    # ------------ Prompt builders ------------
+
     def _build_cv_prompt(self, text: str) -> List[Dict[str, str]]:
-        """Build CV standardization prompt."""
         prompt = f"""Extract from CV and return JSON with EXACTLY this structure:
 
 Skills: EXACTLY 20 skills as complete sentences starting with action verbs.
-Examples: "Experienced in Python programming and software development", "Proficient in machine learning algorithms and model deployment", "Skilled in SQL database design and optimization"
-
 Responsibilities: EXACTLY 10 responsibilities from recent positions.
-
 Experience Years: Number only (e.g., "5" or "3-5")
-
 Job Title: Current/most recent title
-
 Contact Info: Extract name, email, phone
 
 Return JSON with EXACTLY this format:
 {{
-  "skills": [
-    "Experienced in Python programming and software development",
-    "Proficient in machine learning algorithms and model deployment", 
-    "Skilled in SQL database design and optimization",
-    // ... exactly 20 skills total
-  ],
-  "responsibilities": [
-    "Lead development team of 5+ engineers", 
-    "Design and implement scalable software architectures",
-    // ... exactly 10 responsibilities total
-  ],
+  "skills": ["... 20 items exactly ..."],
+  "responsibilities": ["... 10 items exactly ..."],
   "experience_years": "5",
   "job_title": "Senior Software Engineer",
-  "contact_info": {{
-    "name": "John Doe",
-    "email": "john@email.com",
-    "phone": "+1234567890"
-  }}
+  "contact_info": {{"name": "John Doe", "email": "john@email.com", "phone": "+1234567890"}}
 }}
 
 CV CONTENT:
 {text}"""
         return [{"role": "user", "content": prompt}]
-    
+
     def _build_jd_prompt(self, text: str) -> List[Dict[str, str]]:
-        """Build JD standardization prompt."""
         prompt = f"""Extract from Job Description and return JSON with EXACTLY this structure:
 
 Skills: EXACTLY 20 required skills as complete sentences starting with action verbs.
-Examples: "Experience in Python development required", "Proficiency in machine learning algorithms needed", "Expertise in SQL database management essential"
-
 Responsibilities: EXACTLY 10 job responsibilities.
-
-Experience Years: Required experience (e.g., "5" or "3-5") 
-
+Experience Years: Required experience (e.g., "5" or "3-5")
 Job Title: Position title
 
 Return JSON with EXACTLY this format:
 {{
-  "skills": [
-    "Experience in Python development required",
-    "Proficiency in machine learning algorithms needed", 
-    "Expertise in SQL database management essential",
-    // ... exactly 20 skills total
-  ],
-  "responsibilities": [
-    "Lead development team of 5+ engineers", 
-    "Design and implement scalable software architectures",
-    // ... exactly 10 responsibilities total
-  ],
+  "skills": ["... 20 items exactly ..."],
+  "responsibilities": ["... 10 items exactly ..."],
   "experience_years": "5",
   "job_title": "Senior Software Engineer"
 }}
@@ -344,284 +220,113 @@ Return JSON with EXACTLY this format:
 JOB DESCRIPTION:
 {text}"""
         return [{"role": "user", "content": prompt}]
-    
-    def _parse_json_response(self, content: str) -> Dict[str, Any]:
-        """Parse JSON response from LLM, handling various formats."""
-        # Clean the response
-        cleaned_content = re.sub(r'```(json)?', '', content, flags=re.IGNORECASE).strip()
-        
-        # Find JSON boundaries
-        json_start = cleaned_content.find('{')
-        json_end = cleaned_content.rfind('}')
-        
-        if json_start != -1 and json_end != -1:
-            json_str = cleaned_content[json_start:json_end + 1]
-            return json.loads(json_str)
-        else:
-            raise json.JSONDecodeError("No valid JSON found in response", content, 0)
-    
-    def _validate_cv_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate and clean CV response data."""
-        validated = data.copy()
-        
-        # Ensure required fields exist
-        required_fields = ["skills", "responsibilities", "years_of_experience", "job_title"]
-        for field in required_fields:
-            if field not in validated:
-                if field in ["skills", "responsibilities"]:
-                    validated[field] = []
-                else:
-                    validated[field] = "Not specified"
-        
-        # Clean and validate skills (exactly 20)
-        skills = validated.get("skills", [])
-        if isinstance(skills, list):
-            clean_skills = [skill.strip() for skill in skills if skill.strip()]
-            validated["skills"] = clean_skills[:20]  # Limit to 20
-        
-        # Ensure exactly 10 responsibilities
-        responsibilities = validated.get("responsibilities", [])
-        if isinstance(responsibilities, list):
-            if len(responsibilities) < 10:
-                # Pad with generic responsibilities
-                while len(responsibilities) < 10:
-                    responsibilities.append("Collaborated with team members on project deliverables")
-            elif len(responsibilities) > 10:
-                responsibilities = responsibilities[:10]
-            validated["responsibilities"] = responsibilities
-        
-        # Ensure backward compatibility
-        validated["experience_years"] = validated.get("years_of_experience", "Not specified")
-        
-        return validated
-    
-    def _validate_jd_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate and clean JD response data."""
-        validated = data.copy()
-        
-        # Ensure required fields exist
-        required_fields = ["skills", "responsibilities", "years_of_experience", "job_title"]
-        for field in required_fields:
-            if field not in validated:
-                if field in ["skills", "responsibilities"]:
-                    validated[field] = []
-                else:
-                    validated[field] = "Not specified"
-        
-        # Ensure exactly 20 skills for JDs
-        skills = validated.get("skills", [])
-        if isinstance(skills, list):
-            clean_skills = [skill.strip() for skill in skills if skill.strip()]
-            if len(clean_skills) < 20:
-                # Generate additional skills if needed
-                generic_skills = self._generate_generic_skills(validated.get("job_title", ""), 20 - len(clean_skills))
-                clean_skills.extend(generic_skills)
-            elif len(clean_skills) > 20:
-                clean_skills = clean_skills[:20]
-            validated["skills"] = clean_skills
-        
-        # Ensure exactly 10 responsibilities
-        responsibilities = validated.get("responsibilities", [])
-        if isinstance(responsibilities, list):
-            if len(responsibilities) < 10:
-                # Pad with generic responsibilities
-                while len(responsibilities) < 10:
-                    responsibilities.append("Work collaboratively with team members on assigned projects.")
-            elif len(responsibilities) > 10:
-                responsibilities = responsibilities[:10]
-            validated["responsibilities"] = responsibilities
-        
-        # Ensure backward compatibility
-        validated["responsibility_sentences"] = validated.get("responsibilities", [])
-        
-        return validated
-    
-    def _generate_generic_skills(self, job_title: str, count_needed: int) -> List[str]:
-        """Generate generic skills based on job title to ensure exactly 20 skills for JDs."""
-        if count_needed <= 0:
-            return []
-        
-        # Common skill categories based on job types
-        skill_sets = {
-            "software": ["Programming", "Debugging", "Code Review", "Version Control", "Agile Methodology", 
-                        "Problem Solving", "System Design", "Testing", "Documentation", "Team Collaboration"],
-            "data": ["Data Analysis", "Statistical Analysis", "Machine Learning", "Data Visualization", 
-                    "Database Management", "ETL Processes", "Big Data", "Python", "SQL", "Data Mining"],
-            "manager": ["Leadership", "Project Management", "Strategic Planning", "Team Management", 
-                       "Budget Management", "Stakeholder Communication", "Risk Management", "Process Improvement", 
-                       "Performance Management", "Decision Making"],
-            "marketing": ["Digital Marketing", "Content Creation", "Social Media Marketing", "SEO", 
-                         "Analytics", "Brand Management", "Campaign Management", "Market Research", 
-                         "Email Marketing", "Customer Acquisition"],
-            "sales": ["Lead Generation", "Customer Relationship Management", "Negotiation", "Sales Strategy", 
-                     "Territory Management", "Pipeline Management", "Client Retention", "Prospecting", 
-                     "Presentation Skills", "Closing Techniques"]
-        }
-        
-        # Determine skill category based on job title
-        title_lower = job_title.lower()
-        if any(word in title_lower for word in ["developer", "engineer", "programmer", "software", "technical"]):
-            base_skills = skill_sets["software"]
-        elif any(word in title_lower for word in ["data", "analyst", "scientist", "analytics"]):
-            base_skills = skill_sets["data"]
-        elif any(word in title_lower for word in ["manager", "director", "lead", "supervisor"]):
-            base_skills = skill_sets["manager"]
-        elif any(word in title_lower for word in ["marketing", "digital", "content", "brand"]):
-            base_skills = skill_sets["marketing"]
-        elif any(word in title_lower for word in ["sales", "business development", "account"]):
-            base_skills = skill_sets["sales"]
-        else:
-            # Generic professional skills
-            base_skills = ["Communication", "Problem Solving", "Time Management", "Critical Thinking", 
-                          "Attention to Detail", "Adaptability", "Teamwork", "Professional Writing", 
-                          "Project Coordination", "Quality Assurance"]
-        
-        return base_skills[:count_needed]
-    
-    def _process_large_cv(self, text: str, filename: str) -> Dict[str, Any]:
-        """Process very large CV documents using chunking strategy."""
-        logger.info(f"⚠ Processing large CV document ({len(text):,} chars) with chunking")
-        
-        # Split into chunks
-        chunk_size = 120000
-        chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-        
-        all_results = []
-        for i, chunk in enumerate(chunks):
-            logger.info(f"📄 Processing CV chunk {i+1}/{len(chunks)}")
-            prompt = self._build_cv_prompt(chunk)
-            response = self._call_openai_api(prompt)
-            
-            if response.success:
-                chunk_data = self._validate_cv_response(response.data)
-                chunk_data["chunk_number"] = i + 1
-                all_results.append(chunk_data)
-        
-        # Combine results from all chunks
-        return self._combine_cv_chunks(all_results, filename)
-    
-    def _process_large_jd(self, text: str, filename: str) -> Dict[str, Any]:
-        """Process very large JD documents using chunking strategy."""
-        logger.info(f"⚠ Processing large JD document ({len(text):,} chars) with chunking")
-        
-        # Split into chunks
-        chunk_size = 120000
-        chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-        
-        all_results = []
-        for i, chunk in enumerate(chunks):
-            logger.info(f"📄 Processing JD chunk {i+1}/{len(chunks)}")
-            prompt = self._build_jd_prompt(chunk)
-            response = self._call_openai_api(prompt)
-            
-            if response.success:
-                chunk_data = self._validate_jd_response(response.data)
-                chunk_data["chunk_number"] = i + 1
-                all_results.append(chunk_data)
-        
-        # Combine results from all chunks
-        return self._combine_jd_chunks(all_results, filename)
-    
-    def _combine_cv_chunks(self, chunk_results: List[Dict[str, Any]], filename: str) -> Dict[str, Any]:
-        """Combine CV results from multiple chunks."""
-        if not chunk_results:
-            raise Exception("No chunk results to combine")
-        
-        combined = chunk_results[0].copy()
-        
-        if len(chunk_results) > 1:
-            all_skills = set()
-            all_responsibilities = []
-            
-            for chunk in chunk_results:
-                if isinstance(chunk.get("skills"), list):
-                    all_skills.update(chunk["skills"])
-                if isinstance(chunk.get("responsibilities"), list):
-                    all_responsibilities.extend(chunk["responsibilities"])
-            
-            # Deduplicate and limit
-            combined["skills"] = list(all_skills)[:20]
-            
-            # Deduplicate responsibilities and limit to 10
-            unique_responsibilities = []
-            for resp in all_responsibilities:
-                if resp not in unique_responsibilities:
-                    unique_responsibilities.append(resp)
-            combined["responsibilities"] = unique_responsibilities[:10]
-            
-            # Pad to exactly 10 if needed
-            while len(combined["responsibilities"]) < 10:
-                combined["responsibilities"].append("Additional responsibility from document analysis")
-        
-        combined["processing_metadata"]["total_chunks"] = len(chunk_results)
-        combined["processing_metadata"]["combined_processing"] = True
-        
-        return combined
-    
-    def _combine_jd_chunks(self, chunk_results: List[Dict[str, Any]], filename: str) -> Dict[str, Any]:
-        """Combine JD results from multiple chunks."""
-        if not chunk_results:
-            raise Exception("No chunk results to combine")
-        
-        combined = chunk_results[0].copy()
-        
-        if len(chunk_results) > 1:
-            all_skills = set()
-            all_responsibilities = []
-            
-            for chunk in chunk_results:
-                if isinstance(chunk.get("skills"), list):
-                    all_skills.update(chunk["skills"])
-                if isinstance(chunk.get("responsibilities"), list):
-                    all_responsibilities.extend(chunk["responsibilities"])
-            
-            # Deduplicate and limit to exactly 20 skills
-            combined["skills"] = list(all_skills)[:20]
-            
-            # Deduplicate responsibilities and limit to 10
-            unique_responsibilities = []
-            for resp in all_responsibilities:
-                if resp not in unique_responsibilities:
-                    unique_responsibilities.append(resp)
-            combined["responsibilities"] = unique_responsibilities[:10]
-            
-            # Pad to required counts
-            while len(combined["skills"]) < 20:
-                generic_skills = self._generate_generic_skills(combined.get("job_title", ""), 20 - len(combined["skills"]))
-                combined["skills"].extend(generic_skills)
-                combined["skills"] = combined["skills"][:20]
-            
-            while len(combined["responsibilities"]) < 10:
-                combined["responsibilities"].append("Additional responsibility identified from job description analysis.")
-        
-        combined["processing_metadata"]["total_chunks"] = len(chunk_results)
-        combined["processing_metadata"]["combined_processing"] = True
-        
-        return combined
 
-# Global instance
-async def extract_jd(jd_text: str) -> Dict[str, Any]:
-    """Extract JD structure from raw text - thin wrapper for matching endpoint."""
-    service = get_llm_service()
-    response = service.standardize_jd_content(jd_text)
-    
-    if not response.success:
-        raise Exception(f"JD extraction failed: {response.error_message}")
-    
-    # Return in same format as structured JD from database
-    data = response.data
-    return {
-        "job_title": data.get("job_title", ""),
-        "years_of_experience": data.get("years_of_experience", 0),
-        "skills_sentences": data.get("skills", [])[:20],
-        "responsibility_sentences": data.get("responsibilities", [])[:10]
-    }
+    # ------------ Parsing & validation ------------
+
+    def _parse_json_response(self, content: str) -> Dict[str, Any]:
+        cleaned = re.sub(r'```(json)?', '', content, flags=re.IGNORECASE).strip()
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1:
+            raise json.JSONDecodeError("No valid JSON found", content, 0)
+        return json.loads(cleaned[start:end + 1])
+
+    def _validate_cv_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        out = data.copy()
+
+        # Normalize key names (we standardize on "experience_years")
+        if "experience_years" not in out and "years_of_experience" in out:
+            out["experience_years"] = out.get("years_of_experience")
+        if "years_of_experience" not in out and "experience_years" in out:
+            out["years_of_experience"] = out.get("experience_years")
+
+        out.setdefault("skills", [])
+        out.setdefault("responsibilities", [])
+        out.setdefault("experience_years", "Not specified")
+        out.setdefault("job_title", "Not specified")
+
+        # Force counts
+        skills = [s.strip() for s in (out.get("skills") or []) if s and s.strip()]
+        out["skills"] = (skills + ["General professional skills and competencies"] * 20)[:20]
+
+        resps = [r.strip() for r in (out.get("responsibilities") or []) if r and r.strip()]
+        if len(resps) < 10:
+            resps += ["Collaborated with team members on project deliverables"] * (10 - len(resps))
+        out["responsibilities"] = resps[:10]
+
+        return out
+
+    def _validate_jd_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        out = data.copy()
+
+        # Normalize key names
+        if "experience_years" not in out and "years_of_experience" in out:
+            out["experience_years"] = out.get("years_of_experience")
+        if "years_of_experience" not in out and "experience_years" in out:
+            out["years_of_experience"] = out.get("experience_years")
+
+        out.setdefault("skills", [])
+        out.setdefault("responsibilities", [])
+        out.setdefault("experience_years", "Not specified")
+        out.setdefault("job_title", "Not specified")
+
+        # Force exact counts
+        skills = [s.strip() for s in (out.get("skills") or []) if s and s.strip()]
+        while len(skills) < 20:
+            skills.append("General professional skills and competencies")
+        out["skills"] = skills[:20]
+
+        resps = [r.strip() for r in (out.get("responsibilities") or []) if r and r.strip()]
+        while len(resps) < 10:
+            resps.append("Work collaboratively with team members on assigned projects.")
+        out["responsibilities"] = resps[:10]
+
+        # Back-compat field
+        out["responsibility_sentences"] = out["responsibilities"]
+        return out
+
+    # ------------ Logging helpers ------------
+
+    def _log_llm_outbound(self, kind: str, filename: str, raw_text: str, messages: List[Dict[str, str]]):
+        logger.info(f"---------- DATA SENT TO LLM ({kind}) ----------")
+        logger.info(f"Filename: {filename}")
+        logger.info(f"Text length: {len(raw_text)} characters")
+        logger.info(f"Prompt:\n{messages[0]['content'][:1500]}")
+        logger.info("----------------------------------------------")
+
+    def _log_llm_inbound(self, kind: str, response: LLMResponse):
+        logger.info(f"---------- RESPONSE FROM LLM ({kind}) ----------")
+        logger.info(f"Success: {response.success}")
+        logger.info(f"Processing time: {response.processing_time:.2f}s")
+        logger.info(f"Model used: {response.model_used}")
+        if response.success:
+            logger.info(f"Response data keys: {list(response.data.keys())}")
+        else:
+            logger.info(f"Error message: {response.error_message}")
+        logger.info("-----------------------------------------------")
+
+
+# -------- Thin helpers used by routes/special endpoints --------
 
 _llm_service: Optional[LLMService] = None
 
 def get_llm_service() -> LLMService:
-    """Get global LLM service instance."""
     global _llm_service
     if _llm_service is None:
         _llm_service = LLMService()
     return _llm_service
+
+async def extract_jd(jd_text: str) -> Dict[str, Any]:
+    """
+    Extract JD structure from raw text (no DB). Returns SAME shape as our DB-structured JD:
+      { job_title, years_of_experience, skills_sentences[20], responsibility_sentences[10] }
+    """
+    service = get_llm_service()
+    data = service.standardize_jd(jd_text, "jd_input.txt")
+    # Normalize to expected keys
+    return {
+        "job_title": data.get("job_title", ""),
+        "years_of_experience": data.get("experience_years", data.get("years_of_experience", 0)),
+        "skills_sentences": (data.get("skills") or [])[:20],
+        "responsibility_sentences": (data.get("responsibilities") or data.get("responsibility_sentences") or [])[:10],
+    }

@@ -1,13 +1,15 @@
 """
-CV routes for handling CV uploads and management.
+CV Routes - Consolidated CV API endpoints
+Handles ALL CV operations: upload, processing, listing, and management.
+Single responsibility: CV document management through REST API.
 """
 
-import os
 import logging
-import time
-import random
+import os
 import uuid
+from datetime import datetime
 from typing import List, Dict, Any, Optional
+
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -18,530 +20,525 @@ from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils
 
 logger = logging.getLogger(__name__)
-
-router = APIRouter(tags=["CV Management"])
+router = APIRouter()
 
 # Constants
-SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.doc', '.txt', '.png', '.jpg', '.jpeg', '.tiff', '.bmp'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt', '.png', '.jpg', '.jpeg']
 
-# Request models for text-based processing
+
 class StandardizeCVRequest(BaseModel):
     cv_text: str
     cv_filename: str = "cv.txt"
 
+
+def _now_iso() -> str:
+    return datetime.utcnow().isoformat()
+
+
 @router.post("/upload-cv")
-async def upload_cv(files: List[UploadFile] = File(..., description="CV files to upload (single or multiple)")) -> JSONResponse:
+async def upload_cv(
+    file: Optional[UploadFile] = File(None),
+    cv_text: Optional[str] = Form(None)
+) -> JSONResponse:
     """
-    Single route handles both single CV and multiple CVs upload.
-    Complete pipeline: file validation -> text extraction -> PII removal -> LLM standardization -> embedding generation -> storage.
+    Upload and process CV file or text.
+    Pipeline: validate -> extract -> PII removal -> LLM standardization -> EXACT embeddings (32) -> store across 3 collections.
+    Collections used:
+      - cv_documents       (raw document + metadata)
+      - cv_structured      (standardized JSON)
+      - cv_embeddings      (exactly 32 vectors)
     """
     try:
         logger.info("---------- CV UPLOAD START ----------")
-        logger.info(f"Number of files: {len(files)}")
-        
-        if len(files) == 1:
-            logger.info("Processing single CV upload")
-        else:
-            logger.info(f"Processing multiple CV upload: {len(files)} files")
-        
-        # Process all files
-        results = []
-        processed_count = 0
-        success_count = 0
-        failed_count = 0
-        
-        for file in files:
-            filename = file.filename
-            content_type = file.content_type
-            
+
+        parsing_service = get_parsing_service()
+
+        # ---- Input & extraction ----
+        raw_content = ""
+        extracted_text = ""
+        filename = "text_input.txt"
+        file_ext = ".txt"
+
+        if file:
+            logger.info(f"Processing CV file upload: {file.filename}")
+
+            if not file.filename:
+                raise HTTPException(status_code=400, detail="No filename provided")
+
+            file_ext = os.path.splitext(file.filename)[1].lower()
+            if file_ext not in SUPPORTED_EXTENSIONS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported file type: {file_ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}"
+                )
+
+            # size check
+            file.file.seek(0, 2)
+            size = file.file.tell()
+            file.file.seek(0)
+            if size > MAX_FILE_SIZE:
+                raise HTTPException(status_code=400, detail=f"File too large: {size} bytes (max: {MAX_FILE_SIZE})")
+
+            import tempfile, shutil
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                shutil.copyfileobj(file.file, tmp)
+                tmp_path = tmp.name
+
             try:
-                logger.info(f"Processing file: {filename}")
-                
-                # Validate file
-                if not filename:
-                    results.append({"filename": "unknown", "success": False, "error": "No filename provided"})
-                    failed_count += 1
-                    continue
-                
-                file_ext = os.path.splitext(filename)[1].lower()
-                if file_ext not in SUPPORTED_EXTENSIONS:
-                    results.append({"filename": filename, "success": False, "error": f"Unsupported file type: {file_ext}"})
-                    failed_count += 1
-                    continue
-                
-                # Read file content into memory first
+                parsed = parsing_service.process_document(tmp_path, "cv")
+                raw_content = parsed["raw_text"]
+                extracted_text = parsed["clean_text"]
+                filename = file.filename
+            finally:
                 try:
-                    await file.seek(0)
-                    file_content = await file.read()
-                    file_size = len(file_content)
-                    logger.info(f"📁 Successfully read file: {filename}, size: {file_size} bytes")
-                except Exception as e:
-                    logger.error(f"❌ Failed to read uploaded file: {str(e)}")
-                    results.append({"filename": filename, "success": False, "error": f"Failed to read file: {str(e)}"})
-                    failed_count += 1
-                    continue
-                
-                if file_size > MAX_FILE_SIZE:
-                    logger.error(f"❌ File too large: {file_size} bytes (max: {MAX_FILE_SIZE})")
-                    results.append({"filename": filename, "success": False, "error": f"File too large: {file_size} bytes"})
-                    failed_count += 1
-                    continue
-                
-                # Save file temporarily for processing
-                import tempfile
-                
-                with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_file:
-                    tmp_file.write(file_content)
-                    tmp_file_path = tmp_file.name
-                
-                try:
-                    # Step 1: Extract text from document and PII
-                    logger.info("---------- STEP 1: TEXT & PII EXTRACTION ----------")
-                    parsing_service = get_parsing_service()
-                    parsed_result = parsing_service.process_document(tmp_file_path, "cv")
-                    
-                    raw_text = parsed_result["raw_text"]
-                    clean_text = parsed_result["clean_text"]
-                    extracted_pii = parsed_result.get("extracted_pii", {})
-                    
-                    logger.info(f"Raw text length: {len(raw_text)} chars")
-                    logger.info(f"Clean text length: {len(clean_text)} chars")
-                    logger.info(f"Extracted PII: {extracted_pii}")
-                    
-                    # Step 2: Standardize with LLM using clean text
-                    logger.info("---------- STEP 2: LLM STANDARDIZATION ----------")
-                    llm_service = get_llm_service()
-                    standardized_data = llm_service.standardize_cv(clean_text, filename)
-                    
-                    logger.info(f"Processing time: {standardized_data.get('processing_metadata', {}).get('processing_time', 'N/A')}s")
-                    logger.info(f"Model used: {standardized_data.get('processing_metadata', {}).get('model_used', 'N/A')}")
-                    
-                    # Step 3: Add extracted PII back to standardized data
-                    logger.info("---------- STEP 3: PII REINTEGRATION ----------")
-                    if extracted_pii.get("email"):
-                        standardized_data["email"] = extracted_pii["email"][0]
-                    if extracted_pii.get("phone"):
-                        standardized_data["phone"] = extracted_pii["phone"][0]
-                    
-                    # Step 4: Generate embeddings
-                    logger.info("---------- STEP 4: EMBEDDING GENERATION ----------")
-                    embedding_service = get_embedding_service()
-                    embeddings = embedding_service.generate_document_embeddings(standardized_data)
-                    
-                    # Step 5: Store in Qdrant
-                    logger.info("---------- STEP 5: QDRANT STORAGE ----------")
-                    qdrant_utils = get_qdrant_utils()
-                    cv_id = str(uuid.uuid4())
-                    upload_date = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                    file_ext = os.path.splitext(filename)[1].lower()
-                    
-                    # Store document
-                    qdrant_utils.store_document(cv_id, "cv", filename, file_ext[1:] if file_ext else "txt", raw_text, upload_date)
-                    
-                    # Store structured data
-                    qdrant_utils.store_structured_data(cv_id, "cv", standardized_data)
-                    
-                    # Store embeddings
-                    qdrant_utils.store_embeddings_exact(cv_id, "cv", embeddings)
-                    
-                    logger.info(f"✅ Successfully processed {filename}")
-                    success_count += 1
-                    results.append({
-                        "filename": filename,
-                        "success": True,
-                        "cv_id": cv_id,
-                        "extracted_text": clean_text,
-                        "standardized_data": standardized_data,
-                        "processing_metadata": {
-                            "raw_text_length": len(raw_text),
-                            "clean_text_length": len(clean_text),
-                            "skills_count": len(standardized_data.get("skills", [])),
-                            "responsibilities_count": len(standardized_data.get("responsibilities", [])),
-                            "embeddings_generated": len(embeddings)
-                        }
-                    })
-                    
-                except Exception as e:
-                    logger.error(f"❌ Failed to process file {filename}: {str(e)}")
-                    failed_count += 1
-                    results.append({
-                        "filename": filename,
-                        "success": False,
-                        "error": str(e)
-                    })
-                finally:
-                    # Clean up temporary file
-                    if os.path.exists(tmp_file_path):
-                        os.unlink(tmp_file_path)
-                        logger.info(f"Cleaned up temporary file: {tmp_file_path}")
-        
-            except Exception as e:
-                logger.error(f"❌ Failed to process file {filename}: {str(e)}")
-                failed_count += 1
-                results.append({
-                    "filename": filename,
-                    "success": False,
-                    "error": str(e)
-                })
-        
-        processed_count = success_count + failed_count
-        
-        logger.info("---------- CV UPLOAD SUMMARY ----------")
-        logger.info(f"Files processed: {processed_count}")
-        logger.info(f"Successful: {success_count}")
-        logger.info(f"Failed: {failed_count}")
-        logger.info("---------- CV UPLOAD END ----------")
-        
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+        elif cv_text:
+            logger.info("Processing CV text input")
+            cleaned, _pii = parsing_service.remove_pii_data(cv_text.strip())
+            raw_content = cv_text.strip()
+            extracted_text = cleaned
+            filename = "text_input.txt"
+
+            if len(extracted_text) < 50:
+                raise HTTPException(status_code=400, detail="CV text too short (minimum 50 characters required)")
+        else:
+            raise HTTPException(status_code=400, detail="Either file upload or cv_text must be provided")
+
+        logger.info(f"✅ Text ready -> length={len(extracted_text)} (pii removed)")
+
+        # ---- LLM standardization ----
+        logger.info("---------- STEP 1: LLM STANDARDIZATION ----------")
+        llm = get_llm_service()
+        standardized = llm.standardize_cv(extracted_text, filename)
+
+        # ---- EXACT embeddings (32 vectors) ----
+        logger.info("---------- STEP 2: EMBEDDING GENERATION (32 vectors) ----------")
+        emb_service = get_embedding_service()
+        doc_embeddings = emb_service.generate_document_embeddings(standardized)
+        # Contains:
+        #   skill_vectors[20], responsibility_vectors[10], experience_vector[1], job_title_vector[1]
+        #   plus: skills, responsibilities, experience_years, job_title
+
+        # ---- Store across Qdrant collections ----
+        logger.info("---------- STEP 3: DATABASE STORAGE ----------")
+        qdrant = get_qdrant_utils()
+        cv_id = str(uuid.uuid4())
+
+        # 3a) Raw doc
+        qdrant.store_document(
+            doc_id=cv_id,
+            doc_type="cv",
+            filename=filename,
+            file_format=file_ext.lstrip("."),
+            raw_content=raw_content,
+            upload_date=_now_iso()
+        )
+
+        # 3b) Structured JSON
+        qdrant.store_structured_data(
+            doc_id=cv_id,
+            doc_type="cv",
+            structured_data={
+                "document_id": cv_id,
+                "structured_info": standardized
+            }
+        )
+
+        # 3c) EXACT embeddings
+        qdrant.store_embeddings_exact(
+            doc_id=cv_id,
+            doc_type="cv",
+            embeddings_data=doc_embeddings
+        )
+
+        logger.info(f"✅ CV processed and stored: {cv_id}")
+
         return JSONResponse({
-            "status": "success" if failed_count == 0 else "partial_success" if success_count > 0 else "failed",
-            "message": f"Processed {processed_count} files. {success_count} successful, {failed_count} failed.",
-            "summary": {
-                "processed": processed_count,
-                "successful": success_count,
-                "failed": failed_count
-            },
-            "results": results
+            "status": "success",
+            "message": f"CV '{filename}' processed successfully",
+            "cv_id": cv_id,
+            "filename": filename,
+            "standardized_data": standardized,
+            "processing_stats": {
+                "text_length": len(extracted_text),
+                "skills_count": len(standardized.get("skills", [])),
+                "responsibilities_count": len(standardized.get("responsibilities", [])),
+                "embeddings_generated": 32
+            }
         })
-    
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ CV upload failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"CV processing failed: {str(e)}")
+        logger.error(f"❌ CV upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"CV processing failed: {e}")
 
-
-# Functions continue below
 
 @router.get("/cvs")
 async def list_cvs() -> JSONResponse:
     """
-    List all processed CVs in the database.
-    Returns comprehensive metadata for each CV.
+    List all processed CVs with metadata.
+    Reads from cv_structured (for structured_info) and cv_documents (for filename/upload_date).
     """
     try:
-        logger.info("📋 Listing all CVs")
-        
-        qdrant_utils = get_qdrant_utils()
-        cvs = qdrant_utils.list_documents("cv")
-        
-        # Enhance CV data with additional metadata
-        enhanced_cvs = []
-        for cv in cvs:
-            enhanced_cv = {
-                "id": cv["id"],
-                "filename": cv["filename"],
-                "upload_date": cv["upload_date"],
-                "full_name": cv.get("full_name", "Not specified"),
-                "job_title": cv.get("job_title", "Not specified"),
-                "years_of_experience": cv.get("years_of_experience", "Not specified"),
-                "skills_count": len(cv.get("skills", [])),
-                "skills": cv.get("skills", []),
-                "responsibilities_count": len(cv.get("responsibilities", [])),
-                "text_length": len(cv.get("extracted_text", "")),
-                "has_structured_data": bool(cv.get("structured_info"))
-            }
-            enhanced_cvs.append(enhanced_cv)
-        
-        # Sort by upload date (newest first)
-        enhanced_cvs.sort(key=lambda x: x["upload_date"], reverse=True)
-        
-        logger.info(f"📋 Found {len(enhanced_cvs)} CVs")
-        
-        return JSONResponse({
-            "status": "success",
-            "count": len(enhanced_cvs),
-            "cvs": enhanced_cvs
-        })
-        
+        qdrant = get_qdrant_utils()
+
+        # Structured rows
+        all_structured = []
+        offset = None
+        while True:
+            points, next_offset = qdrant.client.scroll(
+                collection_name="cv_structured",
+                limit=200,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
+            all_structured.extend(points)
+            if not next_offset:
+                break
+            offset = next_offset
+
+        # Documents map id -> payload
+        docs_map: Dict[str, Dict[str, Any]] = {}
+        offset = None
+        while True:
+            points, next_offset = qdrant.client.scroll(
+                collection_name="cv_documents",
+                limit=200,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
+            for p in points:
+                payload = p.payload or {}
+                docs_map[payload.get("id") or str(p.id)] = payload
+            if not next_offset:
+                break
+            offset = next_offset
+
+        enhanced = []
+        for p in all_structured:
+            payload = p.payload or {}
+            doc_id = payload.get("id") or payload.get("document_id") or str(p.id)
+            structured = payload.get("structured_info", {})
+            doc_meta = docs_map.get(doc_id, {})
+
+            skills = structured.get("skills", [])
+            resps = structured.get("responsibilities", structured.get("responsibility_sentences", []))
+
+            enhanced.append({
+                "id": doc_id,
+                "filename": doc_meta.get("filename", "Unknown"),
+                "upload_date": doc_meta.get("upload_date", "Unknown"),
+                "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
+                "job_title": structured.get("job_title", "Not specified"),
+                "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
+                "skills_count": len(skills),
+                "skills": skills,
+                "responsibilities_count": len(resps),
+                "text_length": len(doc_meta.get("raw_content", "")),
+                "has_structured_data": True
+            })
+
+        enhanced.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
+
+        return JSONResponse({"status": "success", "count": len(enhanced), "cvs": enhanced})
+
     except Exception as e:
-        logger.error(f"❌ Failed to list CVs: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to list CVs: {str(e)}")
+        logger.error(f"❌ Failed to list CVs: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list CVs: {e}")
+
 
 @router.get("/cv/{cv_id}")
 async def get_cv_details(cv_id: str) -> JSONResponse:
     """
-    Get detailed information about a specific CV.
-    Includes structured data, embeddings info, and processing metadata.
+    Get details for a specific CV.
+    Combines cv_structured + cv_documents + cv_embeddings stats.
     """
     try:
-        logger.info(f"🔍 Getting details for CV: {cv_id}")
-        
-        qdrant_utils = get_qdrant_utils()
-        cv_data = qdrant_utils.retrieve_document(cv_id, "cv")
-        
-        if not cv_data:
+        qdrant = get_qdrant_utils()
+
+        # Structured data
+        s = qdrant.client.retrieve("cv_structured", ids=[cv_id], with_payload=True, with_vectors=False)
+        if not s:
             raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
-        
-        # Get embeddings info
-        embeddings = qdrant_utils.retrieve_embeddings(cv_id, "cv")
-        embeddings_info = {}
-        
-        if embeddings:
-            embeddings_info = {
-                "skills_embeddings": len(embeddings.get("skills", {})),
-                "responsibilities_embeddings": len(embeddings.get("responsibilities", {})),
-                "has_title_embedding": "title" in embeddings,
-                "has_experience_embedding": "experience" in embeddings
-            }
-        
-        # Structure response
-        response_data = {
+        structured_payload = s[0].payload or {}
+        structured = structured_payload.get("structured_info", structured_payload)
+
+        # Doc meta
+        d = qdrant.client.retrieve("cv_documents", ids=[cv_id], with_payload=True, with_vectors=False)
+        doc_meta = (d[0].payload if d else {}) or {}
+
+        # Embedding points
+        emb_points, _ = qdrant.client.scroll(
+            collection_name="cv_embeddings",
+            scroll_filter={"must": [{"key": "document_id", "match": {"value": cv_id}}]},
+            limit=100,
+            with_payload=True,
+            with_vectors=True
+        )
+        skills_count = len([p for p in emb_points if (p.payload or {}).get("vector_type") == "skill"])
+        resp_count = len([p for p in emb_points if (p.payload or {}).get("vector_type") == "responsibility"])
+        has_title = any((p.payload or {}).get("vector_type") == "job_title" for p in emb_points)
+        has_exp = any((p.payload or {}).get("vector_type") == "experience" for p in emb_points)
+        dim = 0
+        for p in emb_points:
+            if isinstance(p.vector, list):
+                dim = len(p.vector)
+                break
+
+        responsibilities = structured.get("responsibilities", structured.get("responsibility_sentences", []))
+
+        response = {
             "id": cv_id,
-            "filename": cv_data.get("filename", "Unknown"),
-            "upload_date": cv_data.get("upload_date", "Unknown"),
-            "document_type": cv_data.get("document_type", "cv"),
-            "personal_info": {
-                "full_name": cv_data.get("full_name", "Not specified"),
-                "email": cv_data.get("email", "Not specified"),
-                "phone": cv_data.get("phone", "Not specified")
-            },
-            "professional_info": {
-                "job_title": cv_data.get("job_title", "Not specified"),
-                "years_of_experience": cv_data.get("years_of_experience", "Not specified"),
-                "skills": cv_data.get("skills", []),
-                "responsibilities": cv_data.get("responsibilities", [])
+            "filename": doc_meta.get("filename", "Unknown"),
+            "upload_date": doc_meta.get("upload_date", "Unknown"),
+            "document_type": "cv",
+            "candidate": {
+                "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
+                "job_title": structured.get("job_title", "Not specified"),
+                "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
+                "skills": structured.get("skills", []),
+                "responsibilities": responsibilities,
+                "skills_count": len(structured.get("skills", [])),
+                "responsibilities_count": len(responsibilities)
             },
             "text_info": {
-                "extracted_text_length": len(cv_data.get("extracted_text", "")),
-                "extracted_text_preview": cv_data.get("extracted_text", "")[:500] + "..." if len(cv_data.get("extracted_text", "")) > 500 else cv_data.get("extracted_text", "")
+                "extracted_text_length": len(doc_meta.get("raw_content", "")),
+                "extracted_text_preview": (doc_meta.get("raw_content", "")[:500] + "...") if len(doc_meta.get("raw_content", "")) > 500 else doc_meta.get("raw_content", "")
             },
-            "embeddings_info": embeddings_info,
-            "structured_info": cv_data.get("structured_info", {}),
-            "processing_metadata": cv_data.get("structured_info", {}).get("processing_metadata", {})
+            "embeddings_info": {
+                "skills_embeddings": skills_count,
+                "responsibilities_embeddings": resp_count,
+                "has_title_embedding": has_title,
+                "has_experience_embedding": has_exp,
+                "embedding_dimension": dim,
+            },
+            "structured_info": structured,
+            "processing_metadata": structured.get("processing_metadata", {})
         }
-        
-        logger.info(f"✅ Retrieved CV details: {cv_id}")
-        
-        return JSONResponse({
-            "status": "success",
-            "cv": response_data
-        })
-        
+
+        return JSONResponse({"status": "success", "cv": response})
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Failed to get CV details: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get CV details: {str(e)}")
+        logger.error(f"❌ Failed to get CV details: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get CV details: {e}")
 
 
 @router.delete("/cv/{cv_id}")
 async def delete_cv(cv_id: str) -> JSONResponse:
     """
-    Delete a CV and all its associated data.
-    Removes from all collections: main document, skills, and responsibilities.
+    Delete a CV and all associated data across:
+      - cv_documents
+      - cv_structured
+      - cv_embeddings (all vectors with document_id == cv_id)
     """
     try:
-        logger.info(f"🗑 Deleting CV: {cv_id}")
-        
-        qdrant_utils = get_qdrant_utils()
-        
-        # Check if CV exists
-        cv_data = qdrant_utils.retrieve_document(cv_id, "cv")
-        if not cv_data:
+        qdrant = get_qdrant_utils()
+
+        # Check existence
+        s = qdrant.client.retrieve("cv_structured", ids=[cv_id], with_payload=True)
+        if not s:
             raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
-        
-        # Delete CV and all associated embeddings
-        success = qdrant_utils.delete_document(cv_id, "cv")
-        
-        if success:
-            logger.info(f"✅ CV deleted successfully: {cv_id}")
-            
-            return JSONResponse({
-                "status": "success",
-                "message": f"CV '{cv_data.get('filename', cv_id)}' deleted successfully",
-                "deleted_cv_id": cv_id
-            })
-        else:
-            raise HTTPException(status_code=500, detail="Failed to delete CV")
-            
+        filename = (qdrant.client.retrieve("cv_documents", ids=[cv_id], with_payload=True) or [{}])[0].payload.get("filename", cv_id)
+
+        # Delete embedding points
+        emb_points, _ = qdrant.client.scroll(
+            collection_name="cv_embeddings",
+            scroll_filter={"must": [{"key": "document_id", "match": {"value": cv_id}}]},
+            limit=1000,
+            with_payload=False,
+            with_vectors=False
+        )
+        emb_ids = [str(p.id) for p in emb_points]
+        if emb_ids:
+            qdrant.client.delete(collection_name="cv_embeddings", points_selector=emb_ids)
+
+        # Delete structured + document
+        qdrant.client.delete(collection_name="cv_structured", points_selector=[cv_id])
+        qdrant.client.delete(collection_name="cv_documents", points_selector=[cv_id])
+
+        return JSONResponse({
+            "status": "success",
+            "message": f"CV '{filename}' deleted successfully",
+            "deleted_cv_id": cv_id
+        })
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Failed to delete CV: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete CV: {str(e)}")
+        logger.error(f"❌ Failed to delete CV: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete CV: {e}")
 
 
 @router.post("/cv/{cv_id}/reprocess")
 async def reprocess_cv(cv_id: str) -> JSONResponse:
     """
-    Reprocess an existing CV with updated algorithms.
-    Useful when LLM prompts or embedding models are updated.
+    Reprocess an existing CV with updated prompts/embeddings.
     """
     try:
-        logger.info(f"🔄 Reprocessing CV: {cv_id}")
-        
-        qdrant_utils = get_qdrant_utils()
-        
-        # Get existing CV data
-        cv_data = qdrant_utils.retrieve_document(cv_id, "cv")
-        if not cv_data:
+        qdrant = get_qdrant_utils()
+
+        # Get original raw content
+        doc = qdrant.client.retrieve("cv_documents", ids=[cv_id], with_payload=True)
+        if not doc:
             raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
-        
-        # Get original extracted text
-        original_text = cv_data.get("extracted_text", "")
-        if not original_text:
-            raise HTTPException(status_code=400, detail="No extracted text found for reprocessing")
-        
-        filename = cv_data.get("filename", "reprocessed_cv.txt")
-        
-        # Step 1: Re-standardize with current LLM
-        logger.info("🧠 Re-standardizing with current LLM")
-        llm_service = get_llm_service()
-        standardized_data = llm_service.standardize_cv(original_text, filename)
-        
-        # Step 2: Re-generate embeddings
-        logger.info("🔥 Re-generating embeddings")
-        embedding_service = get_embedding_service()
-        embeddings = embedding_service.generate_document_embeddings(standardized_data)
-        
-        # Step 3: Update in database
-        logger.info("💾 Updating in database")
-        
-        # Store document, structured data, and embeddings
-        qdrant_utils.store_document(cv_id, filename, original_text, "cv")
-        qdrant_utils.store_structured_data(cv_id, "cv", standardized_data)
-        qdrant_utils.store_embeddings_exact(cv_id, embeddings, "cv")
-        
-        logger.info(f"✅ CV reprocessed successfully: {cv_id}")
-        
+        filename = doc[0].payload.get("filename", "reprocessed_cv.txt")
+        raw_content = doc[0].payload.get("raw_content", "")
+
+        if not raw_content:
+            raise HTTPException(status_code=400, detail="No stored raw content to reprocess")
+
+        # Standardize again
+        llm = get_llm_service()
+        standardized = llm.standardize_cv(raw_content, filename)
+
+        # New embeddings (32)
+        emb_service = get_embedding_service()
+        doc_embeddings = emb_service.generate_document_embeddings(standardized)
+
+        # Replace structured
+        qdrant.store_structured_data(cv_id, "cv", {
+            "document_id": cv_id,
+            "structured_info": standardized
+        })
+
+        # Remove old embeddings and store new ones
+        emb_points, _ = qdrant.client.scroll(
+            collection_name="cv_embeddings",
+            scroll_filter={"must": [{"key": "document_id", "match": {"value": cv_id}}]},
+            limit=2000,
+            with_payload=False,
+            with_vectors=False
+        )
+        old_ids = [str(p.id) for p in emb_points]
+        if old_ids:
+            qdrant.client.delete(collection_name="cv_embeddings", points_selector=old_ids)
+
+        qdrant.store_embeddings_exact(cv_id, "cv", doc_embeddings)
+
         return JSONResponse({
             "status": "success",
             "message": f"CV '{filename}' reprocessed successfully",
             "cv_id": cv_id,
-            "updated_data": standardized_data,
+            "updated_data": standardized,
             "processing_stats": {
-                "skills_count": len(standardized_data.get("skills", [])),
-                "responsibilities_count": len(standardized_data.get("responsibilities", [])),
-                "embeddings_generated": len(embeddings)
+                "skills_count": len(standardized.get("skills", [])),
+                "responsibilities_count": len(standardized.get("responsibilities", [])),
+                "embeddings_generated": 32
             }
         })
-        
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ CV reprocessing failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"CV reprocessing failed: {str(e)}")
+        logger.error(f"❌ CV reprocessing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"CV reprocessing failed: {e}")
 
 
 @router.get("/cv/{cv_id}/embeddings")
 async def get_cv_embeddings_info(cv_id: str) -> JSONResponse:
     """
-    Get detailed embeddings information for a CV.
-    Useful for debugging and understanding the embedding structure.
+    Get detailed embeddings information for a CV from cv_embeddings.
     """
     try:
-        logger.info(f"🔍 Getting embeddings info for CV: {cv_id}")
-        
-        qdrant_utils = get_qdrant_utils()
-        
-        # Check if CV exists
-        cv_data = qdrant_utils.retrieve_document(cv_id, "cv")
-        if not cv_data:
+        qdrant = get_qdrant_utils()
+
+        # Verify CV exists
+        s = qdrant.client.retrieve("cv_structured", ids=[cv_id], with_payload=True)
+        if not s:
             raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
-        
-        # Get embeddings
-        embeddings = qdrant_utils.retrieve_embeddings(cv_id, "cv")
-        
-        if not embeddings:
-            return JSONResponse({
-                "status": "success",
-                "cv_id": cv_id,
-                "embeddings_found": False,
-                "message": "No embeddings found for this CV"
-            })
-        
-        # Analyze embeddings
-        embeddings_info = {
+
+        # Pull embedding points
+        points, _ = qdrant.client.scroll(
+            collection_name="cv_embeddings",
+            scroll_filter={"must": [{"key": "document_id", "match": {"value": cv_id}}]},
+            limit=2000,
+            with_payload=True,
+            with_vectors=True
+        )
+
+        info = {
             "cv_id": cv_id,
-            "filename": cv_data.get("filename", "Unknown"),
-            "embeddings_found": True,
-            "skills": {
-                "count": len(embeddings.get("skill_vectors", [])),
-                "embedding_dimension": len(embeddings.get("skill_vectors", [])[0]) if embeddings.get("skill_vectors") else 0
-            },
-            "responsibilities": {
-                "count": len(embeddings.get("responsibility_vectors", [])),
-                "embedding_dimension": len(embeddings.get("responsibility_vectors", [])[0]) if embeddings.get("responsibility_vectors") else 0
-            },
-            "title_embedding": "job_title_vector" in embeddings,
-            "experience_embedding": "experience_vector" in embeddings,
-            "total_embeddings": (
-                len(embeddings.get("skill_vectors", [])) +
-                len(embeddings.get("responsibility_vectors", [])) +
-                (1 if "job_title_vector" in embeddings else 0) +
-                (1 if "experience_vector" in embeddings else 0)
-            )
+            "embeddings_found": bool(points),
+            "skills": {"count": 0, "embedding_dimension": 0},
+            "responsibilities": {"count": 0, "embedding_dimension": 0},
+            "title_embedding": False,
+            "experience_embedding": False,
+            "total_embeddings": 0
         }
-        
-        logger.info(f"✅ Retrieved embeddings info for CV: {cv_id}")
-        
-        return JSONResponse({
-            "status": "success",
-            "embeddings_info": embeddings_info
-        })
-        
+
+        for p in points:
+            pld = p.payload or {}
+            vtype = pld.get("vector_type")
+            if vtype == "skill":
+                info["skills"]["count"] += 1
+                if isinstance(p.vector, list) and not info["skills"]["embedding_dimension"]:
+                    info["skills"]["embedding_dimension"] = len(p.vector)
+            elif vtype == "responsibility":
+                info["responsibilities"]["count"] += 1
+                if isinstance(p.vector, list) and not info["responsibilities"]["embedding_dimension"]:
+                    info["responsibilities"]["embedding_dimension"] = len(p.vector)
+            elif vtype == "job_title":
+                info["title_embedding"] = True
+            elif vtype == "experience":
+                info["experience_embedding"] = True
+
+        info["total_embeddings"] = info["skills"]["count"] + info["responsibilities"]["count"] + int(info["title_embedding"]) + int(info["experience_embedding"])
+
+        return JSONResponse({"status": "success", "embeddings_info": info})
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Failed to get CV embeddings info: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get CV embeddings info: {str(e)}")
+        logger.error(f"❌ Failed to get CV embeddings info: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get CV embeddings info: {e}")
 
 
 @router.post("/standardize-cv")
 async def standardize_cv_text(request: StandardizeCVRequest) -> JSONResponse:
     """
     Standardize CV text using LLM without storing to database.
-    Used by frontend for text-only processing and analysis.
+    Also returns dimensions/counts of the embeddings that WOULD be generated.
     """
     try:
-        logger.info(f"📄 Standardizing CV text: {request.cv_filename}")
-        
-        # Validate input
         if not request.cv_text or not request.cv_text.strip():
             raise HTTPException(status_code=400, detail="CV text cannot be empty")
-        
-        if len(request.cv_text) > 50000:  # 50KB text limit
+        if len(request.cv_text) > 50000:
             raise HTTPException(status_code=400, detail="CV text too long (max 50KB)")
-        
-        # Step 1: Standardize with LLM
-        logger.info("🧠 Standardizing CV with LLM")
-        llm_service = get_llm_service()
-        standardized_data = llm_service.standardize_cv(request.cv_text, request.cv_filename)
-        
-        # Step 2: Generate embeddings for response (optional analysis)
-        logger.info("🔥 Generating embeddings for analysis")
-        embedding_service = get_embedding_service()
-        embeddings = embedding_service.generate_document_embeddings(standardized_data)
-        
-        embeddings_info = {
-            "skills_count": len(embeddings.get("skill_vectors", [])),
-            "responsibilities_count": len(embeddings.get("responsibility_vectors", [])),
-            "total_vectors": (
-                len(embeddings.get("skill_vectors", [])) +
-                len(embeddings.get("responsibility_vectors", [])) +
-                (1 if "job_title_vector" in embeddings else 0) +
-                (1 if "experience_vector" in embeddings else 0)
-            )
-        }
-        
-        logger.info(f"✅ CV text standardized successfully: {request.cv_filename}")
-        
+
+        llm = get_llm_service()
+        standardized = llm.standardize_cv(request.cv_text, request.cv_filename)
+
+        emb_service = get_embedding_service()
+        doc_embeddings = emb_service.generate_document_embeddings(standardized)
+
+        dims = len(doc_embeddings["skill_vectors"][0]) if doc_embeddings["skill_vectors"] else 0
         return JSONResponse({
             "status": "success",
             "message": f"CV '{request.cv_filename}' standardized successfully",
             "filename": request.cv_filename,
-            "standardized_data": standardized_data,
+            "standardized_data": standardized,
             "processing_stats": {
                 "input_text_length": len(request.cv_text),
-                "skills_count": len(standardized_data.get("skills", [])),
-                "responsibilities_count": len(standardized_data.get("responsibilities", [])),
-                "embeddings_info": embeddings_info
+                "skills_count": len(standardized.get("skills", [])),
+                "responsibilities_count": len(standardized.get("responsibilities", [])),
+                "embeddings_info": {
+                    "skills_count": len(doc_embeddings["skill_vectors"]),
+                    "responsibilities_count": len(doc_embeddings["responsibility_vectors"]),
+                    "vector_dimension": dims
+                }
             }
         })
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ CV text standardization failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"CV standardization failed: {str(e)}")
+        logger.error(f"❌ CV text standardization failed: {e}")
+        raise HTTPException(status_code=500, detail=f"CV standardization failed: {e}")
