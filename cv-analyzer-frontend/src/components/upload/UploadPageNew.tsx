@@ -1,5 +1,4 @@
 'use client';
-
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { 
@@ -32,13 +31,20 @@ interface FilePreview {
 }
 
 export default function UploadPageNew() {
-  const { uploadCVs, uploadJD, loadingStates, setCurrentTab } = useAppStore();
+  const { 
+    uploadCV, 
+    uploadJD, 
+    loadingStates, 
+    setCurrentTab,
+    loadCVs,
+    loadJDs
+  } = useAppStore();
   
   const [cvFiles, setCVFiles] = useState<FilePreview[]>([]);
   const [jdFiles, setJDFiles] = useState<FilePreview[]>([]);
   
   const isProcessing = loadingStates.upload.isLoading;
-
+  
   // CV Drop Zone
   const onCVDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map(file => ({
@@ -48,7 +54,7 @@ export default function UploadPageNew() {
     }));
     setCVFiles(prev => [...prev, ...newFiles]);
   }, []);
-
+  
   const {
     getRootProps: getCVRootProps,
     getInputProps: getCVInputProps,
@@ -66,7 +72,7 @@ export default function UploadPageNew() {
     maxFiles: 10,
     maxSize: 10 * 1024 * 1024, // 10MB
   });
-
+  
   // JD Drop Zone
   const onJDDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map(file => ({
@@ -76,7 +82,7 @@ export default function UploadPageNew() {
     }));
     setJDFiles(prev => [...prev, ...newFiles]);
   }, []);
-
+  
   const {
     getRootProps: getJDRootProps,
     getInputProps: getJDInputProps,
@@ -94,7 +100,7 @@ export default function UploadPageNew() {
     maxFiles: 5,
     maxSize: 10 * 1024 * 1024, // 10MB
   });
-
+  
   const processFiles = async () => {
     // Process JD files first
     for (const jdFile of jdFiles.filter(f => f.status === 'pending')) {
@@ -130,7 +136,7 @@ export default function UploadPageNew() {
         ));
       }
     }
-
+    
     // Process CV files
     for (const cvFile of cvFiles.filter(f => f.status === 'pending')) {
       setCVFiles(prev => prev.map(f => 
@@ -138,7 +144,7 @@ export default function UploadPageNew() {
       ));
       
       try {
-        await uploadCVs([cvFile.file]);
+        await uploadCV(cvFile.file);
         setCVFiles(prev => prev.map(f => 
           f.id === cvFile.id 
             ? { 
@@ -166,8 +172,12 @@ export default function UploadPageNew() {
         ));
       }
     }
+    
+    // Refresh data after processing
+    loadCVs();
+    loadJDs();
   };
-
+  
   const removeFile = (id: string, type: 'cv' | 'jd') => {
     if (type === 'cv') {
       setCVFiles(prev => prev.filter(f => f.id !== id));
@@ -175,17 +185,17 @@ export default function UploadPageNew() {
       setJDFiles(prev => prev.filter(f => f.id !== id));
     }
   };
-
+  
   const clearAll = () => {
     setCVFiles([]);
     setJDFiles([]);
   };
-
+  
   const totalFiles = cvFiles.length + jdFiles.length;
   const completedFiles = cvFiles.filter(f => f.status === 'completed').length + 
                         jdFiles.filter(f => f.status === 'completed').length;
   const canContinue = totalFiles > 0 && completedFiles > 0;
-
+  
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -198,7 +208,7 @@ export default function UploadPageNew() {
           Upload CVs and job descriptions to get started with AI-powered matching
         </p>
       </div>
-
+      
       {/* Upload Zones */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* CV Upload Zone */}
@@ -217,7 +227,7 @@ export default function UploadPageNew() {
               </p>
             </div>
           </div>
-
+          
           <div
             {...getCVRootProps()}
             className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200"
@@ -258,7 +268,7 @@ export default function UploadPageNew() {
             </div>
           </div>
         </div>
-
+        
         {/* JD Upload Zone */}
         <div className="space-y-4">
           <div className="flex items-center space-x-3 mb-4">
@@ -275,7 +285,7 @@ export default function UploadPageNew() {
               </p>
             </div>
           </div>
-
+          
           <div
             {...getJDRootProps()}
             className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200"
@@ -317,7 +327,7 @@ export default function UploadPageNew() {
           </div>
         </div>
       </div>
-
+      
       {/* Processing Queue */}
       {totalFiles > 0 && (
         <div className="card-elevated">
@@ -364,7 +374,7 @@ export default function UploadPageNew() {
               </button>
             </div>
           </div>
-
+          
           <div className="space-y-3">
             {/* JD Files */}
             {jdFiles.map((file) => (
@@ -425,7 +435,7 @@ export default function UploadPageNew() {
                 </div>
               </div>
             ))}
-
+            
             {/* CV Files */}
             {cvFiles.map((file) => (
               <div 
@@ -488,7 +498,7 @@ export default function UploadPageNew() {
           </div>
         </div>
       )}
-
+      
       {/* Next Steps */}
       {canContinue && (
         <div className="card-simple">

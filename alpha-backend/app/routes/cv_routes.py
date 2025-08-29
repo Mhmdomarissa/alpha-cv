@@ -11,14 +11,19 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse,FileResponse, StreamingResponse
 from pydantic import BaseModel
-
 from app.services.parsing_service import get_parsing_service
 from app.services.llm_service import get_llm_service
 from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils
+# at top of the file
+import mimetypes
+import shutil
+from io import BytesIO
 
+STORAGE_DIR = os.getenv("CV_UPLOAD_DIR", "/data/uploads/cv")
+os.makedirs(STORAGE_DIR, exist_ok=True)
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -41,24 +46,16 @@ async def upload_cv(
     file: Optional[UploadFile] = File(None),
     cv_text: Optional[str] = Form(None)
 ) -> JSONResponse:
-    """
-    Upload and process CV file or text.
-    Pipeline: validate -> extract -> PII removal -> LLM standardization -> EXACT embeddings (32) -> store across 3 collections.
-    Collections used:
-      - cv_documents       (raw document + metadata)
-      - cv_structured      (standardized JSON)
-      - cv_embeddings      (exactly 32 vectors)
-    """
     try:
         logger.info("---------- CV UPLOAD START ----------")
 
         parsing_service = get_parsing_service()
 
-        # ---- Input & extraction ----
         raw_content = ""
         extracted_text = ""
         filename = "text_input.txt"
         file_ext = ".txt"
+        persisted_path: Optional[str] = None
 
         if file:
             logger.info(f"Processing CV file upload: {file.filename}")
@@ -80,7 +77,7 @@ async def upload_cv(
             if size > MAX_FILE_SIZE:
                 raise HTTPException(status_code=400, detail=f"File too large: {size} bytes (max: {MAX_FILE_SIZE})")
 
-            import tempfile, shutil
+            import tempfile
             with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
                 shutil.copyfileobj(file.file, tmp)
                 tmp_path = tmp.name
@@ -91,10 +88,8 @@ async def upload_cv(
                 extracted_text = parsed["clean_text"]
                 filename = file.filename
             finally:
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
+                # leave tmp for now; we may copy it into our storage folder below
+                pass
 
         elif cv_text:
             logger.info("Processing CV text input")
@@ -119,23 +114,48 @@ async def upload_cv(
         logger.info("---------- STEP 2: EMBEDDING GENERATION (32 vectors) ----------")
         emb_service = get_embedding_service()
         doc_embeddings = emb_service.generate_document_embeddings(standardized)
-        # Contains:
-        #   skill_vectors[20], responsibility_vectors[10], experience_vector[1], job_title_vector[1]
-        #   plus: skills, responsibilities, experience_years, job_title
 
         # ---- Store across Qdrant collections ----
         logger.info("---------- STEP 3: DATABASE STORAGE ----------")
         qdrant = get_qdrant_utils()
         cv_id = str(uuid.uuid4())
 
-        # 3a) Raw doc
+        # Persist the original file (or synthesize a .txt if text input)
+        try:
+            if file:
+                # name by cv_id to avoid collisions
+                dest_filename = f"{cv_id}{file_ext}"
+                dest_path = os.path.join(STORAGE_DIR, dest_filename)
+                shutil.copyfile(tmp_path, dest_path)
+                persisted_path = dest_path
+                # cleanup tmp
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+            else:
+                # save text as a .txt so it can be downloaded later
+                dest_filename = f"{cv_id}.txt"
+                dest_path = os.path.join(STORAGE_DIR, dest_filename)
+                with open(dest_path, "w", encoding="utf-8") as f:
+                    f.write(raw_content or extracted_text or "")
+                persisted_path = dest_path
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to persist original file: {e}")
+            persisted_path = None
+
+        mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+        # 3a) Raw doc (+ file_path)
         qdrant.store_document(
             doc_id=cv_id,
             doc_type="cv",
             filename=filename,
             file_format=file_ext.lstrip("."),
             raw_content=raw_content,
-            upload_date=_now_iso()
+            upload_date=_now_iso(),
+            file_path=persisted_path,          # 👈 store the path
+            mime_type=mime_type                 # 👈 store the mime
         )
 
         # 3b) Structured JSON
@@ -504,23 +524,36 @@ async def get_cv_embeddings_info(cv_id: str) -> JSONResponse:
 
 @router.post("/standardize-cv")
 async def standardize_cv_text(request: StandardizeCVRequest) -> JSONResponse:
-    """
-    Standardize CV text using LLM without storing to database.
-    Also returns dimensions/counts of the embeddings that WOULD be generated.
-    """
     try:
         if not request.cv_text or not request.cv_text.strip():
             raise HTTPException(status_code=400, detail="CV text cannot be empty")
         if len(request.cv_text) > 50000:
             raise HTTPException(status_code=400, detail="CV text too long (max 50KB)")
-
+        
+        # Extract PII before sending to LLM
+        parsing_service = get_parsing_service()
+        clean_text, extracted_pii = parsing_service.remove_pii_data(request.cv_text.strip())
+        
+        # Send clean text to LLM
         llm = get_llm_service()
-        standardized = llm.standardize_cv(request.cv_text, request.cv_filename)
-
+        standardized = llm.standardize_cv(clean_text, request.cv_filename)
+        
+        # Add extracted PII to standardized data
+        standardized["extracted_pii"] = extracted_pii
+        
+        # Override contact_info with extracted PII
+        if "contact_info" not in standardized:
+            standardized["contact_info"] = {}
+        if extracted_pii.get("email") and len(extracted_pii["email"]) > 0:
+            standardized["contact_info"]["email"] = extracted_pii["email"][0]
+        if extracted_pii.get("phone") and len(extracted_pii["phone"]) > 0:
+            standardized["contact_info"]["phone"] = extracted_pii["phone"][0]
+        
+        # Generate embeddings for stats
         emb_service = get_embedding_service()
         doc_embeddings = emb_service.generate_document_embeddings(standardized)
-
         dims = len(doc_embeddings["skill_vectors"][0]) if doc_embeddings["skill_vectors"] else 0
+        
         return JSONResponse({
             "status": "success",
             "message": f"CV '{request.cv_filename}' standardized successfully",
@@ -534,6 +567,10 @@ async def standardize_cv_text(request: StandardizeCVRequest) -> JSONResponse:
                     "skills_count": len(doc_embeddings["skill_vectors"]),
                     "responsibilities_count": len(doc_embeddings["responsibility_vectors"]),
                     "vector_dimension": dims
+                },
+                "pii_extracted": {
+                    "emails": len(extracted_pii.get("email", [])),
+                    "phones": len(extracted_pii.get("phone", []))
                 }
             }
         })
@@ -542,3 +579,33 @@ async def standardize_cv_text(request: StandardizeCVRequest) -> JSONResponse:
     except Exception as e:
         logger.error(f"❌ CV text standardization failed: {e}")
         raise HTTPException(status_code=500, detail=f"CV standardization failed: {e}")
+@router.get("/cv/{cv_id}/download")
+async def download_cv(cv_id: str):
+    """
+    Download the original uploaded CV file.
+    Falls back to a .txt export of raw_content if the file_path is missing.
+    """
+    q = get_qdrant_utils().client
+    res = q.retrieve("cv_documents", ids=[cv_id], with_payload=True, with_vectors=False)
+    if not res:
+        raise HTTPException(status_code=404, detail="CV not found")
+
+    payload = res[0].payload or {}
+    filepath = payload.get("file_path") or payload.get("filepath")
+    filename = payload.get("filename", f"{cv_id}.dat")
+
+    # Serve the persisted file if we have it
+    if filepath and os.path.exists(filepath):
+        guessed = mimetypes.guess_type(filepath)[0] or payload.get("mime_type") or "application/octet-stream"
+        return FileResponse(filepath, media_type=guessed, filename=os.path.basename(filepath))
+
+    # Fallback: stream raw_content as a .txt download (helps older records)
+    raw = payload.get("raw_content")
+    if raw:
+        bytes_io = BytesIO(raw.encode("utf-8"))
+        headers = {
+            "Content-Disposition": f'attachment; filename="{os.path.splitext(filename)[0]}.txt"'
+        }
+        return StreamingResponse(bytes_io, media_type="text/plain; charset=utf-8", headers=headers)
+
+    raise HTTPException(status_code=404, detail="File not found on server")

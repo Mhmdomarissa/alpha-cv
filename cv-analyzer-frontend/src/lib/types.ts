@@ -1,6 +1,135 @@
-// Generated from backend schemas - DO NOT MODIFY BY HAND
-// This file contains TypeScript interfaces that mirror the backend's Pydantic models
+// Base types
+export interface BaseDocument {
+  id: string;
+  filename: string;
+  upload_date: string;
+  has_structured_data: boolean;
+}
 
+// CV types
+export interface CVListItem extends BaseDocument {
+  full_name: string;
+  job_title: string;
+  years_of_experience: string;
+  skills_count: number;
+  skills: string[];
+  responsibilities_count: number;
+  text_length: number;
+}
+
+export interface CVDataResponse {
+  id: string;
+  filename: string;
+  upload_date: string;
+  document_type: "cv";
+  candidate: {
+    full_name: string;
+    job_title: string;
+    years_of_experience: string;
+    skills: string[];
+    responsibilities: string[];
+    skills_count: number;
+    responsibilities_count: number;
+  };
+  text_info: {
+    extracted_text_length: number;
+    extracted_text_preview: string;
+  };
+  embeddings_info: {
+    skills_embeddings: number;
+    responsibilities_embeddings: number;
+    has_title_embedding: boolean;
+    has_experience_embedding: boolean;
+    embedding_dimension: number;
+  };
+  structured_info: any;
+  processing_metadata: any;
+}
+
+// JD types
+export interface JDListItem extends BaseDocument {
+  job_title: string;
+  years_of_experience: string;
+  skills_count: number;
+  skills: string[];
+  responsibilities_count: number;
+  text_length: number;
+}
+
+export interface JDDataResponse {
+  id: string;
+  filename: string;
+  upload_date: string;
+  document_type: "jd";
+  job_requirements: {
+    job_title: string;
+    years_of_experience: string;
+    skills: string[];
+    responsibilities: string[];
+    skills_count: number;
+    responsibilities_count: number;
+  };
+  text_info: {
+    extracted_text_length: number;
+    extracted_text_preview: string;
+  };
+  embeddings_info: {
+    skills_embeddings: number;
+    responsibilities_embeddings: number;
+    has_title_embedding: boolean;
+    has_experience_embedding: boolean;
+    embedding_dimension: number;
+  };
+  structured_info: any;
+  processing_metadata: any;
+}
+
+// API Response types
+export interface CVListResponse {
+  status: string;
+  count: number;
+  cvs: CVListItem[];
+}
+
+export interface JDListResponse {
+  status: string;
+  count: number;
+  jds: JDListItem[];
+}
+
+export interface UploadResponse {
+  status: string;
+  message: string;
+  cv_id?: string;
+  jd_id?: string;
+  filename: string;
+  standardized_data: any;
+  processing_stats: {
+    text_length: number;
+    skills_count: number;
+    responsibilities_count: number;
+    embeddings_generated: number;
+  };
+}
+
+export interface StandardizeResponse {
+  status: string;
+  message: string;
+  filename: string;
+  standardized_data: any;
+  processing_stats: {
+    input_text_length: number;
+    skills_count: number;
+    responsibilities_count: number;
+    embeddings_info: {
+      skills_count: number;
+      responsibilities_count: number;
+      vector_dimension: number;
+    };
+  };
+}
+
+// Matching types
 export interface MatchWeights {
   skills: number;
   responsibilities: number;
@@ -17,7 +146,7 @@ export interface MatchRequest {
 }
 
 export interface AssignmentItem {
-  type: 'skill' | 'responsibility';
+  type: "skill" | "responsibility";
   jd_index: number;
   jd_item: string;
   cv_index: number;
@@ -25,21 +154,19 @@ export interface AssignmentItem {
   score: number;
 }
 
-export interface AlternativeItem {
-  cv_index: number;
-  cv_item: string;
-  score: number;
-}
-
 export interface AlternativesItem {
   jd_index: number;
-  items: AlternativeItem[];
+  items: {
+    cv_index: number;
+    cv_item: string;
+    score: number;
+  }[];
 }
 
 export interface CandidateBreakdown {
   cv_id: string;
   cv_name: string;
-  cv_job_title?: string;
+  cv_job_title: string;
   cv_years: number;
   skills_score: number;
   responsibilities_score: number;
@@ -53,71 +180,21 @@ export interface CandidateBreakdown {
 }
 
 export interface MatchResponse {
-  jd_id?: string;
-  jd_job_title?: string;
+  jd_id: string;
+  jd_job_title: string;
   jd_years: number;
   normalized_weights: MatchWeights;
   candidates: CandidateBreakdown[];
 }
 
-// CV and JD list responses
-export interface CVListItem {
-  id: string;
-  filename: string;
-  upload_date: string;
-  full_name: string;
-  job_title: string;
-  years_of_experience: string;
-  skills_count: number;
-  skills: string[];
-  responsibilities_count: number;
-  text_length: number;
-  has_structured_data: boolean;
-}
-
-export interface CVListResponse {
-  status: string;
-  count: number;
-  cvs: CVListItem[];
-}
-
-export interface JDListItem {
-  id: string;
-  filename: string;
-  upload_date: string;
-  job_title: string;
-  years_of_experience: string;
-  skills_count: number;
-  skills: string[];
-  responsibilities_count: number;
-  text_length: number;
-  has_structured_data: boolean;
-}
-
-export interface JDListResponse {
-  status: string;
-  count: number;
-  jds: JDListItem[];
-}
-
-// Health check response
+// System types
 export interface HealthResponse {
   status: string;
   timestamp: number;
   services: {
-    qdrant: {
-      status: string;
-      error?: string;
-    };
-    embedding: {
-      status: string;
-      error?: string;
-    };
-    cache: {
-      status: string;
-      stats?: Record<string, unknown>;
-      error?: string;
-    };
+    qdrant: any;
+    embedding: any;
+    cache: any;
   };
   environment: {
     openai_key_configured: boolean;
@@ -126,15 +203,103 @@ export interface HealthResponse {
   };
 }
 
-// Upload responses
-export interface UploadResponse {
+export interface SystemStatsResponse {
   status: string;
-  message: string;
-  results?: Record<string, unknown>[];
-  processing_summary?: {
-    total_files: number;
-    successful: number;
-    failed: number;
-    processing_time: number;
+  stats: {
+    database_stats: {
+      total_cvs: number;
+      total_jds: number;
+      total_documents: number;
+    };
+    cv_analytics: {
+      total_cvs: number;
+      avg_skills_per_cv: number;
+      max_skills_per_cv: number;
+      min_skills_per_cv: number;
+    };
+    jd_analytics: {
+      total_jds: number;
+      avg_skills_per_jd: number;
+      max_skills_per_jd: number;
+      min_skills_per_jd: number;
+    };
+    cache_stats: any;
+    system_info: {
+      embedding_model: string;
+      embedding_dimension: number;
+      llm_model: string;
+      similarity_metric: string;
+    };
   };
+  timestamp: number;
+}
+
+export interface DatabaseStatusResponse {
+  status: string;
+  collections: {
+    name: string;
+    points_count: number;
+    vector_config: any;
+    status: string;
+    indexed_vectors_count: number;
+  }[];
+  total_collections: number;
+  timestamp: number;
+}
+
+export interface EmbeddingsInfoResponse {
+  status: string;
+  embeddings_info: {
+    [key: string]: {
+      embeddings_found: boolean;
+      skills: { count: number; embedding_dimension: number };
+      responsibilities: { count: number; embedding_dimension: number };
+      title_embedding: boolean;
+      experience_embedding: boolean;
+      total_embeddings: number;
+    };
+  };
+  embedding_model: string;
+  vector_dimensions: number;
+  distance_metric: string;
+  timestamp: number;
+}
+
+export interface CVDataResponse {
+  status: string;
+  cv_id: string;
+  storage_locations: {
+    documents: any;
+    structured: any;
+    embeddings: any;
+  };
+  timestamp: number;
+}
+
+export interface JDDataResponse {
+  status: string;
+  jd_id: string;
+  storage_locations: {
+    documents: any;
+    structured: any;
+    embeddings: any;
+  };
+  timestamp: number;
+}
+
+export interface DatabaseViewResponse {
+  success: boolean;
+  data: {
+    cvs: any[];
+    jds: any[];
+    summary: {
+      total_documents: number;
+      total_cvs: number;
+      total_jds: number;
+      avg_cv_skills: number;
+      avg_jd_skills: number;
+      ready_for_matching: boolean;
+    };
+  };
+  timestamp: number;
 }

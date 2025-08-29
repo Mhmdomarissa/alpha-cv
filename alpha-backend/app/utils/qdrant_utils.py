@@ -79,10 +79,9 @@ class QdrantUtils:
         file_format: str,
         raw_content: str,
         upload_date: str,
+        file_path: Optional[str] = None,   # 👈 NEW
+        mime_type: Optional[str] = None,   # 👈 NEW
     ) -> bool:
-        """
-        Store document into {doc_type}_documents with a dummy 768 vector.
-        """
         try:
             collection_name = f"{doc_type}_documents"
             dummy_vector = [0.0] * 768
@@ -95,6 +94,11 @@ class QdrantUtils:
                 "content_hash": hashlib.md5(raw_content.encode()).hexdigest(),
                 "document_type": doc_type,
             }
+            if file_path:
+                payload["file_path"] = file_path      # 👈 persist where the file lives
+            if mime_type:
+                payload["mime_type"] = mime_type      # 👈 optional hint for serving
+
             self.client.upsert(
                 collection_name=collection_name,
                 points=[PointStruct(id=doc_id, vector=dummy_vector, payload=payload)],

@@ -187,3 +187,6 @@ npm test
 ## License
 
 This project is part of the CV Analyzer system.
+
+
+$ npm install framer-motion

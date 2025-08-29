@@ -256,17 +256,38 @@ class ParsingService:
         if emails:
             extracted_pii["email"] = list(set(emails))
         
-        # Extract phone numbers
+        # Extract phone numbers - improved patterns to avoid false positives
         phone_patterns = [
-            r'\+?1?[-.\s]?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}',
-            r'\+?[0-9]{1,4}[-.\s]?\(?[0-9]{1,4}\)?[-.\s]?[0-9]{1,4}[-.\s]?[0-9]{1,9}',
-            r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'
+            # US format with area code: (123) 456-7890, 123-456-7890, 123.456.7890
+            r'\(\d{3}\)\s*\d{3}[-.\s]?\d{4}',
+            r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b',
+            # International format: +1 123 456 7890, +44 1234 567890
+            r'\+\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}',
+            # 10-digit with country code: +11234567890
+            r'\+\d{11,15}',
+            # 7-digit phone: 123-4567
+            r'\b\d{3}[-.\s]?\d{4}\b'
         ]
+        
         phones = []
         for pattern in phone_patterns:
-            phones.extend(re.findall(pattern, text))
-        if phones:
-            extracted_pii["phone"] = list(set(phones))
+            matches = re.findall(pattern, text)
+            for match in matches:
+                # Filter out obvious non-phone numbers
+                if len(match) >= 7 and not re.match(r'^\d{4}$', match):  # Exclude 4-digit years
+                    phones.append(match)
+        
+        # Remove duplicates and validate
+        valid_phones = []
+        for phone in phones:
+            # Clean up the phone number
+            cleaned = re.sub(r'[^\d+]', '', phone)
+            # Check if it has at least 7 digits and starts with + or has 10 digits
+            if (cleaned.startswith('+') and len(cleaned) >= 7) or (not cleaned.startswith('+') and len(cleaned) >= 7):
+                valid_phones.append(phone)
+        
+        if valid_phones:
+            extracted_pii["phone"] = list(set(valid_phones))
         
         # Remove PII from text
         clean_text = text

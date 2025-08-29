@@ -1,6 +1,5 @@
 'use client';
-
-import React from 'react';
+import React, { useEffect } from 'react';
 import { 
   Upload, 
   Database, 
@@ -18,13 +17,50 @@ import {
 import { useAppStore } from '@/stores/appStore';
 
 export default function DashboardPage() {
-  const { cvs, jds, matchResult, setCurrentTab } = useAppStore();
-
+  const { 
+    cvs, 
+    jds, 
+    matchResult, 
+    setCurrentTab, 
+    loadCVs, 
+    loadJDs,
+    selectedCVs,
+    selectedJD,
+    selectAllCVs,
+    selectJD,
+    runMatch
+  } = useAppStore();
+  
   const totalDocuments = cvs.length + jds.length;
   const totalMatches = matchResult?.candidates.length || 0;
   const canStartMatching = cvs.length > 0 && jds.length > 0;
   
   const recentMatches = matchResult?.candidates.slice(0, 5) || [];
+  
+  // Load documents when component mounts
+  useEffect(() => {
+    loadCVs();
+    loadJDs();
+  }, [loadCVs, loadJDs]);
+  
+  // Handle match button click
+  const handleStartMatching = async () => {
+    if (cvs.length === 0 || jds.length === 0) return;
+    
+    // Select all CVs if none are selected
+    if (selectedCVs.length === 0) {
+      selectAllCVs();
+    }
+    
+    // Select first JD if none is selected
+    if (!selectedJD && jds.length > 0) {
+      selectJD(jds[0].id);
+    }
+    
+    // Run matching and switch to match tab
+    await runMatch();
+    setCurrentTab('match');
+  };
 
   return (
     <div className="space-y-8">
@@ -63,7 +99,6 @@ export default function DashboardPage() {
             {cvs.length} CVs, {jds.length} JDs
           </p>
         </div>
-
         <div className="card-elevated text-center">
           <div className="flex justify-center mb-4">
             <div 
@@ -79,7 +114,6 @@ export default function DashboardPage() {
             Ready for matching
           </p>
         </div>
-
         <div className="card-elevated text-center">
           <div className="flex justify-center mb-4">
             <div 
@@ -95,7 +129,6 @@ export default function DashboardPage() {
             Available for matching
           </p>
         </div>
-
         <div className="card-elevated text-center">
           <div className="flex justify-center mb-4">
             <div 
@@ -131,7 +164,6 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
-
           <div className="space-y-4">
             <button
               onClick={() => setCurrentTab('upload')}
@@ -162,7 +194,6 @@ export default function DashboardPage() {
                 style={{ color: 'var(--gray-400)' }}
               />
             </button>
-
             <button
               onClick={() => setCurrentTab('database')}
               disabled={totalDocuments === 0}
@@ -193,58 +224,53 @@ export default function DashboardPage() {
                 style={{ color: 'var(--gray-400)' }}
               />
             </button>
-
+            {/* Updated Match Button */}
             <button
-              onClick={() => setCurrentTab('match')}
-              disabled={!canStartMatching}
-              className="w-full flex items-center justify-between p-4 rounded-lg border transition-all duration-200 hover:shadow-md group disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ 
-                borderColor: canStartMatching ? 'var(--primary-200)' : 'var(--gray-200)',
-                backgroundColor: canStartMatching ? 'var(--primary-50)' : 'white',
-              }}
-            >
-              <div className="flex items-center space-x-3">
-                <div 
-                  className="w-8 h-8 rounded-lg flex items-center justify-center"
-                  style={{ 
-                    backgroundColor: canStartMatching ? 'var(--primary-100)' : 'var(--gray-100)' 
-                  }}
-                >
-                  <Target 
-                    className="w-4 h-4" 
-                    style={{ 
-                      color: canStartMatching ? 'var(--primary-600)' : 'var(--gray-400)' 
-                    }} 
-                  />
-                </div>
-                <div className="text-left">
-                  <div 
-                    className="font-medium flex items-center space-x-2"
-                    style={{ 
-                      color: canStartMatching ? 'var(--primary-700)' : 'var(--gray-500)' 
-                    }}
-                  >
-                    <span>Start AI Matching</span>
-                    {canStartMatching && (
-                      <div 
-                        className="w-2 h-2 rounded-full animate-pulse"
-                        style={{ backgroundColor: 'var(--green-500)' }}
-                      />
-                    )}
-                  </div>
-                  <div className="text-sm" style={{ color: 'var(--gray-500)' }}>
-                    {canStartMatching 
-                      ? 'Ready to find the best matches'
-                      : 'Upload CVs and JDs first'
-                    }
-                  </div>
-                </div>
-              </div>
-              <ArrowRight 
-                className="w-4 h-4 transition-transform group-hover:translate-x-1" 
-                style={{ color: 'var(--gray-400)' }}
-              />
-            </button>
+  onClick={handleStartMatching}
+  disabled={!canStartMatching}
+  className={`w-full flex items-center justify-between p-4 rounded-lg border transition-all duration-200 hover:shadow-lg group ${
+    canStartMatching
+      ? 'bg-gradient-to-r from-emerald-500 via-green-500 to-teal-600 text-white shadow-md'
+      : 'bg-gray-100 text-gray-400 border-gray-200'
+  } disabled:opacity-60 disabled:cursor-not-allowed`}
+>
+  <div className="flex items-center space-x-3">
+    <div
+      className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+        canStartMatching ? 'bg-white/20' : 'bg-gray-200'
+      }`}
+    >
+      <Target
+        className="w-4 h-4"
+        style={{
+          color: canStartMatching ? 'white' : 'var(--gray-400)',
+        }}
+      />
+    </div>
+    <div className="text-left">
+      <div className="font-medium flex items-center space-x-2">
+        <span>Start AI Matching</span>
+        {canStartMatching && (
+          <div className="w-2 h-2 rounded-full bg-green-300 animate-pulse" />
+        )}
+      </div>
+      <div
+        className={`text-sm ${
+          canStartMatching ? 'text-white/90' : 'text-gray-500'
+        }`}
+      >
+        {canStartMatching
+          ? `Ready to match ${cvs.length} candidates with ${jds.length} positions`
+          : 'Upload CVs and JDs first'}
+      </div>
+    </div>
+  </div>
+  <ArrowRight
+    className="w-4 h-4 transition-transform group-hover:translate-x-1"
+    style={{ color: canStartMatching ? 'white' : 'var(--gray-400)' }}
+  />
+</button>
+
           </div>
         </div>
 
@@ -264,7 +290,6 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
-
           {recentMatches.length > 0 ? (
             <div className="space-y-3">
               {recentMatches.map((match, index) => (
