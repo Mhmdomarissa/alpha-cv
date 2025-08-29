@@ -32,7 +32,7 @@ class ParsingService:
     SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt', '.png', '.jpg', '.jpeg', '.tiff', '.bmp']
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
     
-    def _init_(self):
+    def __init__(self):
         """Initialize the parsing service."""
         self.logger = logger
         self.logger.info("🔧 ParsingService initialized")
