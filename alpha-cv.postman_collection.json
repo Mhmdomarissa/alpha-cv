@@ -1,0 +1,243 @@
+{
+  "info": {
+    "name": "Alpha-CV API",
+    "description": "Postman collection for CV, JD, and Matching APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "alpha-cv-collection"
+  },
+  "item": [
+    {
+      "name": "CV Routes",
+      "item": [
+        {
+          "name": "Upload CV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "sample_cv.pdf"
+                }
+              ]
+            },
+            "url": {
+              "raw": "http://localhost:8000/api/cv/upload-cv",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["api", "cv", "upload-cv"]
+            }
+          }
+        },
+        {
+          "name": "List CVs",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/cv/cvs"
+          }
+        },
+        {
+          "name": "Get CV Details",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/cv/{{cv_id}}"
+          }
+        },
+        {
+          "name": "Delete CV",
+          "request": {
+            "method": "DELETE",
+            "url": "http://localhost:8000/api/cv/{{cv_id}}"
+          }
+        },
+        {
+          "name": "Reprocess CV",
+          "request": {
+            "method": "POST",
+            "url": "http://localhost:8000/api/cv/{{cv_id}}/reprocess"
+          }
+        },
+        {
+          "name": "CV Embeddings Info",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/cv/{{cv_id}}/embeddings"
+          }
+        },
+        {
+          "name": "Standardize CV Text",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cv_text\": \"John Doe is a software engineer with 5 years experience in Python and React.\"\n}"
+            },
+            "url": "http://localhost:8000/api/cv/standardize-cv"
+          }
+        }
+      ]
+    },
+    {
+      "name": "JD Routes",
+      "item": [
+        {
+          "name": "Upload JD",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "sample_jd.pdf" }
+              ]
+            },
+            "url": "http://localhost:8000/api/jd/upload-jd"
+          }
+        },
+        {
+          "name": "List JDs",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/jd/jds"
+          }
+        },
+        {
+          "name": "Get JD Details",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/jd/{{jd_id}}"
+          }
+        },
+        {
+          "name": "Delete JD",
+          "request": {
+            "method": "DELETE",
+            "url": "http://localhost:8000/api/jd/{{jd_id}}"
+          }
+        },
+        {
+          "name": "Reprocess JD",
+          "request": {
+            "method": "POST",
+            "url": "http://localhost:8000/api/jd/{{jd_id}}/reprocess"
+          }
+        },
+        {
+          "name": "JD Embeddings Info",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/jd/{{jd_id}}/embeddings"
+          }
+        },
+        {
+          "name": "Standardize JD Text",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jd_text\": \"We are hiring a Python backend engineer with 5 years of experience.\"\n}"
+            },
+            "url": "http://localhost:8000/api/jd/standardize-jd"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Special Routes",
+      "item": [
+        {
+          "name": "Match CV-JD",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cv_id\": \"{{cv_id}}\",\n  \"jd_id\": \"{{jd_id}}\"\n}"
+            },
+            "url": "http://localhost:8000/api/match-cv-jd"
+          }
+        },
+        {
+          "name": "Bulk Match",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jd_id\": \"{{jd_id}}\",\n  \"cv_ids\": [\"{{cv_id}}\"]\n}"
+            },
+            "url": "http://localhost:8000/api/bulk-match"
+          }
+        },
+        {
+          "name": "Find Top Candidates",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jd_id\": \"{{jd_id}}\",\n  \"limit\": 5\n}"
+            },
+            "url": "http://localhost:8000/api/find-top-candidates"
+          }
+        },
+        {
+          "name": "Match Text (No DB)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jd_text\": \"Looking for a React developer.\",\n  \"cv_text\": \"5 years React.js developer experience.\"\n}"
+            },
+            "url": "http://localhost:8000/api/match-text"
+          }
+        },
+        {
+          "name": "System Health",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/health"
+          }
+        },
+        {
+          "name": "Database Status",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/database/status"
+          }
+        },
+        {
+          "name": "Database Collections",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/database/collections"
+          }
+        },
+        {
+          "name": "Database View",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/database/view"
+          }
+        },
+        {
+          "name": "Clear Database",
+          "request": {
+            "method": "POST",
+            "url": "http://localhost:8000/api/clear-database?confirm=true"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "cv_id", "value": "YOUR_CV_ID" },
+    { "key": "jd_id", "value": "YOUR_JD_ID" }
+  ]
+}

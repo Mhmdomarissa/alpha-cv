@@ -1,748 +1,889 @@
 'use client';
-
-import React, { useState } from 'react';
-import { 
-  Target, 
-  Brain, 
-  TrendingUp, 
-  Users, 
-  Award, 
-  ChevronDown, 
-  ChevronUp, 
-  BarChart3, 
-  Eye, 
-  Download, 
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Target,
+  Brain,
+  TrendingUp,
+  Users,
+  Award,
+  ChevronDown,
+  ChevronUp,
+  BarChart3,
+  Eye,
+  Download,
   Settings,
   Star,
-  CheckCircle,
-  ArrowRight,
-  Lightbulb,
-  Zap,
-  Clock,
-  Filter
+  Filter,
+  Briefcase,
+  Calendar,
+  FileDown
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/stores/appStore';
+import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button-enhanced';
 
+type SortKey = 'score' | 'skills' | 'experience';
+
+const DEFAULT_WEIGHTS = {
+  skills: 80,
+  responsibilities: 15,
+  job_title: 2.5,
+  experience: 2.5,
+};
+
+// --- Helpers -------------------------------------------------------------
+const uuidLike = (s?: string) =>
+  !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+
+function normalizeWeights(w: Record<string, number>) {
+  const keys = ['skills', 'responsibilities', 'job_title', 'experience'] as const;
+  const sum = keys.reduce((s, k) => s + (w?.[k] ?? 0), 0);
+  if (!sum || sum <= 0) return { ...DEFAULT_WEIGHTS };
+  const norm = Object.fromEntries(keys.map((k) => [k, (w?.[k] ?? 0) / sum])) as typeof DEFAULT_WEIGHTS;
+  return norm;
+}
+
+function scoreBadge(score: number) {
+  if (score >= 0.8) return { label: 'Excellent', bg: 'bg-emerald-100', text: 'text-emerald-700' };
+  if (score >= 0.6) return { label: 'Good', bg: 'bg-amber-100', text: 'text-amber-700' };
+  return { label: 'Needs Review', bg: 'bg-rose-100', text: 'text-rose-700' };
+}
+
+function scoreColor(score: number) {
+  if (score >= 0.8) return 'text-emerald-600';
+  if (score >= 0.6) return 'text-amber-600';
+  return 'text-rose-600';
+}
+
+function barColor(score: number) {
+  if (score >= 0.7) return 'bg-emerald-500';
+  if (score >= 0.5) return 'bg-amber-500';
+  return 'bg-rose-500';
+}
+
+// Try hard to get a human-friendly candidate name from the store or candidate object.
+function resolveCandidateName(candidate: any, cvIndex: Record<string, any>): string {
+  const fromCandidate = candidate?.cv_name;
+  const cvMeta = cvIndex[candidate?.cv_id];
+  // Prefer a proper name from candidate fields if it doesn't look like an ID
+  if (fromCandidate && !uuidLike(fromCandidate)) return String(fromCandidate);
+  // Try common CV metadata fields
+  const guesses = [
+    cvMeta?.full_name,
+    cvMeta?.candidate_name,
+    cvMeta?.name,
+    cvMeta?.display_name,
+    cvMeta?.person_name,
+    cvMeta?.owner,
+    // Fallback to filename before extension if it looks like a name
+    (cvMeta?.filename || cvMeta?.file_name || cvMeta?.original_name)?.replace(/\.[^.]+$/, ''),
+  ].filter(Boolean);
+  const firstGood = guesses.find((g: string) => g && !uuidLike(g) && g.trim().length > 1);
+  if (firstGood) return String(firstGood);
+  // Last resort: show "Candidate" + short id suffix
+  const id = String(candidate?.cv_id || '').slice(0, 8);
+  return id ? `Candidate ${id}` : 'Candidate';
+}
+
+function resolveTitle(candidate: any, cvIndex: Record<string, any>): string {
+  const cvMeta = cvIndex[candidate?.cv_id];
+  return candidate?.cv_job_title || cvMeta?.job_title || cvMeta?.title || 'No title';
+}
+
+function resolveYears(candidate: any, cvIndex: Record<string, any>): string {
+  const cvMeta = cvIndex[candidate?.cv_id];
+  const yrs =
+    (typeof candidate?.cv_years === 'number' ? candidate.cv_years : undefined) ??
+    (typeof cvMeta?.experience_years === 'number' ? cvMeta.experience_years : undefined) ??
+    (typeof cvMeta?.years_of_experience === 'number' ? cvMeta.years_of_experience : undefined);
+  return typeof yrs === 'number' ? `${yrs} years` : 'Experience n/a';
+}
+
+// --- Component -----------------------------------------------------------
 export default function MatchingPageNew() {
-  const { matchResult, matchWeights, setMatchWeights, cvs, jds, selectedJD } = useAppStore();
+  const {
+    matchResult,
+    matchWeights,
+    setMatchWeights,
+    cvs, // used to resolve names and meta
+  } = useAppStore();
   
   const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
   const [showWeights, setShowWeights] = useState(false);
-  const [sortBy, setSortBy] = useState<'score' | 'skills' | 'experience'>('score');
+  const [sortBy, setSortBy] = useState<SortKey>('score');
   const [filterThreshold, setFilterThreshold] = useState(0);
-
+  const [downloadingCV, setDownloadingCV] = useState<string | null>(null);
+  
+  // Ensure default weights present
+  useEffect(() => {
+    const keys: (keyof typeof DEFAULT_WEIGHTS)[] = ['skills', 'responsibilities', 'job_title', 'experience'];
+    const missing = !matchWeights || keys.some((k) => typeof (matchWeights as any)[k] !== 'number');
+    const zeroSum =
+      matchWeights &&
+      keys.reduce((s, k) => s + (matchWeights as any)[k], 0) <= 0;
+    if (missing || zeroSum) {
+      setMatchWeights?.({ ...DEFAULT_WEIGHTS });
+    }
+  }, [matchWeights, setMatchWeights]);
+  
+  const normWeights = useMemo(() => normalizeWeights(matchWeights ?? DEFAULT_WEIGHTS), [matchWeights]);
+  
+  // Build CV index for quick lookups
+  const cvIndex = useMemo(() => {
+    const idx: Record<string, any> = {};
+    (cvs || []).forEach((cv: any) => {
+      const id = cv?.id || cv?.document_id || cv?.cv_id;
+      if (id) idx[id] = cv;
+    });
+    return idx;
+  }, [cvs]);
+  
+  const candidates: any[] = matchResult?.candidates ?? [];
+  
+  // Compute display scores using current (normalized) weights
+  const candidatesWithComputed = useMemo(() => {
+    return candidates.map((c) => {
+      const skills = Number(c.skills_score ?? 0);
+      const resp = Number(c.responsibilities_score ?? 0);
+      const title = Number(c.job_title_score ?? 0);
+      const years = Number(c.years_score ?? 0);
+      const computed_overall =
+        skills * normWeights.skills +
+        resp * normWeights.responsibilities +
+        title * normWeights.job_title +
+        years * normWeights.experience;
+      return { ...c, computed_overall };
+    });
+  }, [candidates, normWeights]);
+  
+  const sortedCandidates = useMemo(() => {
+    return [...candidatesWithComputed]
+      .filter((c) => (c.computed_overall ?? 0) >= filterThreshold)
+      .sort((a, b) => {
+        if (sortBy === 'score') return (b.computed_overall ?? 0) - (a.computed_overall ?? 0);
+        if (sortBy === 'skills') return (b.skills_score ?? 0) - (a.skills_score ?? 0);
+        if (sortBy === 'experience') return (b.years_score ?? 0) - (a.years_score ?? 0);
+        return 0;
+      });
+  }, [candidatesWithComputed, sortBy, filterThreshold]);
+  
+  // Analytics
+  const totalMatches = candidatesWithComputed.length;
+  const excellentMatches = candidatesWithComputed.filter((c) => c.computed_overall >= 0.8).length;
+  const goodMatches = candidatesWithComputed.filter((c) => c.computed_overall >= 0.6 && c.computed_overall < 0.8).length;
+  const averageScore =
+    totalMatches > 0
+      ? Math.round(
+          (candidatesWithComputed.reduce((s, c) => s + (c.computed_overall ?? 0), 0) / totalMatches) * 100
+        )
+      : 0;
+  const topScore =
+    totalMatches > 0
+      ? Math.round(Math.max(...candidatesWithComputed.map((c) => c.computed_overall ?? 0)) * 100)
+      : 0;
+  
+  // Download CV handler
+  const handleDownloadCV = async (cvId: string, filename: string) => {
+    setDownloadingCV(cvId);
+    try {
+      const blob = await api.downloadCV(cvId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download CV:', error);
+    } finally {
+      setDownloadingCV(null);
+    }
+  };
+  
+  // Empty state
   if (!matchResult?.candidates || matchResult.candidates.length === 0) {
     return (
       <div className="space-y-8">
         <div className="text-center">
-          <h1 className="heading-lg">AI Matching Results</h1>
-          <p className="text-lg mt-2" style={{ color: 'var(--gray-600)' }}>
-            Step 3: Run Match
-          </p>
+          <h1 className="text-3xl font-semibold text-gray-900">AI Matching Results</h1>
+          <p className="text-base mt-2 text-gray-600">Step 3: Run Match</p>
         </div>
-
         <div className="text-center py-16">
-          <div 
-            className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6"
-            style={{ backgroundColor: 'var(--gray-100)' }}
-          >
-            <Target className="w-10 h-10" style={{ color: 'var(--gray-400)' }} />
+          <div className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 bg-gray-100">
+            <Target className="w-10 h-10 text-gray-400" />
           </div>
-          <h3 className="heading-md mb-4" style={{ color: 'var(--gray-700)' }}>
-            No matches yet
-          </h3>
-          <p className="text-base mb-6" style={{ color: 'var(--gray-500)' }}>
+          <h3 className="text-xl font-semibold text-gray-800 mb-2">No matches yet</h3>
+          <p className="text-sm text-gray-500 mb-6">
             Select CVs and a job description from the Database to run AI matching
           </p>
           <button
-            onClick={() => useAppStore.getState().setCurrentTab('database')}
-            className="btn-primary"
+            onClick={() => useAppStore.getState().setCurrentTab?.('database')}
+            className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
           >
-            <ArrowRight className="w-4 h-4" />
             Go to Database
           </button>
         </div>
       </div>
     );
   }
-
-  const totalMatches = matchResult.candidates.length;
-  const excellentMatches = matchResult.candidates.filter(c => c.overall_score >= 0.8).length;
-  const goodMatches = matchResult.candidates.filter(c => c.overall_score >= 0.6 && c.overall_score < 0.8).length;
-  const averageScore = matchResult.candidates.reduce((sum, c) => sum + c.overall_score, 0) / totalMatches;
-  const topScore = Math.max(...matchResult.candidates.map(c => c.overall_score));
-
-  const getScoreColor = (score: number) => {
-    if (score >= 0.8) return 'var(--green-600)';
-    if (score >= 0.6) return 'var(--yellow-600)';
-    return 'var(--red-600)';
+  
+  // --- Animations
+  const fadeInUp = {
+    initial: { opacity: 0, y: 8 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.25, ease: 'easeOut' },
   };
-
-  const getScoreBadge = (score: number) => {
-    if (score >= 0.8) return { label: 'Excellent', color: 'var(--green-50)', textColor: 'var(--green-700)' };
-    if (score >= 0.6) return { label: 'Good', color: 'var(--yellow-50)', textColor: 'var(--yellow-700)' };
-    return { label: 'Needs Review', color: 'var(--red-50)', textColor: 'var(--red-700)' };
-  };
-
-  const sortedCandidates = [...matchResult.candidates]
-    .filter(candidate => candidate.overall_score >= filterThreshold)
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'score':
-          return b.overall_score - a.overall_score;
-        case 'skills':
-          return (b.skills_score || 0) - (a.skills_score || 0);
-        case 'experience':
-          return (b.years_score || 0) - (a.years_score || 0);
-        default:
-          return b.overall_score - a.overall_score;
-      }
-    });
-
+  
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="text-center">
-        <h1 className="heading-lg">AI Matching Results</h1>
-        <p className="text-lg mt-2" style={{ color: 'var(--gray-600)' }}>
-          Step 3: Intelligent Candidate Analysis Complete
+      <motion.div {...fadeInUp} className="text-center">
+        <h1 className="text-3xl font-semibold text-gray-900">AI Matching Results</h1>
+        <p className="text-base mt-2 text-gray-600">
+          Evaluated {totalMatches} candidate{totalMatches !== 1 ? 's' : ''} using weighted, explainable scoring.
         </p>
-        <p className="text-base mt-1" style={{ color: 'var(--gray-500)' }}>
-          Our AI has analyzed {totalMatches} candidate{totalMatches !== 1 ? 's' : ''} using advanced algorithms
-        </p>
-      </div>
-
-      {/* Premium Analytics Dashboard */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="card-elevated text-center">
-          <div className="flex justify-center mb-4">
-            <div 
-              className="w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: 'var(--primary-50)' }}
-            >
-              <Users className="w-6 h-6" style={{ color: 'var(--primary-600)' }} />
+      </motion.div>
+      
+      {/* Analytics */}
+      <motion.div
+        {...fadeInUp}
+        className="grid grid-cols-1 md:grid-cols-4 gap-6"
+      >
+        <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
+          <div className="flex justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-indigo-50">
+              <Users className="w-5 h-5 text-indigo-600" />
             </div>
           </div>
-          <div className="heading-md">{totalMatches}</div>
-          <p className="text-sm" style={{ color: 'var(--gray-600)' }}>Total Matches</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--gray-500)' }}>
-            Candidates analyzed
-          </p>
-        </div>
-
-        <div className="card-elevated text-center">
-          <div className="flex justify-center mb-4">
-            <div 
-              className="w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: 'var(--green-50)' }}
-            >
-              <Award className="w-6 h-6" style={{ color: 'var(--green-600)' }} />
+          <div className="text-2xl font-semibold text-gray-900">{totalMatches}</div>
+          <p className="text-sm text-gray-600">Total Candidates</p>
+        </motion.div>
+        <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
+          <div className="flex justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-amber-50">
+              <Award className="w-5 h-5 text-amber-600" />
             </div>
           </div>
-          <div className="heading-md" style={{ color: 'var(--green-600)' }}>
-            {Math.round(topScore * 100)}%
-          </div>
-          <p className="text-sm" style={{ color: 'var(--gray-600)' }}>Best Match</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--gray-500)' }}>
-            Highest scoring candidate
-          </p>
-        </div>
-
-        <div className="card-elevated text-center">
-          <div className="flex justify-center mb-4">
-            <div 
-              className="w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: 'var(--yellow-50)' }}
-            >
-              <BarChart3 className="w-6 h-6" style={{ color: 'var(--yellow-600)' }} />
+          <div className="text-2xl font-semibold text-amber-600">{topScore}%</div>
+          <p className="text-sm text-gray-600">Best Match</p>
+        </motion.div>
+        <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
+          <div className="flex justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-50">
+              <BarChart3 className="w-5 h-5 text-emerald-600" />
             </div>
           </div>
-          <div className="heading-md">{Math.round(averageScore * 100)}%</div>
-          <p className="text-sm" style={{ color: 'var(--gray-600)' }}>Average Score</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--gray-500)' }}>
-            Across all candidates
-          </p>
-        </div>
-
-        <div className="card-elevated text-center">
-          <div className="flex justify-center mb-4">
-            <div 
-              className="w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: 'var(--green-50)' }}
-            >
-              <Star className="w-6 h-6" style={{ color: 'var(--green-600)' }} />
+          <div className="text-2xl font-semibold text-gray-900">{averageScore}%</div>
+          <p className="text-sm text-gray-600">Average Score</p>
+        </motion.div>
+        <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
+          <div className="flex justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-50">
+              <Star className="w-5 h-5 text-emerald-600" />
             </div>
           </div>
-          <div className="heading-md" style={{ color: 'var(--green-600)' }}>
-            {excellentMatches}
-          </div>
-          <p className="text-sm" style={{ color: 'var(--gray-600)' }}>Excellent Matches</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--gray-500)' }}>
-            80%+ compatibility
-          </p>
-        </div>
-      </div>
-
+          <div className="text-2xl font-semibold text-emerald-600">{excellentMatches}</div>
+          <p className="text-sm text-gray-600">Excellent (≥80%)</p>
+        </motion.div>
+      </motion.div>
+      
       {/* Quality Distribution */}
-      <div className="card-elevated">
-        <div className="flex items-center space-x-3 mb-6">
-          <div 
-            className="w-10 h-10 rounded-lg flex items-center justify-center"
-            style={{ backgroundColor: 'var(--primary-50)' }}
-          >
-            <TrendingUp className="w-5 h-5" style={{ color: 'var(--primary-600)' }} />
+      <motion.div {...fadeInUp} className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-indigo-50">
+            <TrendingUp className="w-5 h-5 text-indigo-600" />
           </div>
           <div>
-            <h3 className="heading-sm">Quality Distribution</h3>
-            <p className="text-sm" style={{ color: 'var(--gray-600)' }}>
-              Breakdown of candidate match quality
-            </p>
+            <h3 className="text-lg font-semibold text-gray-900">Quality Distribution</h3>
+            <p className="text-sm text-gray-600">Breakdown by overall match</p>
           </div>
         </div>
-
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="text-center">
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
-              <div 
-                className="h-2 rounded-full transition-all duration-500"
-                style={{ 
-                  width: `${(excellentMatches / totalMatches) * 100}%`,
-                  backgroundColor: 'var(--green-500)'
-                }}
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+              <motion.div
+                className="h-2 rounded-full bg-emerald-500"
+                initial={{ width: 0 }}
+                animate={{ width: `${(excellentMatches / Math.max(totalMatches, 1)) * 100}%` }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
               />
             </div>
-            <div className="font-semibold" style={{ color: 'var(--green-600)' }}>
-              {excellentMatches} Excellent
-            </div>
-            <p className="text-sm" style={{ color: 'var(--gray-500)' }}>
-              80-100% Match
-            </p>
+            <div className="font-medium text-emerald-700">{excellentMatches} Excellent</div>
+            <p className="text-sm text-gray-500">80–100% match</p>
           </div>
-
           <div className="text-center">
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
-              <div 
-                className="h-2 rounded-full transition-all duration-500"
-                style={{ 
-                  width: `${(goodMatches / totalMatches) * 100}%`,
-                  backgroundColor: 'var(--yellow-500)'
-                }}
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+              <motion.div
+                className="h-2 rounded-full bg-amber-500"
+                initial={{ width: 0 }}
+                animate={{ width: `${(goodMatches / Math.max(totalMatches, 1)) * 100}%` }}
+                transition={{ duration: 0.6, ease: 'easeOut', delay: 0.1 }}
               />
             </div>
-            <div className="font-semibold" style={{ color: 'var(--yellow-600)' }}>
-              {goodMatches} Good
-            </div>
-            <p className="text-sm" style={{ color: 'var(--gray-500)' }}>
-              60-79% Match
-            </p>
+            <div className="font-medium text-amber-700">{goodMatches} Good</div>
+            <p className="text-sm text-gray-500">60–79% match</p>
           </div>
-
           <div className="text-center">
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
-              <div 
-                className="h-2 rounded-full transition-all duration-500"
-                style={{ 
-                  width: `${((totalMatches - excellentMatches - goodMatches) / totalMatches) * 100}%`,
-                  backgroundColor: 'var(--red-500)'
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+              <motion.div
+                className="h-2 rounded-full bg-rose-500"
+                initial={{ width: 0 }}
+                animate={{
+                  width: `${((totalMatches - excellentMatches - goodMatches) / Math.max(totalMatches, 1)) * 100}%`,
                 }}
+                transition={{ duration: 0.6, ease: 'easeOut', delay: 0.2 }}
               />
             </div>
-            <div className="font-semibold" style={{ color: 'var(--red-600)' }}>
+            <div className="font-medium text-rose-700">
               {totalMatches - excellentMatches - goodMatches} Needs Review
             </div>
-            <p className="text-sm" style={{ color: 'var(--gray-500)' }}>
-              &lt;60% Match
-            </p>
+            <p className="text-sm text-gray-500">&lt;60% match</p>
           </div>
         </div>
-      </div>
-
+      </motion.div>
+      
       {/* Controls */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex items-center space-x-4">
+      <motion.div {...fadeInUp} className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowWeights(!showWeights)}
-            className="btn-outline"
+            onClick={() => setShowWeights((s) => !s)}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
           >
-            <Settings className="w-4 h-4" />
+            <Settings className="w-4 h-4 mr-2" />
             {showWeights ? 'Hide' : 'Show'} Weights
-            {showWeights ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {showWeights ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
           </button>
-
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-            style={{
-              borderColor: 'var(--gray-300)',
-            }}
+            onChange={(e) => setSortBy(e.target.value as SortKey)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
             <option value="score">Sort by Overall Score</option>
             <option value="skills">Sort by Skills Match</option>
-            <option value="experience">Sort by Experience</option>
+            <option value="experience">Sort by Experience Years</option>
           </select>
-
-          <div className="flex items-center space-x-2">
-            <Filter className="w-4 h-4" style={{ color: 'var(--gray-500)' }} />
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-gray-500" />
             <select
               value={filterThreshold}
               onChange={(e) => setFilterThreshold(Number(e.target.value))}
-              className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-              style={{
-                borderColor: 'var(--gray-300)',
-              }}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value={0}>All Matches</option>
-              <option value={0.6}>Good+ (60%+)</option>
-              <option value={0.8}>Excellent (80%+)</option>
+              <option value={0.6}>Good+ (≥60%)</option>
+              <option value={0.8}>Excellent (≥80%)</option>
             </select>
           </div>
         </div>
-
-        <div className="flex items-center space-x-3">
-          <button className="btn-outline">
-            <Download className="w-4 h-4" />
+        <div className="flex items-center gap-3">
+          <button className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm">
+            <Download className="w-4 h-4 mr-2" />
             Export Results
           </button>
-          <button className="btn-secondary">
-            <BarChart3 className="w-4 h-4" />
+          <button className="inline-flex items-center px-3 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 transition-colors text-sm">
+            <BarChart3 className="w-4 h-4 mr-2" />
             Generate Report
           </button>
         </div>
-      </div>
-
-      {/* Algorithm Configuration (Weights) */}
-      {showWeights && (
-        <div className="card-elevated">
-          <div className="flex items-center space-x-3 mb-6">
-            <div 
-              className="w-10 h-10 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: 'var(--primary-50)' }}
-            >
-              <Brain className="w-5 h-5" style={{ color: 'var(--primary-600)' }} />
+      </motion.div>
+      
+      {/* Weights Panel */}
+      <AnimatePresence initial={false}>
+        {showWeights && (
+          <motion.div
+            key="weights"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.2 }}
+            className="bg-white rounded-xl shadow-sm p-6 border border-gray-200"
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-indigo-50">
+                <Brain className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Matching Weights</h3>
+                <p className="text-sm text-gray-600">Defaults: Skills 80%, Responsibilities 15%, Title 2.5%, Experience 2.5%</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {(['skills', 'responsibilities', 'job_title', 'experience'] as const).map((key) => {
+                const raw = matchWeights?.[key] ?? DEFAULT_WEIGHTS[key];
+                const pct = Math.round(normWeights[key] * 100);
+                const labelMap: Record<typeof key, string> = {
+                  skills: 'Skills',
+                  responsibilities: 'Responsibilities',
+                  job_title: 'Job Title',
+                  experience: 'Experience (Years)',
+                } as any;
+                return (
+                  <div key={key} className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="font-medium text-sm text-gray-800">{labelMap[key]}</label>
+                      <span className="text-sm font-semibold text-indigo-600">{pct}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={raw}
+                      onChange={(e) =>
+                        setMatchWeights?.({
+                          ...(matchWeights ?? DEFAULT_WEIGHTS),
+                          [key]: parseFloat(e.target.value),
+                        })
+                      }
+                      className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+                      style={{
+                        background: `linear-gradient(to right, #6366f1 0%, #6366f1 ${Math.max(
+                          0,
+                          Math.min(100, raw * 100)
+                        )}%, #e5e7eb ${Math.max(0, Math.min(100, raw * 100))}%, #e5e7eb 100%)`,
+                      }}
+                    />
+                    <div className="text-xs text-gray-500">
+                      {key === 'skills' && 'Technical & domain skills alignment'}
+                      {key === 'responsibilities' && 'Responsibility / task alignment'}
+                      {key === 'job_title' && 'Title similarity'}
+                      {key === 'experience' && 'Years of experience fit'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-6 flex items-center justify-between">
+              <div className="text-xs text-gray-500">Weights are normalized automatically to total 100%.</div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setMatchWeights?.({ ...DEFAULT_WEIGHTS })}
+                  className="px-3 py-2 text-sm rounded-md border border-gray-300 hover:bg-gray-50"
+                >
+                  Reset to Defaults
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      {/* Ranked Candidates */}
+      <motion.div {...fadeInUp} className="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-50">
+              <Target className="w-5 h-5 text-emerald-600" />
             </div>
             <div>
-              <h3 className="heading-sm">AI Algorithm Configuration</h3>
-              <p className="text-sm" style={{ color: 'var(--gray-600)' }}>
-                Adjust matching weights to fine-tune results
+              <h3 className="text-lg font-semibold text-gray-900">Ranked Candidates</h3>
+              <p className="text-sm text-gray-600">
+                {sortedCandidates.length} shown. Sorted by {sortBy === 'score' ? 'overall match' : sortBy}.
               </p>
             </div>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {Object.entries(matchWeights).map(([key, value]) => (
-              <div key={key} className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="font-medium text-sm" style={{ color: 'var(--gray-700)' }}>
-                    {key.charAt(0).toUpperCase() + key.slice(1).replace('_', ' ')}
-                  </label>
-                  <span className="text-sm font-medium" style={{ color: 'var(--primary-600)' }}>
-                    {Math.round(value * 100)}%
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={value}
-                  onChange={(e) => setMatchWeights({
-                    ...matchWeights,
-                    [key]: parseFloat(e.target.value)
-                  })}
-                  className="w-full h-2 rounded-lg appearance-none cursor-pointer"
-                  style={{ 
-                    background: `linear-gradient(to right, var(--primary-500) 0%, var(--primary-500) ${value * 100}%, var(--gray-300) ${value * 100}%, var(--gray-300) 100%)`
-                  }}
-                />
-                <div className="text-xs" style={{ color: 'var(--gray-500)' }}>
-                  {key === 'skills' && 'Technical skills matching'}
-                  {key === 'responsibilities' && 'Job responsibilities alignment'}
-                  {key === 'job_title' && 'Job title similarity'}
-                  {key === 'experience' && 'Years of experience fit'}
-                </div>
-              </div>
-            ))}
-          </div>
+          <div className="space-y-4">
+            <AnimatePresence initial={false}>
+              {sortedCandidates.map((candidate, index) => {
+                const overall = candidate.computed_overall ?? 0;
+                const badge = scoreBadge(overall);
+                const isOpen = expandedMatch === candidate.cv_id;
+                const displayName = resolveCandidateName(candidate, cvIndex);
+                const title = resolveTitle(candidate, cvIndex);
+                const yearsText = resolveYears(candidate, cvIndex);
+                const cvMeta = cvIndex[candidate?.cv_id];
+                const filename = cvMeta?.filename || `cv_${candidate.cv_id}.pdf`;
+                
+                return (
+                  <motion.div
+  key={candidate.cv_id}
+  layout
+  initial={{ opacity: 0, y: 8 }}
+  animate={{ opacity: 1, y: 0 }}
+  exit={{ opacity: 0, y: -8 }}
+  transition={{ duration: 0.2 }}
+  className={`relative overflow-hidden rounded-xl border bg-white transition-all ${
+    isOpen ? 'ring-2 ring-indigo-200 border-indigo-200' : 'border-gray-200'
+  }`}
+>
+  {/* OUTER WRAPPER FIXED: now a <div> with role="button" */}
+  <div
+    onClick={() =>
+      setExpandedMatch((prev) => (prev === candidate.cv_id ? null : candidate.cv_id))
+    }
+    role="button"
+    tabIndex={0}
+    className="w-full text-left p-5 hover:bg-gray-50 transition-colors cursor-pointer"
+  >
+    {/* Header row */}
+    <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center gap-4">
+        <div
+          className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white ${barColor(
+            overall
+          )}`}
+        >
+          #{index + 1}
         </div>
-      )}
-
-      {/* Rankings Grid */}
-      <div className="card">
-        <div className="flex items-center space-x-3 mb-6">
-          <div 
-            className="w-10 h-10 rounded-lg flex items-center justify-center"
-            style={{ backgroundColor: 'var(--green-50)' }}
-          >
-            <Target className="w-5 h-5" style={{ color: 'var(--green-600)' }} />
-          </div>
-          <div>
-            <h3 className="heading-sm">Ranked Candidates</h3>
-            <p className="text-sm" style={{ color: 'var(--gray-600)' }}>
-              {sortedCandidates.length} candidate{sortedCandidates.length !== 1 ? 's' : ''} sorted by {sortBy === 'score' ? 'overall match' : sortBy}
-            </p>
-          </div>
+        <div>
+          <h4 className="font-semibold text-gray-900">{displayName}</h4>
+          <p className="text-sm text-gray-600">
+            {title} • {yearsText}
+          </p>
         </div>
-
-        <div className="space-y-4">
-          {sortedCandidates.map((candidate, index) => {
-            const badge = getScoreBadge(candidate.overall_score);
-            const isExpanded = expandedMatch === candidate.cv_id;
-            
-            return (
-              <div 
-                key={candidate.cv_id}
-                className="border rounded-xl p-6 transition-all duration-200 hover:shadow-md"
-                style={{ borderColor: 'var(--gray-200)' }}
-              >
-                {/* Match Header */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-3">
-                      <div 
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white"
-                        style={{ backgroundColor: getScoreColor(candidate.overall_score) }}
-                      >
-                        #{index + 1}
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-lg" style={{ color: 'var(--gray-900)' }}>
-                          {candidate.cv_name || 'Unknown Candidate'}
-                        </h4>
-                        <p className="text-sm" style={{ color: 'var(--gray-600)' }}>
-                          {candidate.cv_job_title || 'No title'} • {candidate.cv_years} years experience
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-4">
-                    <div className="text-right">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-2xl font-bold" style={{ color: getScoreColor(candidate.overall_score) }}>
-                          {Math.round(candidate.overall_score * 100)}%
-                        </span>
-                        <div 
-                          className="px-3 py-1 rounded-full text-xs font-medium"
-                          style={{ 
-                            backgroundColor: badge.color,
-                            color: badge.textColor
-                          }}
-                        >
-                          {badge.label}
-                        </div>
-                      </div>
-                      <p className="text-sm mt-1" style={{ color: 'var(--gray-500)' }}>
-                        Overall Match Score
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={() => setExpandedMatch(isExpanded ? null : candidate.cv_id)}
-                      className="p-2 rounded-lg hover:bg-gray-50 transition-colors"
-                    >
-                      {isExpanded ? (
-                        <ChevronUp className="w-5 h-5" style={{ color: 'var(--gray-400)' }} />
-                      ) : (
-                        <ChevronDown className="w-5 h-5" style={{ color: 'var(--gray-400)' }} />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Quick Score Breakdown */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                  <div className="text-center">
-                    <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-                      <div 
-                        className="h-2 rounded-full transition-all duration-500"
-                        style={{ 
-                          width: `${(candidate.skills_score || 0) * 100}%`,
-                          backgroundColor: 'var(--primary-500)'
-                        }}
-                      />
-                    </div>
-                    <p className="text-xs font-medium" style={{ color: 'var(--gray-700)' }}>
-                      Skills: {Math.round((candidate.skills_score || 0) * 100)}%
-                    </p>
-                  </div>
-
-                  <div className="text-center">
-                    <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-                      <div 
-                        className="h-2 rounded-full transition-all duration-500"
-                        style={{ 
-                          width: `${(candidate.responsibilities_score || 0) * 100}%`,
-                          backgroundColor: 'var(--green-500)'
-                        }}
-                      />
-                    </div>
-                    <p className="text-xs font-medium" style={{ color: 'var(--gray-700)' }}>
-                      Experience: {Math.round((candidate.responsibilities_score || 0) * 100)}%
-                    </p>
-                  </div>
-
-                  <div className="text-center">
-                    <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-                      <div 
-                        className="h-2 rounded-full transition-all duration-500"
-                        style={{ 
-                          width: `${(candidate.job_title_score || 0) * 100}%`,
-                          backgroundColor: 'var(--yellow-500)'
-                        }}
-                      />
-                    </div>
-                    <p className="text-xs font-medium" style={{ color: 'var(--gray-700)' }}>
-                      Title: {Math.round((candidate.job_title_score || 0) * 100)}%
-                    </p>
-                  </div>
-
-                  <div className="text-center">
-                    <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-                      <div 
-                        className="h-2 rounded-full transition-all duration-500"
-                        style={{ 
-                          width: `${(candidate.years_score || 0) * 100}%`,
-                          backgroundColor: 'var(--red-500)'
-                        }}
-                      />
-                    </div>
-                    <p className="text-xs font-medium" style={{ color: 'var(--gray-700)' }}>
-                      Years: {Math.round((candidate.years_score || 0) * 100)}%
-                    </p>
-                  </div>
-                </div>
-
-                {/* Why This Match Works */}
-                <div 
-                  className="p-4 rounded-lg"
-                  style={{ backgroundColor: 'var(--primary-50)' }}
-                >
-                  <div className="flex items-center space-x-2 mb-2">
-                    <Lightbulb className="w-4 h-4" style={{ color: 'var(--primary-600)' }} />
-                    <span className="font-medium text-sm" style={{ color: 'var(--primary-700)' }}>
-                      Why This Match Works:
-                    </span>
-                  </div>
-                  <div className="text-sm" style={{ color: 'var(--primary-700)' }}>
-                    {candidate.overall_score >= 0.8 && "• Strong alignment across all key areas"}
-                    {candidate.overall_score >= 0.6 && candidate.overall_score < 0.8 && "• Good fit with some areas for development"}
-                    {candidate.overall_score < 0.6 && "• Potential candidate requiring further evaluation"}
-                    {(candidate.skills_score || 0) >= 0.8 && " • Excellent technical skills match"}
-                    {(candidate.years_score || 0) >= 0.8 && " • Experience level aligns perfectly"}
-                  </div>
-                </div>
-
-                {/* Expanded Details */}
-                {isExpanded && (
-                  <div className="mt-6 space-y-6 animate-fade-in">
-                    {/* Skills Assignments */}
-                    {candidate.skills_assignments && candidate.skills_assignments.length > 0 && (
-                      <div>
-                        <div className="flex items-center space-x-2 mb-4">
-                          <Brain className="w-5 h-5" style={{ color: 'var(--primary-600)' }} />
-                          <h4 className="font-semibold" style={{ color: 'var(--gray-900)' }}>
-                            Skills Analysis ({candidate.skills_assignments.length} matches)
-                          </h4>
-                        </div>
-                        <div className="grid gap-3 max-h-64 overflow-y-auto">
-                          {candidate.skills_assignments.slice(0, 10).map((assignment, idx) => {
-                            const similarity = assignment.score;
-                            const quality = similarity >= 0.7 ? 'excellent' : 
-                                           similarity >= 0.5 ? 'good' : 'weak';
-                            const qualityColor = similarity >= 0.7 ? 'var(--green-500)' :
-                                               similarity >= 0.5 ? 'var(--yellow-500)' : 'var(--red-500)';
-                            
-                            return (
-                              <div 
-                                key={idx}
-                                className="p-3 rounded-lg border transition-all duration-200"
-                                style={{ borderColor: 'var(--gray-200)' }}
-                              >
-                                <div className="flex items-start space-x-3">
-                                  <div className="flex-1">
-                                    <div className="text-sm font-medium mb-1" style={{ color: 'var(--gray-900)' }}>
-                                      Required: {assignment.jd_item}
-                                    </div>
-                                    <div className="text-sm mb-2" style={{ color: 'var(--gray-700)' }}>
-                                      Candidate has: {assignment.cv_item}
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                      <div className="flex-1 bg-gray-200 rounded-full h-1.5">
-                                        <div 
-                                          className="h-1.5 rounded-full transition-all duration-300"
-                                          style={{ 
-                                            width: `${similarity * 100}%`,
-                                            backgroundColor: qualityColor
-                                          }}
-                                        />
-                                      </div>
-                                      <span className="text-xs font-medium" style={{ color: qualityColor }}>
-                                        {Math.round(similarity * 100)}%
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                          {candidate.skills_assignments.length > 10 && (
-                            <div className="text-center py-2">
-                              <span className="text-sm" style={{ color: 'var(--gray-500)' }}>
-                                ... and {candidate.skills_assignments.length - 10} more skills
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Responsibilities Assignments */}
-                    {candidate.responsibilities_assignments && candidate.responsibilities_assignments.length > 0 && (
-                      <div>
-                        <div className="flex items-center space-x-2 mb-4">
-                          <Target className="w-5 h-5" style={{ color: 'var(--green-600)' }} />
-                          <h4 className="font-semibold" style={{ color: 'var(--gray-900)' }}>
-                            Responsibilities Analysis ({candidate.responsibilities_assignments.length} matches)
-                          </h4>
-                        </div>
-                        <div className="grid gap-3 max-h-64 overflow-y-auto">
-                          {candidate.responsibilities_assignments.slice(0, 5).map((assignment, idx) => {
-                            const similarity = assignment.score;
-                            const qualityColor = similarity >= 0.7 ? 'var(--green-500)' :
-                                               similarity >= 0.5 ? 'var(--yellow-500)' : 'var(--red-500)';
-                            
-                            return (
-                              <div 
-                                key={idx}
-                                className="p-3 rounded-lg border transition-all duration-200"
-                                style={{ borderColor: 'var(--gray-200)' }}
-                              >
-                                <div className="flex items-start space-x-3">
-                                  <div className="flex-1">
-                                    <div className="text-sm font-medium mb-1" style={{ color: 'var(--gray-900)' }}>
-                                      Required: {assignment.jd_item.length > 100 ? assignment.jd_item.substring(0, 100) + '...' : assignment.jd_item}
-                                    </div>
-                                    <div className="text-sm mb-2" style={{ color: 'var(--gray-700)' }}>
-                                      Experience: {assignment.cv_item.length > 100 ? assignment.cv_item.substring(0, 100) + '...' : assignment.cv_item}
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                      <div className="flex-1 bg-gray-200 rounded-full h-1.5">
-                                        <div 
-                                          className="h-1.5 rounded-full transition-all duration-300"
-                                          style={{ 
-                                            width: `${similarity * 100}%`,
-                                            backgroundColor: qualityColor
-                                          }}
-                                        />
-                                      </div>
-                                      <span className="text-xs font-medium" style={{ color: qualityColor }}>
-                                        {Math.round(similarity * 100)}%
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                          {candidate.responsibilities_assignments.length > 5 && (
-                            <div className="text-center py-2">
-                              <span className="text-sm" style={{ color: 'var(--gray-500)' }}>
-                                ... and {candidate.responsibilities_assignments.length - 5} more responsibilities
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Alternative Matches Preview */}
-                    {candidate.skills_alternatives && candidate.skills_alternatives.length > 0 && (
-                      <div>
-                        <div className="flex items-center space-x-2 mb-4">
-                          <Eye className="w-5 h-5" style={{ color: 'var(--purple-600)' }} />
-                          <h4 className="font-semibold" style={{ color: 'var(--gray-900)' }}>
-                            Alternative Skill Matches
-                          </h4>
-                          <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--purple-100)', color: 'var(--purple-700)' }}>
-                            AI Insights
-                          </span>
-                        </div>
-                        <div className="space-y-2">
-                          {candidate.skills_alternatives.slice(0, 3).map((alternative, idx) => (
-                            <div 
-                              key={idx}
-                              className="p-3 rounded-lg"
-                              style={{ backgroundColor: 'var(--purple-50)', border: '1px solid var(--purple-200)' }}
-                            >
-                              <div className="text-sm" style={{ color: 'var(--purple-900)' }}>
-                                <strong>Alternative options</strong> for required skill #{alternative.jd_index + 1}:
-                              </div>
-                              <div className="mt-2 space-y-1">
-                                {alternative.items.slice(0, 2).map((item, itemIdx) => (
-                                  <div key={itemIdx} className="flex justify-between items-center text-xs">
-                                    <span style={{ color: 'var(--purple-800)' }}>
-                                      {item.cv_item.length > 60 ? item.cv_item.substring(0, 60) + '...' : item.cv_item}
-                                    </span>
-                                    <span className="font-medium" style={{ color: 'var(--purple-600)' }}>
-                                      {Math.round(item.score * 100)}%
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Summary Statistics */}
-                    <div 
-                      className="p-4 rounded-lg"
-                      style={{ backgroundColor: 'var(--gray-50)', border: '1px solid var(--gray-200)' }}
-                    >
-                      <div className="grid grid-cols-2 gap-4 text-center">
-                        <div>
-                          <div className="text-lg font-bold" style={{ color: 'var(--primary-600)' }}>
-                            {candidate.skills_assignments ? 
-                              candidate.skills_assignments.filter(a => a.score >= 0.7).length : 0}
-                            /{candidate.skills_assignments ? candidate.skills_assignments.length : 0}
-                          </div>
-                          <div className="text-xs" style={{ color: 'var(--gray-600)' }}>
-                            Excellent Skills Matches
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-lg font-bold" style={{ color: 'var(--green-600)' }}>
-                            {candidate.responsibilities_assignments ? 
-                              candidate.responsibilities_assignments.filter(a => a.score >= 0.7).length : 0}
-                            /{candidate.responsibilities_assignments ? candidate.responsibilities_assignments.length : 0}
-                          </div>
-                          <div className="text-xs" style={{ color: 'var(--gray-600)' }}>
-                            Strong Experience Matches
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {sortedCandidates.length === 0 && (
-          <div className="text-center py-12">
-            <Filter className="w-16 h-16 mx-auto mb-4" style={{ color: 'var(--gray-400)' }} />
-            <h3 className="heading-sm mb-2" style={{ color: 'var(--gray-700)' }}>
-              No matches found
-            </h3>
-            <p className="text-sm" style={{ color: 'var(--gray-500)' }}>
-              Try adjusting your filter criteria to see more results
-            </p>
-          </div>
-        )}
       </div>
+      {/* Overall Score */}
+      <div className="flex items-center gap-4">
+        <div className="text-center">
+          <div className="relative w-16 h-16 mx-auto mb-1">
+            <svg className="w-16 h-16 -rotate-90" viewBox="0 0 36 36">
+              <path
+                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeDasharray={`${overall * 100}, 100`}
+                className={barColor(overall)}
+                strokeLinecap="round"
+              />
+              <path
+                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                className="text-gray-200"
+                opacity="0.3"
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-sm font-semibold text-gray-900">
+                {Math.round(overall * 100)}%
+              </span>
+            </div>
+          </div>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.text}`}
+          >
+            {badge.label}
+          </span>
+        </div>
+        <span className="text-sm text-indigo-600 hover:text-indigo-700">
+          {isOpen ? 'Hide details' : 'View details'}
+        </span>
+      </div>
+    </div>
+
+    {/* Quick breakdown */}
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5">
+      {/* Skills */}
+      <div className="p-3 rounded-lg border border-gray-200 bg-white">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-gray-600">Skills</span>
+          <span className={`text-xs font-semibold ${scoreColor(candidate.skills_score ?? 0)}`}>
+            {Math.round((candidate.skills_score ?? 0) * 100)}%
+          </span>
+        </div>
+        <div className="w-full bg-gray-200 rounded-full h-2">
+          <motion.div
+            className={`h-2 rounded-full ${barColor(candidate.skills_score ?? 0)}`}
+            initial={{ width: 0 }}
+            animate={{
+              width: `${Math.max(0, Math.min(100, (candidate.skills_score ?? 0) * 100))}%`,
+            }}
+            transition={{ duration: 0.6, ease: 'easeOut' }}
+          />
+        </div>
+      </div>
+
+      {/* Responsibilities */}
+      <div className="p-3 rounded-lg border border-gray-200 bg-white">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-gray-600">Responsibilities</span>
+          <span className={`text-xs font-semibold ${scoreColor(candidate.responsibilities_score ?? 0)}`}>
+            {Math.round((candidate.responsibilities_score ?? 0) * 100)}%
+          </span>
+        </div>
+        <div className="w-full bg-gray-200 rounded-full h-2">
+          <motion.div
+            className={`h-2 rounded-full ${barColor(candidate.responsibilities_score ?? 0)}`}
+            initial={{ width: 0 }}
+            animate={{
+              width: `${Math.max(
+                0,
+                Math.min(100, (candidate.responsibilities_score ?? 0) * 100)
+              )}%`,
+            }}
+            transition={{ duration: 0.6, ease: 'easeOut', delay: 0.05 }}
+          />
+        </div>
+      </div>
+
+      {/* Title */}
+      <div className="p-3 rounded-lg border border-gray-200 bg-white">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-gray-600">Title</span>
+          <span className={`text-xs font-semibold ${scoreColor(candidate.job_title_score ?? 0)}`}>
+            {Math.round((candidate.job_title_score ?? 0) * 100)}%
+          </span>
+        </div>
+        <div className="w-full bg-gray-200 rounded-full h-2">
+          <motion.div
+            className={`h-2 rounded-full ${barColor(candidate.job_title_score ?? 0)}`}
+            initial={{ width: 0 }}
+            animate={{
+              width: `${Math.max(0, Math.min(100, (candidate.job_title_score ?? 0) * 100))}%`,
+            }}
+            transition={{ duration: 0.6, ease: 'easeOut', delay: 0.1 }}
+          />
+        </div>
+      </div>
+
+      {/* Years */}
+      <div className="p-3 rounded-lg border border-gray-200 bg-white">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-gray-600">Years</span>
+          <span className={`text-xs font-semibold ${scoreColor(candidate.years_score ?? 0)}`}>
+            {Math.round((candidate.years_score ?? 0) * 100)}%
+          </span>
+        </div>
+        <div className="w-full bg-gray-200 rounded-full h-2">
+          <motion.div
+            className={`h-2 rounded-full ${barColor(candidate.years_score ?? 0)}`}
+            initial={{ width: 0 }}
+            animate={{
+              width: `${Math.max(0, Math.min(100, (candidate.years_score ?? 0) * 100))}%`,
+            }}
+            transition={{ duration: 0.6, ease: 'easeOut', delay: 0.15 }}
+          />
+        </div>
+      </div>
+    </div>
+
+    {/* Download CV Button */}
+    <div className="mt-4 flex justify-end">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={(e) => {
+  e.stopPropagation();
+  handleDownloadCV(candidate.cv_id, filename);
+}}
+
+        disabled={downloadingCV === candidate.cv_id}
+        className="flex items-center gap-1"
+      >
+        {downloadingCV === candidate.cv_id ? (
+          <>
+            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <span>Downloading...</span>
+          </>
+        ) : (
+          <>
+            <FileDown className="w-4 h-4" />
+            <span>Download CV</span>
+          </>
+        )}
+      </Button>
+    </div>
+  </div>
+
+
+                    
+                    {/* Expanded details */}
+                    <AnimatePresence initial={false}>
+                      {isOpen && (
+                        <motion.div
+                          key="details"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.25, ease: 'easeOut' }}
+                          className="px-5 pb-5"
+                        >
+                          <div className="mt-2 space-y-6">
+                            {/* Position Details */}
+                            <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
+                              <h4 className="font-semibold text-gray-900 mb-3">Position Details</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <h5 className="text-sm font-medium text-gray-700">Job Description</h5>
+                                  <div className="flex items-center mt-1">
+                                    <Briefcase className="w-4 h-4 text-gray-500 mr-2" />
+                                    <p className="text-sm text-gray-900">{matchResult?.jd_job_title || 'N/A'}</p>
+                                  </div>
+                                  <div className="flex items-center mt-1">
+                                    <Calendar className="w-4 h-4 text-gray-500 mr-2" />
+                                    <p className="text-sm text-gray-900">{matchResult?.jd_years || 'N/A'} years required</p>
+                                  </div>
+                                </div>
+                                <div>
+                                  <h5 className="text-sm font-medium text-gray-700">Candidate</h5>
+                                  <div className="flex items-center mt-1">
+                                    <Briefcase className="w-4 h-4 text-gray-500 mr-2" />
+                                    <p className="text-sm text-gray-900">{candidate.cv_job_title || 'N/A'}</p>
+                                  </div>
+                                  <div className="flex items-center mt-1">
+                                    <Calendar className="w-4 h-4 text-gray-500 mr-2" />
+                                    <p className="text-sm text-gray-900">{candidate.cv_years || 'N/A'} years experience</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Skills detail */}
+                            {Array.isArray(candidate.skills_assignments) && candidate.skills_assignments.length > 0 && (
+                              <div>
+                                <div className="flex items-center gap-2 mb-3">
+                                  <Brain className="w-4 h-4 text-indigo-600" />
+                                  <h4 className="font-semibold text-gray-900">
+                                    Matched Skills ({candidate.skills_assignments.length})
+                                  </h4>
+                                </div>
+                                <div className="grid gap-3 max-h-80 overflow-y-auto">
+                                  {candidate.skills_assignments.map((a: any, idx: number) => {
+                                    const s = Number(a.score ?? 0);
+                                    return (
+                                      <div key={idx} className="p-3 rounded-lg border border-gray-200 bg-white">
+                                        <div className="text-sm text-gray-900">
+                                          Required: <span className="font-medium">{a.jd_item}</span>
+                                        </div>
+                                        <div className="text-sm text-gray-700">Candidate has: {a.cv_item}</div>
+                                        <div className="flex items-center gap-2 mt-2">
+                                          <div className="flex-1 bg-gray-200 rounded-full h-2">
+                                            <div className={`h-2 rounded-full ${barColor(s)}`} style={{ width: `${s * 100}%` }} />
+                                          </div>
+                                          <span className={`text-xs font-medium ${scoreColor(s)}`}>{Math.round(s * 100)}%</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Unmatched Skills */}
+                            {Array.isArray(candidate.unmatched_jd_skills) && candidate.unmatched_jd_skills.length > 0 && (
+                              <div>
+                                <div className="flex items-center gap-2 mb-3">
+                                  <Eye className="w-4 h-4 text-rose-600" />
+                                  <h4 className="font-semibold text-gray-900">
+                                    Unmatched Skills ({candidate.unmatched_jd_skills.length})
+                                  </h4>
+                                </div>
+                                <div className="grid gap-3 max-h-80 overflow-y-auto">
+                                  {candidate.unmatched_jd_skills.map((skill: string, idx: number) => (
+                                    <div key={idx} className="p-3 rounded-lg border border-rose-200 bg-rose-50">
+                                      <div className="text-sm text-rose-900">
+                                        Required skill: <span className="font-medium">{skill}</span>
+                                      </div>
+                                      <div className="text-sm text-rose-700">No matching skill found in candidate's profile</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Responsibilities detail */}
+                            {Array.isArray(candidate.responsibilities_assignments) && candidate.responsibilities_assignments.length > 0 && (
+                              <div>
+                                <div className="flex items-center gap-2 mb-3">
+                                  <Target className="w-4 h-4 text-emerald-600" />
+                                  <h4 className="font-semibold text-gray-900">
+                                    Matched Responsibilities ({candidate.responsibilities_assignments.length})
+                                  </h4>
+                                </div>
+                                <div className="grid gap-3 max-h-80 overflow-y-auto">
+                                  {candidate.responsibilities_assignments.map((a: any, idx: number) => {
+                                    const s = Number(a.score ?? 0);
+                                    return (
+                                      <div key={idx} className="p-3 rounded-lg border border-gray-200 bg-white">
+                                        <div className="text-sm text-gray-900">
+                                          Required: <span className="font-medium">{a.jd_item}</span>
+                                        </div>
+                                        <div className="text-sm text-gray-700">Experience: {a.cv_item}</div>
+                                        <div className="flex items-center gap-2 mt-2">
+                                          <div className="flex-1 bg-gray-200 rounded-full h-2">
+                                            <div className={`h-2 rounded-full ${barColor(s)}`} style={{ width: `${s * 100}%` }} />
+                                          </div>
+                                          <span className={`text-xs font-medium ${scoreColor(s)}`}>{Math.round(s * 100)}%</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Unmatched Responsibilities */}
+                            {Array.isArray(candidate.unmatched_jd_responsibilities) && candidate.unmatched_jd_responsibilities.length > 0 && (
+                              <div>
+                                <div className="flex items-center gap-2 mb-3">
+                                  <Eye className="w-4 h-4 text-rose-600" />
+                                  <h4 className="font-semibold text-gray-900">
+                                    Unmatched Responsibilities ({candidate.unmatched_jd_responsibilities.length})
+                                  </h4>
+                                </div>
+                                <div className="grid gap-3 max-h-80 overflow-y-auto">
+                                  {candidate.unmatched_jd_responsibilities.map((resp: string, idx: number) => (
+                                    <div key={idx} className="p-3 rounded-lg border border-rose-200 bg-rose-50">
+                                      <div className="text-sm text-rose-900">
+                                        Required responsibility: <span className="font-medium">{resp}</span>
+                                      </div>
+                                      <div className="text-sm text-rose-700">No matching responsibility found in candidate's profile</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Summary */}
+                            <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
+                              <div className="grid grid-cols-2 gap-4 text-center">
+                                <div>
+                                  <div className="text-lg font-semibold text-indigo-600">
+                                    {candidate.skills_assignments
+                                      ? candidate.skills_assignments.filter((a: any) => (a.score ?? 0) >= 0.7).length
+                                      : 0}
+                                    /
+                                    {candidate.skills_assignments ? candidate.skills_assignments.length : 0}
+                                  </div>
+                                  <div className="text-xs text-gray-600">Strong Skills Matches (≥70%)</div>
+                                </div>
+                                <div>
+                                  <div className="text-lg font-semibold text-emerald-600">
+                                    {candidate.responsibilities_assignments
+                                      ? candidate.responsibilities_assignments.filter((a: any) => (a.score ?? 0) >= 0.7).length
+                                      : 0}
+                                    /
+                                    {candidate.responsibilities_assignments
+                                      ? candidate.responsibilities_assignments.length
+                                      : 0}
+                                  </div>
+                                  <div className="text-xs text-gray-600">Strong Responsibility Matches (≥70%)</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </div>
+          {sortedCandidates.length === 0 && (
+            <div className="text-center py-12">
+              <Filter className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+              <h3 className="text-base font-semibold text-gray-800 mb-1">No matches found</h3>
+              <p className="text-sm text-gray-500">Adjust your filters to view more candidates.</p>
+            </div>
+          )}
+        </div>
+      </motion.div>
     </div>
   );
 }

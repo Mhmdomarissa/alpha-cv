@@ -1,621 +1,924 @@
 'use client';
-
 import React, { useState, useEffect } from 'react';
-import { 
-  Search, 
-  Filter, 
-  Users, 
-  FileText, 
-  Calendar, 
-  Star, 
-  Eye, 
-  Trash2, 
-  CheckSquare, 
-  Square,
-  ArrowRight,
-  BarChart3,
-  Clock,
-  Award,
-  TrendingUp,
+import {
+  FileText,
+  Users,
+  Trash2,
+  RefreshCw,
+  Eye,
   Download,
-  Plus,
-  Target
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  X,
+  Target,
+  Play,
+  ChevronDown,
+  Search,
+  Database,
+  AlertTriangle
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
-import { CVListItem, JDListItem } from '@/lib/types';
-import DatabaseViewerModal from '@/components/ui/database-viewer-modal';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-enhanced';
+import { Button } from '@/components/ui/button-enhanced';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { api } from '@/lib/api';
 
-type DocumentType = 'all' | 'cv' | 'jd';
-type SortBy = 'date' | 'name' | 'experience';
-type SortOrder = 'asc' | 'desc';
+/* ----------------------------- Small utilities ---------------------------- */
+const formatDate = (dateString?: string) => {
+  if (!dateString) return 'N/A';
+  try {
+    return new Date(dateString).toLocaleDateString();
+  } catch {
+    return 'N/A';
+  }
+};
 
+const getCVBasics = (cv: any) => {
+  const c = cv?.candidate || {};
+  return {
+    name: cv?.full_name ?? c.full_name ?? 'Unknown',
+    title: cv?.job_title ?? c.job_title ?? 'Unknown',
+    years: cv?.years_of_experience ?? c.years_of_experience ?? '0',
+    skillsCount: cv?.skills_count ?? c.skills_count ?? (cv?.skills?.length ?? c.skills?.length ?? 0),
+    respCount:
+      cv?.responsibilities_count ??
+      c.responsibilities_count ??
+      (cv?.responsibilities?.length ?? c.responsibilities?.length ?? 0),
+  };
+};
+
+const getJDBasics = (jd: any) => {
+  const src = jd?.job_requirements || jd?.structured_info || {};
+  const title = src.job_title ?? jd?.job_title ?? 'N/A';
+  const years =
+    src.years_of_experience ?? src.experience_years ?? jd?.years_of_experience ?? '0';
+  const skills =
+    src.skills ??
+    jd?.skills ??
+    [];
+  const responsibilities =
+    src.responsibilities ??
+    src.responsibility_sentences ??
+    jd?.responsibilities ??
+    [];
+  const skillsCount =
+    src.skills_count ?? jd?.skills_count ?? (Array.isArray(skills) ? skills.length : 0);
+  const responsibilitiesCount =
+    src.responsibilities_count ??
+    jd?.responsibilities_count ??
+    (Array.isArray(responsibilities) ? responsibilities.length : 0);
+  return { title, years, skills, responsibilities, skillsCount, responsibilitiesCount };
+};
+
+/* -------------------------------- Component ------------------------------- */
 export default function DatabasePageNew() {
-  const { 
-    cvs, 
-    jds, 
-    selectedJD, 
-    selectedCVs, 
-    selectJD, 
-    selectCV, 
-    deselectCV, 
-    loadCVs, 
-    loadJDs, 
+  const {
+    cvs,
+    jds,
+    selectedCVs,
+    selectedJD,
+    loadingStates,
+    loadCVs,
+    loadJDs,
+    selectCV,
+    deselectCV,
+    selectAllCVs,
+    deselectAllCVs,
+    selectJD,
+    deleteCV,
+    deleteJD,
+    reprocessCV,
+    reprocessJD,
     setCurrentTab,
     runMatch,
-    loadingStates 
   } = useAppStore();
   
+  const [selectedCVForDetails, setSelectedCVForDetails] = useState<string | null>(null);
+  const [selectedJDForDetails, setSelectedJDForDetails] = useState<string | null>(null);
+  const [showJDJSON, setShowJDJSON] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [documentType, setDocumentType] = useState<DocumentType>('all');
-  const [sortBy, setSortBy] = useState<SortBy>('date');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [selectedForMatching, setSelectedForMatching] = useState<string[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
+  const [filteredCVs, setFilteredCVs] = useState<any[]>([]);
+  const [filteredJDs, setFilteredJDs] = useState<any[]>([]);
+  const [showClearDialog, setShowClearDialog] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  
   useEffect(() => {
-    if (cvs.length === 0) loadCVs();
-    if (jds.length === 0) loadJDs();
-  }, [cvs.length, jds.length, loadCVs, loadJDs]);
-
-  // Analytics calculations
-  const totalDocuments = cvs.length + jds.length;
-  const avgExperience = cvs.length > 0 
-    ? cvs.reduce((sum, cv) => sum + (parseInt(cv.years_of_experience || '0') || 0), 0) / cvs.length 
-    : 0;
-  const matchReady = selectedCVs.length > 0 && selectedJD;
-
-  // Filter and sort documents
-  const filteredCVs = cvs.filter(cv => {
-    if (documentType !== 'all' && documentType !== 'cv') return false;
-    if (!searchQuery) return true;
-    
-    const searchTerms = searchQuery.toLowerCase();
-    return (
-      cv.full_name?.toLowerCase().includes(searchTerms) ||
-      cv.job_title?.toLowerCase().includes(searchTerms) ||
-      cv.skills?.some(skill => skill.toLowerCase().includes(searchTerms))
-    );
-  });
-
-  const filteredJDs = jds.filter(jd => {
-    if (documentType !== 'all' && documentType !== 'jd') return false;
-    if (!searchQuery) return true;
-    
-    const searchTerms = searchQuery.toLowerCase();
-    return (
-      jd.job_title?.toLowerCase().includes(searchTerms) ||
-      jd.skills?.some(skill => skill.toLowerCase().includes(searchTerms))
-    );
-  });
-
+    loadCVs();
+    loadJDs();
+  }, [loadCVs, loadJDs]);
+  
+  useEffect(() => {
+    // Filter CVs based on search query
+    if (!searchQuery.trim()) {
+      setFilteredCVs(cvs);
+    } else {
+      const query = searchQuery.toLowerCase();
+      const filtered = cvs.filter(cv => {
+        const basics = getCVBasics(cv);
+        return (
+          basics.name.toLowerCase().includes(query) ||
+          cv.id.toLowerCase().includes(query) ||
+          basics.title.toLowerCase().includes(query)
+        );
+      });
+      setFilteredCVs(filtered);
+    }
+  }, [cvs, searchQuery]);
+  
+  useEffect(() => {
+    // Filter JDs based on search query
+    if (!searchQuery.trim()) {
+      setFilteredJDs(jds);
+    } else {
+      const query = searchQuery.toLowerCase();
+      const filtered = jds.filter(jd => {
+        const basics = getJDBasics(jd);
+        return (
+          jd.id.toLowerCase().includes(query) ||
+          basics.title.toLowerCase().includes(query)
+        );
+      });
+      setFilteredJDs(filtered);
+    }
+  }, [jds, searchQuery]);
+  
+  const isLoadingCVs = loadingStates.cvs.isLoading;
+  const isLoadingJDs = loadingStates.jds.isLoading;
+  const isDeleting = loadingStates.upload.isLoading;
+  
+  const handleDeleteCV = async (cvId: string) => {
+    if (window.confirm('Are you sure you want to delete this CV?')) {
+      await deleteCV(cvId);
+    }
+  };
+  
+  const handleDeleteJD = async (jdId: string) => {
+    if (window.confirm('Are you sure you want to delete this job description?')) {
+      await deleteJD(jdId);
+    }
+  };
+  
+  const handleReprocessCV = async (cvId: string) => {
+    await reprocessCV(cvId);
+  };
+  
+  const handleReprocessJD = async (jdId: string) => {
+    await reprocessJD(jdId);
+  };
+  
+  const canStartMatching = selectedCVs.length > 0 && selectedJD;
   const handleStartMatching = async () => {
-    if (selectedCVs.length > 0 && selectedJD) {
-      await runMatch();
-      setCurrentTab('match');
+    await runMatch();
+    setCurrentTab('match');
+  };
+  
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+  };
+  
+  const clearSearch = () => {
+    setSearchQuery('');
+  };
+  
+  const handleClearDatabase = async () => {
+    setIsClearing(true);
+    try {
+      await api.clearDatabase(true);
+      await loadCVs();
+      await loadJDs();
+      setShowClearDialog(false);
+    } catch (error: any) {
+      console.error('Failed to clear database:', error);
+    } finally {
+      setIsClearing(false);
     }
   };
-
-  const handleCVToggle = (cvId: string) => {
-    if (selectedCVs.includes(cvId)) {
-      deselectCV(cvId);
-    } else {
-      selectCV(cvId);
-    }
-  };
-
-  const handleJDSelect = (jdId: string) => {
-    if (selectedJD === jdId) {
-      selectJD(null);
-    } else {
-      selectJD(jdId);
-    }
-  };
-
-  const clearSelections = () => {
-    selectedCVs.forEach(cvId => deselectCV(cvId));
-    selectJD(null);
-  };
-
+  
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="text-center">
-        <h1 className="heading-lg">Your Documents Database</h1>
-        <p className="text-lg mt-2" style={{ color: 'var(--gray-600)' }}>
-          Step 2: Review Data
-        </p>
-        <p className="text-base mt-1" style={{ color: 'var(--gray-500)' }}>
-          Manage your uploaded documents and select them for AI matching
-        </p>
-      </div>
-
-      {/* Analytics Dashboard */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="card-elevated text-center">
-          <div className="flex justify-center mb-4">
-            <div 
-              className="w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: 'var(--primary-50)' }}
-            >
-              <FileText className="w-6 h-6" style={{ color: 'var(--primary-600)' }} />
-            </div>
-          </div>
-          <div className="heading-md">{totalDocuments}</div>
-          <p className="text-sm" style={{ color: 'var(--gray-600)' }}>Total Documents</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--gray-500)' }}>
-            {cvs.length} CVs, {jds.length} JDs
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="heading-lg">Document Database</h1>
+          <p className="text-lg mt-1" style={{ color: 'var(--gray-600)' }}>
+            Manage your CVs and job descriptions
           </p>
         </div>
+        <div className="flex items-center space-x-3">
+          <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="text-red-600 border-red-300 hover:bg-red-50"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Clear Database
+              </Button>
+            </DialogTrigger>
+            <DialogContent
+  className="bg-rose-50 border border-rose-300 shadow-xl rounded-lg p-6 data-[state=open]:animate-in 
+             data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 
+             data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+>
+  <DialogHeader>
+    <DialogTitle className="flex items-center gap-2 text-rose-700">
+      <AlertTriangle className="h-5 w-5 text-rose-500" />
+      Confirm Database Clear
+    </DialogTitle>
+  </DialogHeader>
 
-        <div className="card-elevated text-center">
-          <div className="flex justify-center mb-4">
-            <div 
-              className="w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: 'var(--green-50)' }}
-            >
-              <Users className="w-6 h-6" style={{ color: 'var(--green-600)' }} />
-            </div>
-          </div>
-          <div className="heading-md">{cvs.length}</div>
-          <p className="text-sm" style={{ color: 'var(--gray-600)' }}>Processed CVs</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--gray-500)' }}>
-            Ready for matching
-          </p>
-        </div>
+  <div className="space-y-4">
+    <p className="text-gray-800">
+      Are you sure you want to permanently delete all CVs and job descriptions?
+    </p>
+    <p className="text-sm text-rose-600 font-medium">This action cannot be undone.</p>
+    <div className="flex justify-end space-x-2">
+      <Button variant="outline" onClick={() => setShowClearDialog(false)}>
+        Cancel
+      </Button>
+      <Button
+        variant="destructive"
+        onClick={handleClearDatabase}
+        disabled={isClearing}
+        className="bg-rose-600 hover:bg-rose-700"
+      >
+        {isClearing ? 'Clearing...' : 'Clear All Data'}
+      </Button>
+    </div>
+  </div>
+</DialogContent>
 
-        <div className="card-elevated text-center">
-          <div className="flex justify-center mb-4">
-            <div 
-              className="w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: 'var(--yellow-50)' }}
-            >
-              <TrendingUp className="w-6 h-6" style={{ color: 'var(--yellow-600)' }} />
-            </div>
-          </div>
-          <div className="heading-md">{avgExperience.toFixed(1)}</div>
-          <p className="text-sm" style={{ color: 'var(--gray-600)' }}>Avg Experience</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--gray-500)' }}>
-            Years across all CVs
-          </p>
-        </div>
-
-        <div className="card-elevated text-center">
-          <div className="flex justify-center mb-4">
-            <div 
-              className="w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ 
-                backgroundColor: matchReady ? 'var(--green-50)' : 'var(--gray-100)' 
-              }}
-            >
-              <Target 
-                className="w-6 h-6" 
-                style={{ 
-                  color: matchReady ? 'var(--green-600)' : 'var(--gray-400)' 
-                }} 
-              />
-            </div>
-          </div>
-          <div 
-            className="heading-md"
-            style={{ 
-              color: matchReady ? 'var(--green-600)' : 'var(--gray-500)' 
+          </Dialog>
+          <Button
+            variant="outline"
+            onClick={() => {
+              loadCVs();
+              loadJDs();
             }}
+            disabled={isLoadingCVs || isLoadingJDs}
           >
-            {matchReady ? 'Ready' : 'Select'}
-          </div>
-          <p className="text-sm" style={{ color: 'var(--gray-600)' }}>Match Status</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--gray-500)' }}>
-            {selectedCVs.length} CVs, {selectedJD ? '1 JD' : '0 JDs'} selected
-          </p>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+          {canStartMatching && (
+            <Button
+              variant="primary"
+              onClick={handleStartMatching}
+              disabled={loadingStates.matching.isLoading}
+            >
+              <Play className="w-4 h-4 mr-2" />
+              {loadingStates.matching.isLoading ? 'Matching...' : 'Match Selected'}
+            </Button>
+          )}
         </div>
       </div>
-
-      {/* Controls */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-4 flex-1">
-          {/* Search */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4" style={{ color: 'var(--gray-400)' }} />
+      
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="p-6">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Users className="w-6 h-6 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500">Total CVs</p>
+              <p className="text-2xl font-bold text-gray-900">{cvs.length}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-6">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-green-100 rounded-lg">
+              <FileText className="w-6 h-6 text-green-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500">Job Descriptions</p>
+              <p className="text-2xl font-bold text-gray-900">{jds.length}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-6">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-purple-100 rounded-lg">
+              <Target className="w-6 h-6 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500">Ready to Match</p>
+              <p className="text-2xl font-bold text-gray-900">{canStartMatching ? 'Yes' : 'No'}</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+      
+      {/* Search Bar */}
+      <Card className="p-4">
+        <div className="flex items-center space-x-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               type="text"
-              placeholder="Search documents..."
+              placeholder="Search by name, ID, or job title..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-              style={{
-                borderColor: 'var(--gray-300)',
-              }}
+              onChange={handleSearchChange}
+              className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
+            {searchQuery && (
+              <button
+                onClick={clearSearch}
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
-
-          {/* Filters */}
-          <select
-            value={documentType}
-            onChange={(e) => setDocumentType(e.target.value as DocumentType)}
-            className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-            style={{
-              borderColor: 'var(--gray-300)',
-            }}
-          >
-            <option value="all">All Documents</option>
-            <option value="cv">CVs Only</option>
-            <option value="jd">JDs Only</option>
-          </select>
-
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortBy)}
-            className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-            style={{
-              borderColor: 'var(--gray-300)',
-            }}
-          >
-            <option value="date">Sort by Date</option>
-            <option value="name">Sort by Name</option>
-            <option value="experience">Sort by Experience</option>
-          </select>
         </div>
+        {searchQuery && (
+          <div className="mt-2 text-sm text-gray-500">
+            Showing {filteredCVs.length} of {cvs.length} CVs and {filteredJDs.length} of {jds.length} Job Descriptions
+          </div>
+        )}
+      </Card>
+      
+      {/* Document Tabs */}
+      <Tabs defaultValue="cvs" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="cvs" className="flex items-center space-x-2">
+            <Users className="w-4 h-4" />
+            <span>CVs ({filteredCVs.length})</span>
+          </TabsTrigger>
+          <TabsTrigger value="jds" className="flex items-center space-x-2">
+            <FileText className="w-4 h-4" />
+            <span>Job Descriptions ({filteredJDs.length})</span>
+          </TabsTrigger>
+        </TabsList>
+        
+        {/* CVs Tab */}
+        <TabsContent value="cvs" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Candidate CVs</CardTitle>
+                <div className="flex items-center space-x-2">
+                  <Button variant="outline" size="sm" onClick={selectAllCVs} disabled={filteredCVs.length === 0}>
+                    Select All
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={deselectAllCVs} disabled={selectedCVs.length === 0}>
+                    Deselect All
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingCVs ? (
+                <div className="flex items-center justify-center py-8">
+                  <Clock className="w-6 h-6 animate-spin mr-2" />
+                  <span>Loading CVs...</span>
+                </div>
+              ) : filteredCVs.length === 0 ? (
+                <div className="text-center py-8">
+                  <AlertCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    {searchQuery ? 'No CVs match your search' : 'No CVs uploaded'}
+                  </h3>
+                  <p className="text-gray-500 mb-4">
+                    {searchQuery 
+                      ? 'Try adjusting your search terms' 
+                      : 'Upload CVs to get started with matching'}
+                  </p>
+                  {!searchQuery && (
+                    <Button onClick={() => setCurrentTab('upload')}>Upload CVs</Button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredCVs.map((cv) => {
+                    const b = getCVBasics(cv);
+                    return (
+                      <div
+                        key={cv.id}
+                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedCVs.includes(cv.id)}
+                            onChange={() => {
+                              if (selectedCVs.includes(cv.id)) {
+                                deselectCV(cv.id);
+                              } else {
+                                selectCV(cv.id);
+                              }
+                            }}
+                            className="h-4 w-4 text-blue-600 rounded"
+                          />
+                          <div className="p-2 bg-blue-100 rounded-lg">
+                            <Users className="w-5 h-5 text-blue-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-medium text-gray-900">{b.name}</h4>
+                            <p className="text-sm text-gray-500">
+                              {b.title} • {b.years} years
+                            </p>
+                            <div className="flex items-center space-x-2 mt-1">
+                              <Badge variant="secondary">{b.skillsCount} skills</Badge>
+                              <Badge variant="outline">{b.respCount} responsibilities</Badge>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setSelectedCVForDetails(cv.id)}
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto bg-white rounded-lg shadow-xl">
+                              <DialogHeader className="flex flex-row items-center justify-between">
+                                <DialogTitle className="text-xl font-semibold">CV Details</DialogTitle>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => setSelectedCVForDetails(null)}
+                                  className="h-6 w-6 rounded-full hover:bg-gray-100"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </DialogHeader>
+                              <CVDetails cvId={cv.id} />
+                            </DialogContent>
+                          </Dialog>
+                          <Button variant="ghost" size="sm" onClick={() => handleReprocessCV(cv.id)} disabled={isDeleting}>
+                            <RefreshCw className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteCV(cv.id)}
+                            disabled={isDeleting}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        {/* JDs Tab */}
+        <TabsContent value="jds" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Job Descriptions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoadingJDs ? (
+                <div className="flex items-center justify-center py-8">
+                  <Clock className="w-6 h-6 animate-spin mr-2" />
+                  <span>Loading Job Descriptions...</span>
+                </div>
+              ) : filteredJDs.length === 0 ? (
+                <div className="text-center py-8">
+                  <AlertCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    {searchQuery ? 'No Job Descriptions match your search' : 'No Job Descriptions uploaded'}
+                  </h3>
+                  <p className="text-gray-500 mb-4">
+                    {searchQuery 
+                      ? 'Try adjusting your search terms' 
+                      : 'Upload job descriptions to get started with matching'}
+                  </p>
+                  {!searchQuery && (
+                    <Button onClick={() => setCurrentTab('upload')}>Upload Job Descriptions</Button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredJDs.map((jd) => {
+                    const b = getJDBasics(jd);
+                    return (
+                      <div
+                        key={jd.id}
+                        className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 ${
+                          selectedJD === jd.id ? 'border-blue-500 bg-blue-50' : ''
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="radio"
+                            name="selectedJD"
+                            checked={selectedJD === jd.id}
+                            onChange={() => selectJD(jd.id)}
+                            className="h-4 w-4 text-blue-600"
+                          />
+                          <div className="p-2 bg-green-100 rounded-lg">
+                            <FileText className="w-5 h-5 text-green-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-medium text-gray-900">{b.title}</h4>
+                            <p className="text-sm text-gray-500">{b.years} experience required</p>
+                            <div className="flex items-center space-x-2 mt-1">
+                              <Badge variant="secondary">{b.skillsCount} skills</Badge>
+                              <Badge variant="outline">{b.responsibilitiesCount} responsibilities</Badge>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setSelectedJDForDetails(jd.id)}
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto bg-white rounded-lg shadow-xl">
+                              <DialogHeader className="flex flex-row items-center justify-between">
+                                <DialogTitle className="text-xl font-semibold">Job Description Details</DialogTitle>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => setSelectedJDForDetails(null)}
+                                  className="h-6 w-6 rounded-full hover:bg-gray-100"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </DialogHeader>
+                              <JDDetails jdId={jd.id} />
+                            </DialogContent>
+                          </Dialog>
+                          <Button variant="ghost" size="sm" onClick={() => handleReprocessJD(jd.id)} disabled={isDeleting}>
+                            <RefreshCw className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteJD(jd.id)}
+                            disabled={isDeleting}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
 
-        {/* Action Buttons */}
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setCurrentTab('upload')}
-            className="btn-outline"
-          >
-            <Plus className="w-4 h-4" />
-            Add More
-          </button>
-          
-          {(selectedCVs.length > 0 || selectedJD) && (
-            <button
-              onClick={clearSelections}
-              className="btn-outline"
-            >
-              Clear Selection
-            </button>
-          )}
+/* ---------------------------- CV Details (modal) --------------------------- */
+function CVDetails({ cvId }: { cvId: string }) {
+  const [cv, setCV] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  useEffect(() => {
+    const loadCV = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await api.getCVDetails(cvId);
+        const cvData = response.cv || response.data || response;
+        setCV(cvData);
+      } catch (err: any) {
+        setError(err.message || 'Failed to load CV details');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadCV();
+  }, [cvId]);
+  
+  if (loading) return <div className="flex items-center justify-center py-8">Loading CV details...</div>;
+  if (error)
+    return (
+      <div className="text-center py-8">
+        <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
+        <h3 className="text-lg font-medium text-red-900 mb-2">Error Loading CV</h3>
+        <p className="text-red-500 mb-4">{error}</p>
+      </div>
+    );
+  if (!cv) return <div className="text-center py-8">CV not found</div>;
+  
+  const b = getCVBasics(cv);
+  
+  return (
+    <div className="space-y-4">
+      {/* Candidate Info */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Candidate Information</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <h4 className="text-sm font-medium text-gray-500">Full Name</h4>
+            <p className="text-base font-semibold">{b.name}</p>
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-gray-500">Job Title</h4>
+            <p className="text-base font-semibold">{b.title}</p>
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-gray-500">Experience</h4>
+            <p className="text-base font-semibold">{b.years} years</p>
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-gray-500">Upload Date</h4>
+            <p className="text-base font-semibold">{formatDate(cv.upload_date)}</p>
+          </div>
+        </div>
+        
+        {/* Contact Information */}
+        <div className="mt-4">
+          <h4 className="text-sm font-medium text-gray-500 mb-2">Contact Information</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-gray-600">Email</p>
+              <p className="font-medium text-blue-600">
+                {cv.contact_info?.email || cv.structured_info?.contact_info?.email || 'not provided'}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Phone</p>
+              <p className="font-medium text-blue-600">
+                {cv.contact_info?.phone || cv.structured_info?.contact_info?.phone || 'not provided'}
+              </p>
+            </div>
+          </div>
+        </div>
+        
+       
+      </div>
+      
+      {/* Skills */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">Skills</h3>
+          <Badge className="ml-2">{b.skillsCount}</Badge>
+        </div>
+        {(cv.skills || cv.candidate?.skills)?.length ? (
+          <ul className="space-y-2">
+            {(cv.skills || cv.candidate?.skills).map((skill: string, i: number) => (
+              <li key={i} className="text-gray-700">{skill}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-500">No skills information available</p>
+        )}
+      </div>
+      
+      {/* Responsibilities */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">Responsibilities</h3>
+          <Badge className="ml-2">{b.respCount}</Badge>
+        </div>
+        {(cv.responsibilities || cv.candidate?.responsibilities)?.length ? (
+          <ul className="space-y-2">
+            {(cv.responsibilities || cv.candidate?.responsibilities).map((resp: string, i: number) => (
+              <li key={i} className="text-gray-700">{resp}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-500">No responsibilities information available</p>
+        )}
+      </div>
+      
+      {/* Text Preview */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Text Preview</h3>
+        <div className="bg-gray-50 p-3 rounded max-h-40 overflow-y-auto">
+          <p className="text-sm text-gray-700 whitespace-pre-line">
+            {cv.text_info?.extracted_text_preview || cv.extracted_text_preview || 'No text preview available'}
+          </p>
+        </div>
+        <div className="mt-2 text-sm text-gray-500">
+          Text length: {cv.text_info?.extracted_text_length || cv.extracted_text_length || 0} characters
         </div>
       </div>
-
-      {/* Job Descriptions Section */}
-      {(documentType === 'all' || documentType === 'jd') && (
-        <div className="space-y-4">
-          <div className="flex items-center space-x-3">
-            <div 
-              className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: 'var(--green-50)' }}
-            >
-              <FileText className="w-4 h-4" style={{ color: 'var(--green-600)' }} />
-            </div>
-            <h3 className="heading-sm">Job Descriptions ({filteredJDs.length})</h3>
+      
+      {/* Processing / Embeddings */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <h3 className="text-lg font-semibold mb-3">Embeddings Information</h3>
+          <div className="space-y-2">
+            <Row label="Skills Embeddings" value={cv.embeddings_info?.skills_embeddings || cv.skills_embeddings || 0} />
+            <Row label="Responsibilities Embeddings" value={cv.embeddings_info?.responsibilities_embeddings || cv.responsibilities_embeddings || 0} />
+            <Row label="Title Embedding" value={(cv.embeddings_info?.has_title_embedding || cv.has_title_embedding) ? 'Yes' : 'No'} />
+            <Row label="Experience Embedding" value={(cv.embeddings_info?.has_experience_embedding || cv.has_experience_embedding) ? 'Yes' : 'No'} />
+            <Row label="Embedding Dimension" value={cv.embeddings_info?.embedding_dimension || cv.embedding_dimension || 'N/A'} />
           </div>
+        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <h3 className="text-lg font-semibold mb-3">Processing Information</h3>
+          <div className="space-y-2">
+            <Row label="Filename" value={cv.processing_metadata?.filename || cv.filename || 'N/A'} mono />
+            <Row label="Model Used" value={cv.processing_metadata?.model_used || cv.model_used || 'N/A'} />
+            <Row
+              label="Processing Time"
+              value={
+                cv.processing_metadata?.processing_time || cv.processing_time
+                  ? `${(
+                      (cv.processing_metadata?.processing_time ??
+                        cv.processing_time) as number
+                    ).toFixed(2)}s`
+                  : 'N/A'
+              }
+            />
+            <Row label="Text Length" value={cv.processing_metadata?.text_length || cv.text_length || 0} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredJDs.map((jd) => (
-              <div 
-                key={jd.id}
-                className={`card transition-all duration-200 cursor-pointer ${
-                  selectedJD === jd.id ? 'ring-2 ring-blue-500' : ''
-                }`}
-                style={{
-                  borderColor: selectedJD === jd.id ? 'var(--primary-300)' : 'var(--gray-200)',
-                }}
-                onClick={() => handleJDSelect(jd.id)}
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <div 
-                      className="w-10 h-10 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: 'var(--green-50)' }}
-                    >
-                      <FileText className="w-5 h-5" style={{ color: 'var(--green-600)' }} />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-semibold" style={{ color: 'var(--gray-900)' }}>
-                        {jd.job_title || 'Untitled Position'}
-                      </h4>
-                      <p className="text-sm" style={{ color: 'var(--gray-500)' }}>
-                        {jd.years_of_experience} years required
-                      </p>
-                    </div>
-                  </div>
-                  {selectedJD === jd.id ? (
-                    <CheckSquare className="w-5 h-5" style={{ color: 'var(--primary-600)' }} />
-                  ) : (
-                    <Square className="w-5 h-5" style={{ color: 'var(--gray-400)' }} />
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-xs font-medium mb-2" style={{ color: 'var(--gray-600)' }}>
-                      KEY SKILLS ({jd.skills?.length || 0})
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      {jd.skills?.slice(0, 4).map((skill, index) => (
-                        <span 
-                          key={index}
-                          className="px-2 py-1 rounded text-xs"
-                          style={{ 
-                            backgroundColor: 'var(--green-50)', 
-                            color: 'var(--green-700)' 
-                          }}
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                      {(jd.skills?.length || 0) > 4 && (
-                        <span className="text-xs" style={{ color: 'var(--gray-500)' }}>
-                          +{(jd.skills?.length || 0) - 4} more
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-medium mb-2" style={{ color: 'var(--gray-600)' }}>
-                      DOCUMENT INFO
-                    </p>
-                    <div className="space-y-1">
-                      <p className="text-xs" style={{ color: 'var(--gray-600)' }}>
-                        • File: {jd.filename}
-                      </p>
-                      <p className="text-xs" style={{ color: 'var(--gray-600)' }}>
-                        • Text length: {jd.text_length} chars
-                      </p>
-                      <p className="text-xs" style={{ color: 'var(--gray-600)' }}>
-                        • Skills required: {jd.skills_count}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--gray-200)' }}>
-                    <div className="flex items-center space-x-2">
-                      <Calendar className="w-3 h-3" style={{ color: 'var(--gray-400)' }} />
-                      <span className="text-xs" style={{ color: 'var(--gray-500)' }}>
-                        {new Date(jd.upload_date).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsModalOpen(true);
-                      }}
-                      className="text-xs p-1 rounded"
-                      style={{ color: 'var(--primary-600)' }}
-                    >
-                      <Eye className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-              </div>
+/* ---------------------------- JD Details (modal) --------------------------- */
+function JDDetails({ jdId }: { jdId: string }) {
+  const [jd, setJD] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showJSON, setShowJSON] = useState(false);
+  
+  useEffect(() => {
+    const loadJD = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await api.getJDDetails(jdId);
+        // accept several shapes
+        const jdData = response.jd || response.data || response.job_description || response;
+        setJD(jdData);
+      } catch (err: any) {
+        setError(err.message || 'Failed to load JD details');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadJD();
+  }, [jdId]);
+  
+  if (loading) return <div className="flex items-center justify-center py-8">Loading JD details...</div>;
+  if (error)
+    return (
+      <div className="text-center py-8">
+        <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
+        <h3 className="text-lg font-medium text-red-900 mb-2">Error Loading Job Description</h3>
+        <p className="text-red-500 mb-4">{error}</p>
+      </div>
+    );
+  if (!jd) return <div className="text-center py-8">Job Description not found</div>;
+  
+  const b = getJDBasics(jd);
+  
+  return (
+    <div className="space-y-4">
+    {/* Job Info */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Job Information</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Row label="Job Title" value={b.title} />
+          <Row label="Experience Required" value={`${b.years} years`} />
+          <Row label="Upload Date" value={formatDate(jd.upload_date)} />
+          <Row label="Document Type" value={jd.document_type || 'jd'} />
+        </div>
+      </div>
+      
+      {/* Required Skills */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">Required Skills</h3>
+          <Badge className="ml-2">{b.skillsCount}</Badge>
+        </div>
+        {b.skillsCount > 0 ? (
+          <ul className="space-y-2">
+            {b.skills.map((s: string, i: number) => (
+              <li key={i} className="text-gray-700">{s}</li>
             ))}
-          </div>
-
-          {filteredJDs.length === 0 && (
-            <div className="text-center py-12">
-              <div 
-                className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-                style={{ backgroundColor: 'var(--gray-100)' }}
-              >
-                <FileText className="w-8 h-8" style={{ color: 'var(--gray-400)' }} />
-              </div>
-              <h3 className="heading-sm mb-2" style={{ color: 'var(--gray-700)' }}>
-                No job descriptions found
-              </h3>
-              <p className="text-sm" style={{ color: 'var(--gray-500)' }}>
-                Upload some job descriptions to get started with matching
-              </p>
-              <button
-                onClick={() => setCurrentTab('upload')}
-                className="btn-primary mt-4"
-              >
-                <Plus className="w-4 h-4" />
-                Upload JDs
-              </button>
-            </div>
-          )}
+          </ul>
+        ) : (
+          <p className="text-gray-500">No skills information available</p>
+        )}
+      </div>
+      
+      {/* Responsibilities */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">Responsibilities</h3>
+          <Badge className="ml-2">{b.responsibilitiesCount}</Badge>
         </div>
-      )}
-
-      {/* CVs Section */}
-      {(documentType === 'all' || documentType === 'cv') && (
-        <div className="space-y-4">
-          <div className="flex items-center space-x-3">
-            <div 
-              className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: 'var(--primary-50)' }}
-            >
-              <Users className="w-4 h-4" style={{ color: 'var(--primary-600)' }} />
-            </div>
-            <h3 className="heading-sm">Candidate CVs ({filteredCVs.length})</h3>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredCVs.map((cv) => (
-              <div 
-                key={cv.id}
-                className={`card transition-all duration-200 cursor-pointer ${
-                  selectedCVs.includes(cv.id) ? 'ring-2 ring-blue-500' : ''
-                }`}
-                style={{
-                  borderColor: selectedCVs.includes(cv.id) ? 'var(--primary-300)' : 'var(--gray-200)',
-                }}
-                onClick={() => handleCVToggle(cv.id)}
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <div 
-                      className="w-10 h-10 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: 'var(--primary-50)' }}
-                    >
-                      <Users className="w-5 h-5" style={{ color: 'var(--primary-600)' }} />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-semibold" style={{ color: 'var(--gray-900)' }}>
-                        {cv.full_name || 'Unknown Candidate'}
-                      </h4>
-                      <p className="text-sm" style={{ color: 'var(--gray-500)' }}>
-                        {cv.job_title || 'No title'} • {cv.years_of_experience} years
-                      </p>
-                    </div>
-                  </div>
-                  {selectedCVs.includes(cv.id) ? (
-                    <CheckSquare className="w-5 h-5" style={{ color: 'var(--primary-600)' }} />
-                  ) : (
-                    <Square className="w-5 h-5" style={{ color: 'var(--gray-400)' }} />
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-xs font-medium mb-2" style={{ color: 'var(--gray-600)' }}>
-                      SKILLS ({cv.skills_count || 0})
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      {cv.skills?.slice(0, 4).map((skill, index) => (
-                        <span 
-                          key={index}
-                          className="px-2 py-1 rounded text-xs"
-                          style={{ 
-                            backgroundColor: 'var(--primary-50)', 
-                            color: 'var(--primary-700)' 
-                          }}
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                      {(cv.skills?.length || 0) > 4 && (
-                        <span className="text-xs" style={{ color: 'var(--gray-500)' }}>
-                          +{(cv.skills?.length || 0) - 4} more
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-medium mb-2" style={{ color: 'var(--gray-600)' }}>
-                      DOCUMENT INFO
-                    </p>
-                    <div className="space-y-1">
-                      <p className="text-xs" style={{ color: 'var(--gray-600)' }}>
-                        • File: {cv.filename}
-                      </p>
-                      <p className="text-xs" style={{ color: 'var(--gray-600)' }}>
-                        • Text length: {cv.text_length} chars
-                      </p>
-                      <p className="text-xs" style={{ color: 'var(--gray-600)' }}>
-                        • Structured data: {cv.has_structured_data ? 'Yes' : 'No'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--gray-200)' }}>
-                    <div className="flex items-center space-x-2">
-                      <Calendar className="w-3 h-3" style={{ color: 'var(--gray-400)' }} />
-                      <span className="text-xs" style={{ color: 'var(--gray-500)' }}>
-                        {new Date(cv.upload_date).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsModalOpen(true);
-                      }}
-                      className="text-xs p-1 rounded"
-                      style={{ color: 'var(--primary-600)' }}
-                    >
-                      <Eye className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-              </div>
+        {b.responsibilitiesCount > 0 ? (
+          <ul className="space-y-2">
+            {b.responsibilities.map((r: string, i: number) => (
+              <li key={i} className="text-gray-700">{r}</li>
             ))}
-          </div>
-
-          {filteredCVs.length === 0 && (
-            <div className="text-center py-12">
-              <div 
-                className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-                style={{ backgroundColor: 'var(--gray-100)' }}
-              >
-                <Users className="w-8 h-8" style={{ color: 'var(--gray-400)' }} />
-              </div>
-              <h3 className="heading-sm mb-2" style={{ color: 'var(--gray-700)' }}>
-                No CVs found
-              </h3>
-              <p className="text-sm" style={{ color: 'var(--gray-500)' }}>
-                Upload some candidate CVs to get started with matching
-              </p>
-              <button
-                onClick={() => setCurrentTab('upload')}
-                className="btn-primary mt-4"
-              >
-                <Plus className="w-4 h-4" />
-                Upload CVs
-              </button>
-            </div>
-          )}
+          </ul>
+        ) : (
+          <p className="text-gray-500">No responsibilities information available</p>
+        )}
+      </div>
+      
+      {/* Text Preview */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Text Preview</h3>
+        <div className="bg-gray-50 p-3 rounded max-h-40 overflow-y-auto">
+          <p className="text-sm text-gray-700 whitespace-pre-line">
+            {jd.text_info?.extracted_text_preview || jd.extracted_text_preview || 'No text preview available'}
+          </p>
         </div>
-      )}
-
-      {/* Start Analysis Panel */}
-      {matchReady && (
-        <div className="card-elevated">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div 
-                className="w-12 h-12 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: 'var(--green-50)' }}
-              >
-                <Target className="w-6 h-6" style={{ color: 'var(--green-600)' }} />
-              </div>
-              <div>
-                <h3 className="heading-sm" style={{ color: 'var(--gray-900)' }}>
-                  Ready to Start AI Matching!
-                </h3>
-                <p className="text-base" style={{ color: 'var(--gray-600)' }}>
-                  {selectedCVs.length} candidate{selectedCVs.length !== 1 ? 's' : ''} selected for {selectedJD ? '1 position' : 'matching'}
-                </p>
-                <p className="text-sm mt-1" style={{ color: 'var(--gray-500)' }}>
-                  Our AI will analyze skills, experience, and responsibilities to find the best matches
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={clearSelections}
-                className="btn-outline"
-              >
-                Clear Selection
-              </button>
-              <button
-                onClick={handleStartMatching}
-                disabled={loadingStates.matching?.isLoading}
-                className="btn-primary"
-              >
-                {loadingStates.matching?.isLoading ? (
-                  <>
-                    <Clock className="w-4 h-4 animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Target className="w-4 h-4" />
-                    Start AI Analysis
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </div>
+        <div className="mt-2 text-sm text-gray-500">
+          Text length: {jd.text_info?.extracted_text_length || jd.extracted_text_length || 0} characters
+        </div>
+      </div>
+      
+      {/* Processing / Embeddings */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <h3 className="text-lg font-semibold mb-3">Embeddings Information</h3>
+          <div className="space-y-2">
+            <Row label="Skills Embeddings" value={jd.embeddings_info?.skills_embeddings || jd.skills_embeddings || 0} />
+            <Row
+              label="Responsibilities Embeddings"
+              value={jd.embeddings_info?.responsibilities_embeddings || jd.responsibilities_embeddings || 0}
+            />
+            <Row
+              label="Title Embedding"
+              value={(jd.embeddings_info?.has_title_embedding || jd.has_title_embedding) ? 'Yes' : 'No'}
+            />
+            <Row
+              label="Experience Embedding"
+              value={(jd.embeddings_info?.has_experience_embedding || jd.has_experience_embedding) ? 'Yes' : 'No'}
+            />
+            <Row label="Embedding Dimension" value={jd.embeddings_info?.embedding_dimension || jd.embedding_dimension || 'N/A'} />
           </div>
         </div>
-      )}
+        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <h3 className="text-lg font-semibold mb-3">Processing Information</h3>
+          <div className="space-y-2">
+            <Row label="Filename" value={jd.processing_metadata?.filename || jd.filename || 'N/A'} mono />
+            <Row label="Model Used" value={jd.processing_metadata?.model_used || jd.model_used || 'N/A'} />
+            <Row
+              label="Processing Time"
+              value={
+                jd.processing_metadata?.processing_time || jd.processing_time
+                  ? `${(
+                      (jd.processing_metadata?.processing_time ??
+                        jd.processing_time) as number
+                    ).toFixed(2)}s`
+                  : 'N/A'
+              }
+            />
+            <Row label="Text Length" value={jd.processing_metadata?.text_length || jd.text_length || 0} />
+          </div>
+        </div>
+      </div>
+      
+      {/* Optional: collapsible raw JSON for debugging */}
+      <div className="mt-2">
+        <button
+          className="inline-flex items-center text-xs text-gray-500 hover:text-gray-700"
+          onClick={() => setShowJSON((s) => !s)}
+        >
+          <ChevronDown className={`w-4 h-4 mr-1 transition-transform ${showJSON ? 'rotate-180' : ''}`} />
+          {showJSON ? 'Hide raw JSON' : 'Show raw JSON'}
+        </button>
+        {showJSON && (
+          <pre className="mt-2 text-xs bg-gray-50 p-3 rounded border max-h-60 overflow-auto">
+            {JSON.stringify(jd, null, 2)}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
 
-      <DatabaseViewerModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-      />
+/* --------------------------------- Helpers -------------------------------- */
+function Row({ label, value, mono = false }: { label: string; value: any; mono?: boolean }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-gray-600">{label}:</span>
+      <span className={`font-medium ${mono ? 'font-mono text-xs truncate max-w-[220px]' : ''}`}>
+        {String(value ?? 'N/A')}
+      </span>
     </div>
   );
 }

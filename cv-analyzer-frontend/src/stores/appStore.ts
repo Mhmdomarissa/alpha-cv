@@ -7,6 +7,8 @@ import {
   JDListItem,
   HealthResponse,
   MatchRequest,
+  SystemStatsResponse,
+  DatabaseViewResponse
 } from '@/lib/types';
 import { api } from '@/lib/api';
 import { logger } from '@/lib/logger';
@@ -32,6 +34,8 @@ interface AppState {
   
   // Health
   systemHealth: HealthResponse | null;
+  systemStats: SystemStatsResponse | null;
+  databaseView: DatabaseViewResponse | null;
   
   // Loading states
   loadingStates: {
@@ -40,6 +44,8 @@ interface AppState {
     upload: LoadingState;
     matching: LoadingState;
     health: LoadingState;
+    stats: LoadingState;
+    database: LoadingState;
   };
   
   // Actions
@@ -51,12 +57,16 @@ interface AppState {
   deselectCV: (cvId: string) => void;
   selectAllCVs: () => void;
   deselectAllCVs: () => void;
-  uploadCVs: (files: File[]) => Promise<void>;
+  uploadCV: (file: File) => Promise<void>;
+  deleteCV: (cvId: string) => Promise<void>;
+  reprocessCV: (cvId: string) => Promise<void>;
   
   // JD actions
   loadJDs: () => Promise<void>;
   selectJD: (jdId: string | null) => void;
   uploadJD: (file: File) => Promise<void>;
+  deleteJD: (jdId: string) => Promise<void>;
+  reprocessJD: (jdId: string) => Promise<void>;
   
   // Matching actions
   setMatchWeights: (weights: Partial<MatchWeights>) => void;
@@ -65,6 +75,9 @@ interface AppState {
   
   // System actions
   loadSystemHealth: () => Promise<void>;
+  loadSystemStats: () => Promise<void>;
+  loadDatabaseView: () => Promise<void>;
+  clearDatabase: () => Promise<void>;
   
   // Utility actions
   setLoading: (operation: keyof AppState['loadingStates'], loading: boolean, error?: string) => void;
@@ -90,6 +103,8 @@ export const useAppStore = create<AppState>()(
       matchWeights: defaultWeights,
       matchResult: null,
       systemHealth: null,
+      systemStats: null,
+      databaseView: null,
       
       loadingStates: {
         cvs: { isLoading: false, error: null },
@@ -97,8 +112,10 @@ export const useAppStore = create<AppState>()(
         upload: { isLoading: false, error: null },
         matching: { isLoading: false, error: null },
         health: { isLoading: false, error: null },
+        stats: { isLoading: false, error: null },
+        database: { isLoading: false, error: null },
       },
-
+      
       // Actions
       setCurrentTab: (tab) => {
         set({ currentTab: tab });
@@ -110,9 +127,11 @@ export const useAppStore = create<AppState>()(
           state.loadJDs();
         } else if (tab === 'system' && !state.systemHealth) {
           state.loadSystemHealth();
+          state.loadSystemStats();
+          state.loadDatabaseView();
         }
       },
-
+      
       // CV actions
       loadCVs: async () => {
         const { setLoading } = get();
@@ -129,7 +148,7 @@ export const useAppStore = create<AppState>()(
           setLoading('cvs', false, error.message);
         }
       },
-
+      
       selectCV: (cvId) => {
         set((state) => ({
           selectedCVs: state.selectedCVs.includes(cvId)
@@ -137,40 +156,76 @@ export const useAppStore = create<AppState>()(
             : [...state.selectedCVs, cvId],
         }));
       },
-
+      
       deselectCV: (cvId) => {
         set((state) => ({
           selectedCVs: state.selectedCVs.filter(id => id !== cvId),
         }));
       },
-
+      
       selectAllCVs: () => {
         const { cvs } = get();
         set({ selectedCVs: cvs.map(cv => cv.id) });
       },
-
+      
       deselectAllCVs: () => {
         set({ selectedCVs: [] });
       },
-
-      uploadCVs: async (files) => {
+      
+      uploadCV: async (file) => {
         const { setLoading, loadCVs } = get();
         setLoading('upload', true);
         
         try {
-          logger.info(`Uploading ${files.length} CV files`);
-          await api.uploadCV(files);
+          logger.info(`Uploading CV file: ${file.name}`);
+          await api.uploadCV(file);
           
           // Reload CVs after successful upload
           await loadCVs();
           setLoading('upload', false);
           logger.info('CV upload completed successfully');
         } catch (error: any) {
-          logger.error('Failed to upload CVs', error);
+          logger.error('Failed to upload CV', error);
           setLoading('upload', false, error.message);
         }
       },
-
+      
+      deleteCV: async (cvId) => {
+        const { setLoading, loadCVs } = get();
+        setLoading('upload', true);
+        
+        try {
+          logger.info(`Deleting CV: ${cvId}`);
+          await api.deleteCV(cvId);
+          
+          // Reload CVs after successful deletion
+          await loadCVs();
+          setLoading('upload', false);
+          logger.info('CV deletion completed successfully');
+        } catch (error: any) {
+          logger.error('Failed to delete CV', error);
+          setLoading('upload', false, error.message);
+        }
+      },
+      
+      reprocessCV: async (cvId) => {
+        const { setLoading, loadCVs } = get();
+        setLoading('upload', true);
+        
+        try {
+          logger.info(`Reprocessing CV: ${cvId}`);
+          await api.reprocessCV(cvId);
+          
+          // Reload CVs after successful reprocessing
+          await loadCVs();
+          setLoading('upload', false);
+          logger.info('CV reprocessing completed successfully');
+        } catch (error: any) {
+          logger.error('Failed to reprocess CV', error);
+          setLoading('upload', false, error.message);
+        }
+      },
+      
       // JD actions
       loadJDs: async () => {
         const { setLoading } = get();
@@ -187,17 +242,17 @@ export const useAppStore = create<AppState>()(
           setLoading('jds', false, error.message);
         }
       },
-
+      
       selectJD: (jdId) => {
         set({ selectedJD: jdId });
       },
-
+      
       uploadJD: async (file) => {
         const { setLoading, loadJDs } = get();
         setLoading('upload', true);
         
         try {
-          logger.info('Uploading JD file', { filename: file.name });
+          logger.info(`Uploading JD file: ${file.name}`);
           await api.uploadJD(file);
           
           // Reload JDs after successful upload
@@ -209,14 +264,50 @@ export const useAppStore = create<AppState>()(
           setLoading('upload', false, error.message);
         }
       },
-
+      
+      deleteJD: async (jdId) => {
+        const { setLoading, loadJDs } = get();
+        setLoading('upload', true);
+        
+        try {
+          logger.info(`Deleting JD: ${jdId}`);
+          await api.deleteJD(jdId);
+          
+          // Reload JDs after successful deletion
+          await loadJDs();
+          setLoading('upload', false);
+          logger.info('JD deletion completed successfully');
+        } catch (error: any) {
+          logger.error('Failed to delete JD', error);
+          setLoading('upload', false, error.message);
+        }
+      },
+      
+      reprocessJD: async (jdId) => {
+        const { setLoading, loadJDs } = get();
+        setLoading('upload', true);
+        
+        try {
+          logger.info(`Reprocessing JD: ${jdId}`);
+          await api.reprocessJD(jdId);
+          
+          // Reload JDs after successful reprocessing
+          await loadJDs();
+          setLoading('upload', false);
+          logger.info('JD reprocessing completed successfully');
+        } catch (error: any) {
+          logger.error('Failed to reprocess JD', error);
+          setLoading('upload', false, error.message);
+        }
+      },
+      
       // Matching actions
       setMatchWeights: (weights) => {
         set((state) => ({
           matchWeights: { ...state.matchWeights, ...weights },
         }));
       },
-
+      
       runMatch: async (request = {}) => {
         const { setLoading, selectedJD, selectedCVs, matchWeights } = get();
         setLoading('matching', true);
@@ -225,7 +316,7 @@ export const useAppStore = create<AppState>()(
           if (!selectedJD && !request.jd_text) {
             throw new Error('Please select a job description first');
           }
-
+          
           const matchRequest: MatchRequest = {
             jd_id: selectedJD || undefined,
             cv_ids: selectedCVs.length > 0 ? selectedCVs : undefined,
@@ -233,7 +324,7 @@ export const useAppStore = create<AppState>()(
             top_alternatives: 3,
             ...request,
           };
-
+          
           logger.info('Starting candidate matching', matchRequest);
           const result = await api.matchCandidates(matchRequest);
           
@@ -245,11 +336,11 @@ export const useAppStore = create<AppState>()(
           setLoading('matching', false, error.message);
         }
       },
-
+      
       clearMatchResult: () => {
         set({ matchResult: null });
       },
-
+      
       // System actions
       loadSystemHealth: async () => {
         const { setLoading } = get();
@@ -266,7 +357,61 @@ export const useAppStore = create<AppState>()(
           setLoading('health', false, error.message);
         }
       },
-
+      
+      loadSystemStats: async () => {
+        const { setLoading } = get();
+        setLoading('stats', true);
+        
+        try {
+          logger.info('Loading system stats');
+          const stats = await api.getSystemStats();
+          set({ systemStats: stats });
+          setLoading('stats', false);
+          logger.info('System stats loaded');
+        } catch (error: any) {
+          logger.error('Failed to load system stats', error);
+          setLoading('stats', false, error.message);
+        }
+      },
+      
+      loadDatabaseView: async () => {
+        const { setLoading } = get();
+        setLoading('database', true);
+        
+        try {
+          logger.info('Loading database view');
+          const view = await api.getDatabaseView();
+          set({ databaseView: view });
+          setLoading('database', false);
+          logger.info('Database view loaded');
+        } catch (error: any) {
+          logger.error('Failed to load database view', error);
+          setLoading('database', false, error.message);
+        }
+      },
+      
+      clearDatabase: async () => {
+        const { setLoading } = get();
+        setLoading('database', true);
+        
+        try {
+          logger.info('Clearing database');
+          await api.clearDatabase(true);
+          
+          // Reload data
+          const state = get();
+          state.loadCVs();
+          state.loadJDs();
+          state.loadDatabaseView();
+          
+          setLoading('database', false);
+          logger.info('Database cleared successfully');
+        } catch (error: any) {
+          logger.error('Failed to clear database', error);
+          setLoading('database', false, error.message);
+        }
+      },
+      
       // Utility actions
       setLoading: (operation, loading, error) => {
         set((state) => ({
@@ -276,7 +421,7 @@ export const useAppStore = create<AppState>()(
           },
         }));
       },
-
+      
       clearError: (operation) => {
         set((state) => ({
           loadingStates: {

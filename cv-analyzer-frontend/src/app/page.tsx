@@ -1,5 +1,4 @@
 'use client';
-
 import { useEffect } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import AppLayoutNew from '@/components/layout/AppLayoutNew';
@@ -56,7 +55,6 @@ export default function HomePage() {
             )
           ))}
         </div>
-
         {/* Dynamic Tab Content */}
         <div className="animate-fade-in">
           {renderTabContent()}
