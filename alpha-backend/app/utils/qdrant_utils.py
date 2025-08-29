@@ -28,7 +28,7 @@ class QdrantUtils:
     - cv_embeddings / jd_embeddings     : EXACT 32 vectors per doc (20 skills, 10 resp, 1 title, 1 experience)
     """
 
-    def _init_(self, host: str = "qdrant", port: int = 6333):
+    def __init__(self, host: str = "qdrant", port: int = 6333):
         self.host = host
         self.port = port
         self.client = QdrantClient(host=host, port=port)

@@ -79,7 +79,7 @@ class MatchingService:
     # Final presentation weights (percent-based inputs later scaled to 0..1 here)
     SCORING_WEIGHTS = {"skills": 0.80, "responsibilities": 0.15, "title": 0.025, "experience": 0.025}
 
-    def _init_(self):
+    def __init__(self):
         self.embedding_service = get_embedding_service()
         self.qdrant = get_qdrant_utils()
         logger.info("🎯 MatchingService initialized (uses *_structured & *_embeddings)")
