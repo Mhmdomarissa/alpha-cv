@@ -172,8 +172,8 @@ export default function SystemPanel() {
       status: systemHealth?.services?.embedding?.status === 'ok' ? 'healthy' : 'error',
       message: systemHealth?.services?.embedding?.message || 'Embedding generation service',
       metrics: {
-        model: systemHealth?.system_info?.embedding_model || 'unknown',
-        dimension: systemHealth?.system_info?.embedding_dimension || 0
+        model: systemStats?.stats?.system_info?.embedding_model || 'unknown',
+        dimension: systemStats?.stats?.system_info?.embedding_dimension || 0
       }
     },
     {
@@ -447,7 +447,7 @@ export default function SystemPanel() {
             <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
               <DialogTrigger asChild>
                 <Button
-                  variant="destructive"
+                  variant="error"
                   className="w-full"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
@@ -469,7 +469,7 @@ export default function SystemPanel() {
                       Cancel
                     </Button>
                     <Button
-                      variant="destructive"
+                      variant="error"
                       onClick={handleClearDatabase}
                       disabled={isClearing}
                     >

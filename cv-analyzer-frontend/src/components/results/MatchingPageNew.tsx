@@ -22,6 +22,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/stores/appStore';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button-enhanced';
+import { MatchWeights } from '@/lib/types';
 
 type SortKey = 'score' | 'skills' | 'experience';
 
@@ -36,7 +37,7 @@ const DEFAULT_WEIGHTS = {
 const uuidLike = (s?: string) =>
   !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 
-function normalizeWeights(w: Record<string, number>) {
+function normalizeWeights(w: MatchWeights) {
   const keys = ['skills', 'responsibilities', 'job_title', 'experience'] as const;
   const sum = keys.reduce((s, k) => s + (w?.[k] ?? 0), 0);
   if (!sum || sum <= 0) return { ...DEFAULT_WEIGHTS };
@@ -234,7 +235,7 @@ export default function MatchingPageNew() {
   const fadeInUp = {
     initial: { opacity: 0, y: 8 },
     animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.25, ease: 'easeOut' },
+    transition: { duration: 0.25, ease: "easeOut" as const },
   };
   
   return (
@@ -748,9 +749,9 @@ export default function MatchingPageNew() {
                                     return (
                                       <div key={idx} className="p-3 rounded-lg border border-gray-200 bg-white">
                                         <div className="text-sm text-gray-900">
-                                          Required: <span className="font-medium">{a.jd_item}</span>
+                                          JD Required: <span className="font-medium">{a.jd_item}</span>
                                         </div>
-                                        <div className="text-sm text-gray-700">Candidate has: {a.cv_item}</div>
+                                        <div className="text-sm text-gray-700">CV has: {a.cv_item}</div>
                                         <div className="flex items-center gap-2 mt-2">
                                           <div className="flex-1 bg-gray-200 rounded-full h-2">
                                             <div className={`h-2 rounded-full ${barColor(s)}`} style={{ width: `${s * 100}%` }} />
@@ -801,9 +802,9 @@ export default function MatchingPageNew() {
                                     return (
                                       <div key={idx} className="p-3 rounded-lg border border-gray-200 bg-white">
                                         <div className="text-sm text-gray-900">
-                                          Required: <span className="font-medium">{a.jd_item}</span>
+                                          JD Required: <span className="font-medium">{a.jd_item}</span>
                                         </div>
-                                        <div className="text-sm text-gray-700">Experience: {a.cv_item}</div>
+                                        <div className="text-sm text-gray-700">CV has: {a.cv_item}</div>
                                         <div className="flex items-center gap-2 mt-2">
                                           <div className="flex-1 bg-gray-200 rounded-full h-2">
                                             <div className={`h-2 rounded-full ${barColor(s)}`} style={{ width: `${s * 100}%` }} />

@@ -58,6 +58,7 @@ interface AppState {
   selectAllCVs: () => void;
   deselectAllCVs: () => void;
   uploadCV: (file: File) => Promise<void>;
+  uploadCVs: (files: File[]) => Promise<void>;
   deleteCV: (cvId: string) => Promise<void>;
   reprocessCV: (cvId: string) => Promise<void>;
   
@@ -186,6 +187,26 @@ export const useAppStore = create<AppState>()(
           logger.info('CV upload completed successfully');
         } catch (error: any) {
           logger.error('Failed to upload CV', error);
+          setLoading('upload', false, error.message);
+        }
+      },
+      
+      uploadCVs: async (files) => {
+        const { setLoading, loadCVs } = get();
+        setLoading('upload', true);
+        
+        try {
+          logger.info(`Uploading ${files.length} CV files`);
+          for (const file of files) {
+            await api.uploadCV(file);
+          }
+          
+          // Reload CVs after successful upload
+          await loadCVs();
+          setLoading('upload', false);
+          logger.info('CV uploads completed successfully');
+        } catch (error: any) {
+          logger.error('Failed to upload CVs', error);
           setLoading('upload', false, error.message);
         }
       },

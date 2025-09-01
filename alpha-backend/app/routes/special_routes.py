@@ -684,7 +684,7 @@ async def get_system_stats() -> JSONResponse:
             "system_info": {
                 "embedding_model": "all-mpnet-base-v2",
                 "embedding_dimension": 768,
-                "llm_model": "gpt-4o-mini",
+                "llm_model": "gpt-4.1-mini",
                 "similarity_metric": "cosine",
             },
         }

@@ -1,60 +1,61 @@
 'use client';
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { 
-  Upload, 
-  FileText, 
-  Users, 
-  CheckCircle, 
-  Clock, 
+import {
+  Upload,
+  FileText,
+  Users,
+  CheckCircle,
+  Clock,
   AlertCircle,
   X,
+  Loader,
+  Play,
   Eye,
-  Download,
   ArrowRight,
-  Loader
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
-
-interface FilePreview {
-  file: File;
-  id: string;
-  status: 'pending' | 'processing' | 'completed' | 'error';
-  extractedData?: {
-    name?: string;
-    jobTitle?: string;
-    years?: string;
-    skills?: string[];
-    responsibilities?: string[];
-  };
-  error?: string;
-}
-
+import { useUploadQueue } from '@/stores/uploadQueue';
+import { api } from '@/lib/api';
+/**
+ * UploadPageNew
+ * - Uses a persisted Zustand queue (useUploadQueue) so items don't "disappear" on navigation.
+ * - Processes JD files first, then CV files.
+ * - After successful uploads, refreshes DB lists and enables "Start Matching".
+ */
 export default function UploadPageNew() {
-  const { 
-    uploadCV, 
-    uploadJD, 
-    loadingStates, 
+  const {
+    loadingStates,
     setCurrentTab,
     loadCVs,
-    loadJDs
+    loadJDs,
+    cvs,
+    jds,
+    selectedCVs,
+    selectedJD,
+    selectAllCVs,
+    selectJD,
+    selectCV,
+    runMatch,
+    deselectAllCVs,
   } = useAppStore();
-  
-  const [cvFiles, setCVFiles] = useState<FilePreview[]>([]);
-  const [jdFiles, setJDFiles] = useState<FilePreview[]>([]);
-  
-  const isProcessing = loadingStates.upload.isLoading;
-  
-  // CV Drop Zone
-  const onCVDrop = useCallback((acceptedFiles: File[]) => {
-    const newFiles = acceptedFiles.map(file => ({
-      file,
-      id: Math.random().toString(36).substr(2, 9),
-      status: 'pending' as const,
-    }));
-    setCVFiles(prev => [...prev, ...newFiles]);
-  }, []);
-  
+  const { items, addMany, update, remove, clearAll } = useUploadQueue();
+  const isUploading = loadingStates.upload.isLoading;
+  // Split queue by kind
+  const cvItems = useMemo(() => items.filter((i) => i.kind === 'cv'), [items]);
+  const jdItems = useMemo(() => items.filter((i) => i.kind === 'jd'), [items]);
+  // Counts
+  const totalFiles = items.length;
+  const completedCVs = cvItems.filter((f) => f.status === 'completed').length;
+  const completedJDs = jdItems.filter((f) => f.status === 'completed').length;
+  const completedFiles = completedCVs + completedJDs;
+  // DB availability vs local completion (to enable next step)
+  const hasDBData = (cvs?.length ?? 0) > 0 && (jds?.length ?? 0) > 0;
+  const hasLocalCompletedBoth = completedCVs > 0 && completedJDs > 0;
+  const canContinue = hasDBData || hasLocalCompletedBoth;
+  /* --------------------------------- Dropzones --------------------------------- */
+  const onCVDrop = useCallback((accepted: File[]) => addMany('cv', accepted), [addMany]);
+  const onJDDrop = useCallback((accepted: File[]) => addMany('jd', accepted), [addMany]);
   const {
     getRootProps: getCVRootProps,
     getInputProps: getCVInputProps,
@@ -70,19 +71,8 @@ export default function UploadPageNew() {
       'image/*': ['.png', '.jpg', '.jpeg', '.tiff', '.bmp'],
     },
     maxFiles: 10,
-    maxSize: 10 * 1024 * 1024, // 10MB
+    maxSize: 10 * 1024 * 1024,
   });
-  
-  // JD Drop Zone
-  const onJDDrop = useCallback((acceptedFiles: File[]) => {
-    const newFiles = acceptedFiles.map(file => ({
-      file,
-      id: Math.random().toString(36).substr(2, 9),
-      status: 'pending' as const,
-    }));
-    setJDFiles(prev => [...prev, ...newFiles]);
-  }, []);
-  
   const {
     getRootProps: getJDRootProps,
     getInputProps: getJDInputProps,
@@ -98,103 +88,234 @@ export default function UploadPageNew() {
       'image/*': ['.png', '.jpg', '.jpeg', '.tiff', '.bmp'],
     },
     maxFiles: 5,
-    maxSize: 10 * 1024 * 1024, // 10MB
+    maxSize: 10 * 1024 * 1024,
   });
-  
+  /* ----------------------------- Processing uploads ----------------------------- */
   const processFiles = async () => {
     // Process JD files first
-    for (const jdFile of jdFiles.filter(f => f.status === 'pending')) {
-      setJDFiles(prev => prev.map(f => 
-        f.id === jdFile.id ? { ...f, status: 'processing' } : f
-      ));
-      
+    for (const f of jdItems.filter((x) => x.status === 'pending' && !!x.file)) {
+      update(f.id, { status: 'processing', error: undefined });
       try {
-        await uploadJD(jdFile.file);
-        setJDFiles(prev => prev.map(f => 
-          f.id === jdFile.id 
-            ? { 
-                ...f, 
-                status: 'completed',
-                extractedData: {
-                  jobTitle: 'JD Processed',
-                  years: 'Requirements extracted',
-                  skills: ['JD uploaded'],
-                  responsibilities: ['Data available in database'],
-                }
-              } 
-            : f
-        ));
-      } catch (error) {
-        setJDFiles(prev => prev.map(f => 
-          f.id === jdFile.id 
-            ? { 
-                ...f, 
-                status: 'error',
-                error: error instanceof Error ? error.message : 'Processing failed'
-              } 
-            : f
-        ));
+        console.log(`Uploading JD: ${f.file?.name}`);
+        const response = await api.uploadJD(f.file as File);
+        console.log('JD upload response:', response);
+        
+        // Extract the ID from the response
+        let dbId: string | undefined = undefined;
+        if (response && response.jd_id) {
+          dbId = response.jd_id;
+        }
+        
+        console.log(`Extracted JD dbId: ${dbId}`);
+        
+        update(f.id, {
+          status: 'completed',
+          extractedData: {
+            jobTitle: 'JD Processed',
+            years: 'Requirements extracted',
+            skills: ['JD uploaded'],
+            responsibilities: ['Data available in database'],
+          },
+          dbId: dbId, // Store the database ID
+        });
+      } catch (err: any) {
+        console.error('JD upload error:', err);
+        update(f.id, {
+          status: 'error',
+          error: err?.message || 'Processing failed',
+        });
       }
     }
-    
-    // Process CV files
-    for (const cvFile of cvFiles.filter(f => f.status === 'pending')) {
-      setCVFiles(prev => prev.map(f => 
-        f.id === cvFile.id ? { ...f, status: 'processing' } : f
-      ));
-      
+    // Then CV files
+    for (const f of cvItems.filter((x) => x.status === 'pending' && !!x.file)) {
+      update(f.id, { status: 'processing', error: undefined });
       try {
-        await uploadCV(cvFile.file);
-        setCVFiles(prev => prev.map(f => 
-          f.id === cvFile.id 
-            ? { 
-                ...f, 
-                status: 'completed',
-                extractedData: {
-                  name: 'CV Processed',
-                  jobTitle: 'Data extracted successfully',
-                  years: 'Processing complete',
-                  skills: ['CV uploaded'],
-                  responsibilities: ['Data available in database'],
-                }
-              } 
-            : f
-        ));
-      } catch (error) {
-        setCVFiles(prev => prev.map(f => 
-          f.id === cvFile.id 
-            ? { 
-                ...f, 
-                status: 'error',
-                error: error instanceof Error ? error.message : 'Processing failed'
-              } 
-            : f
-        ));
+        console.log(`Uploading CV: ${f.file?.name}`);
+        const response = await api.uploadCV(f.file as File);
+        console.log('CV upload response:', response);
+        
+        // Extract the ID from the response
+        let dbId: string | undefined = undefined;
+        if (response && response.cv_id) {
+          dbId = response.cv_id;
+        }
+        
+        console.log(`Extracted CV dbId: ${dbId}`);
+        
+        update(f.id, {
+          status: 'completed',
+          extractedData: {
+            name: 'CV Processed',
+            jobTitle: 'Data extracted successfully',
+            years: 'Processing complete',
+            skills: ['CV uploaded'],
+            responsibilities: ['Data available in database'],
+          },
+          dbId: dbId, // Store the database ID
+        });
+      } catch (err: any) {
+        console.error('CV upload error:', err);
+        update(f.id, {
+          status: 'error',
+          error: err?.message || 'Processing failed',
+        });
       }
     }
+    // Refresh DB lists
+    await loadCVs();
+    await loadJDs();
+  };
+  /* ----------------------------- Start Matching (NEW) ---------------------------- */
+  const handleStartMatching = async () => {
+    // Make sure DB lists are fresh
+    await loadCVs();
+    await loadJDs();
+    // Auto-pick JD if none selected: latest by upload_date (fallback to last)
+    let jdId = selectedJD;
+    if (!jdId && jds.length > 0) {
+      const sorted = [...jds].sort((a: any, b: any) => {
+        const ad = a?.upload_date ? new Date(a.upload_date).getTime() : 0;
+        const bd = b?.upload_date ? new Date(b.upload_date).getTime() : 0;
+        return bd - ad;
+      });
+      jdId = sorted[0]?.id ?? jds[jds.length - 1]?.id;
+      if (jdId) selectJD(jdId);
+    }
+    // Auto-select all CVs if none selected
+    if (selectedCVs.length === 0 && cvs.length > 0) {
+      selectAllCVs();
+    }
+    if (!jdId) {
+      alert('Please upload/select at least one Job Description first.');
+      return;
+    }
+    if (cvs.length === 0) {
+      alert('Please upload at least one CV first.');
+      return;
+    }
+    await runMatch();
+    setCurrentTab('match');
+  };
+  /* ----------------------- Match Only Uploaded Files ----------------------- */
+  const handleMatchUploadedOnly = async () => {
+    console.log("=== handleMatchUploadedOnly called ===");
     
-    // Refresh data after processing
-    loadCVs();
-    loadJDs();
+    // Get completed items with database IDs
+    const completedJDs = jdItems.filter(f => f.status === 'completed' && f.dbId);
+    const completedCVs = cvItems.filter(f => f.status === 'completed' && f.dbId);
+    console.log("Completed JDs with dbId:", completedJDs);
+    console.log("Completed CVs with dbId:", completedCVs);
+    // Fallback: if no items have dbId, try to match by filename
+    if (completedJDs.length === 0 && completedCVs.length === 0) {
+      console.log("No items with dbId, trying filename fallback");
+      
+      const completedJDsNoId = jdItems.filter(f => f.status === 'completed');
+      const completedCVsNoId = cvItems.filter(f => f.status === 'completed');
+      
+      if (completedJDsNoId.length === 0) {
+        alert('No completed Job Descriptions to match');
+        return;
+      }
+      if (completedCVsNoId.length === 0) {
+        alert('No completed CVs to match');
+        return;
+      }
+      // Try to find matching documents in the database by filename
+      const jdFilename = completedJDsNoId[0].name;
+      const cvFilenames = completedCVsNoId.map(f => f.name);
+      console.log("Looking for JD by filename:", jdFilename);
+      console.log("Looking for CVs by filenames:", cvFilenames);
+      // Find JD in database by filename
+      const jdInDB = jds.find(jd => jd.filename === jdFilename);
+      if (!jdInDB) {
+        alert(`Could not find Job Description "${jdFilename}" in the database`);
+        return;
+      }
+      console.log("Found JD in DB:", jdInDB);
+      // Find CVs in database by filename
+      const cvIdsInDB: string[] = [];
+      for (const cvFilename of cvFilenames) {
+        const cvInDB = cvs.find(cv => cv.filename === cvFilename);
+        if (cvInDB) {
+          cvIdsInDB.push(cvInDB.id);
+          console.log(`Found CV in DB: ${cvFilename} -> ${cvInDB.id}`);
+        }
+      }
+      if (cvIdsInDB.length === 0) {
+        alert('Could not find any uploaded CVs in the database');
+        return;
+      }
+      // Set selections in the store
+      selectJD(jdInDB.id);
+      deselectAllCVs(); // Clear existing selections
+      cvIdsInDB.forEach(id => selectCV(id)); // Select only uploaded CVs
+      console.log("Selected JD ID:", jdInDB.id);
+      console.log("Selected CV IDs:", cvIdsInDB);
+      // Run matching and navigate to results
+      await runMatch();
+      setCurrentTab('match');
+      return;
+    }
+    // Original logic for when we have dbIds
+    if (completedJDs.length === 0) {
+      alert('No completed Job Descriptions to match');
+      return;
+    }
+    if (completedCVs.length === 0) {
+      alert('No completed CVs to match');
+      return;
+    }
+    // Use the first completed JD
+    const jdId = completedJDs[0].dbId;
+    const cvIds = completedCVs.map(f => f.dbId).filter(Boolean) as string[];
+    console.log("Selected JD ID:", jdId);
+    console.log("Selected CV IDs:", cvIds);
+    // Set selections in the store
+    selectJD(jdId || null);
+    deselectAllCVs(); // Clear existing selections
+    cvIds.forEach(id => selectCV(id)); // Select only uploaded CVs
+    // Run matching and navigate to results
+    await runMatch();
+    setCurrentTab('match');
+  };
+  /* ---------------------------------- UI utils ---------------------------------- */
+  const removeFile = (id: string) => {
+    console.log(`Removing file with ID: ${id} from queue`);
+    remove(id);
   };
   
-  const removeFile = (id: string, type: 'cv' | 'jd') => {
-    if (type === 'cv') {
-      setCVFiles(prev => prev.filter(f => f.id !== id));
-    } else {
-      setJDFiles(prev => prev.filter(f => f.id !== id));
+  const sizeMB = (bytes?: number) => {
+    if (!bytes || bytes <= 0) return '0.0';
+    return (bytes / 1024 / 1024).toFixed(1);
+  };
+  
+  const anyProcessing = items.some((f) => f.status === 'processing');
+  
+  // Helper to get status text for files
+  const getStatusText = (file: any) => {
+    if (file.status === 'completed') {
+      return file.extractedData ? 
+        `${file.extractedData.name || file.extractedData.jobTitle || 'Processed'} • ${file.extractedData.years || ''}` : 
+        'Processed';
+    }
+    if (file.status === 'error') {
+      return `Error: ${file.error || 'Processing failed'}`;
+    }
+    if (file.status === 'processing') {
+      return file.kind === 'cv' ? 'Extracting candidate info...' : 'Extracting requirements...';
+    }
+    return 'Not extracted';
+  };
+  
+  // Helper to get status color
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed': return 'var(--green-600)';
+      case 'error': return 'var(--red-600)';
+      case 'processing': return 'var(--yellow-600)';
+      default: return 'var(--gray-600)';
     }
   };
-  
-  const clearAll = () => {
-    setCVFiles([]);
-    setJDFiles([]);
-  };
-  
-  const totalFiles = cvFiles.length + jdFiles.length;
-  const completedFiles = cvFiles.filter(f => f.status === 'completed').length + 
-                        jdFiles.filter(f => f.status === 'completed').length;
-  const canContinue = totalFiles > 0 && completedFiles > 0;
   
   return (
     <div className="space-y-8">
@@ -208,13 +329,12 @@ export default function UploadPageNew() {
           Upload CVs and job descriptions to get started with AI-powered matching
         </p>
       </div>
-      
       {/* Upload Zones */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* CV Upload Zone */}
         <div className="space-y-4">
           <div className="flex items-center space-x-3 mb-4">
-            <div 
+            <div
               className="w-10 h-10 rounded-lg flex items-center justify-center"
               style={{ backgroundColor: 'var(--primary-50)' }}
             >
@@ -227,26 +347,25 @@ export default function UploadPageNew() {
               </p>
             </div>
           </div>
-          
           <div
             {...getCVRootProps()}
             className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200"
             style={{
-              borderColor: isCVDragReject 
-                ? 'var(--red-500)' 
-                : isCVDragActive 
-                  ? 'var(--primary-500)' 
-                  : 'var(--gray-300)',
-              backgroundColor: isCVDragReject 
-                ? 'var(--red-50)' 
-                : isCVDragActive 
-                  ? 'var(--primary-50)' 
-                  : 'white',
+              borderColor: isCVDragReject
+                ? 'var(--red-500)'
+                : isCVDragActive
+                ? 'var(--primary-500)'
+                : 'var(--gray-300)',
+              backgroundColor: isCVDragReject
+                ? 'var(--red-50)'
+                : isCVDragActive
+                ? 'var(--primary-50)'
+                : 'white',
             }}
           >
             <input {...getCVInputProps()} />
             <div className="space-y-4">
-              <div 
+              <div
                 className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto"
                 style={{ backgroundColor: 'var(--gray-100)' }}
               >
@@ -262,17 +381,14 @@ export default function UploadPageNew() {
                 <p>Drag & drop files here, or click to browse</p>
                 <p className="mt-1">Max 10 files, 10MB each</p>
               </div>
-              <button className="btn-secondary">
-                Browse Files
-              </button>
+              <button className="btn-secondary">Browse Files</button>
             </div>
           </div>
         </div>
-        
         {/* JD Upload Zone */}
         <div className="space-y-4">
           <div className="flex items-center space-x-3 mb-4">
-            <div 
+            <div
               className="w-10 h-10 rounded-lg flex items-center justify-center"
               style={{ backgroundColor: 'var(--green-50)' }}
             >
@@ -285,26 +401,25 @@ export default function UploadPageNew() {
               </p>
             </div>
           </div>
-          
           <div
             {...getJDRootProps()}
             className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200"
             style={{
-              borderColor: isJDDragReject 
-                ? 'var(--red-500)' 
-                : isJDDragActive 
-                  ? 'var(--green-500)' 
-                  : 'var(--gray-300)',
-              backgroundColor: isJDDragReject 
-                ? 'var(--red-50)' 
-                : isJDDragActive 
-                  ? 'var(--green-50)' 
-                  : 'white',
+              borderColor: isJDDragReject
+                ? 'var(--red-500)'
+                : isJDDragActive
+                ? 'var(--green-500)'
+                : 'var(--gray-300)',
+              backgroundColor: isJDDragReject
+                ? 'var(--red-50)'
+                : isJDDragActive
+                ? 'var(--green-50)'
+                : 'white',
             }}
           >
             <input {...getJDInputProps()} />
             <div className="space-y-4">
-              <div 
+              <div
                 className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto"
                 style={{ backgroundColor: 'var(--gray-100)' }}
               >
@@ -320,20 +435,17 @@ export default function UploadPageNew() {
                 <p>Drag & drop files here, or click to browse</p>
                 <p className="mt-1">Max 5 files, 10MB each</p>
               </div>
-              <button className="btn-secondary">
-                Browse Files
-              </button>
+              <button className="btn-secondary">Browse Files</button>
             </div>
           </div>
         </div>
       </div>
-      
       {/* Processing Queue */}
       {totalFiles > 0 && (
         <div className="card-elevated">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center space-x-3">
-              <div 
+              <div
                 className="w-10 h-10 rounded-lg flex items-center justify-center"
                 style={{ backgroundColor: 'var(--yellow-50)' }}
               >
@@ -349,10 +461,10 @@ export default function UploadPageNew() {
             <div className="flex items-center space-x-3">
               <button
                 onClick={processFiles}
-                disabled={isProcessing || totalFiles === 0}
+                disabled={isUploading}
                 className="btn-primary"
               >
-                {isProcessing ? (
+                {isUploading ? (
                   <>
                     <Loader className="w-4 h-4 animate-spin" />
                     Processing...
@@ -364,21 +476,16 @@ export default function UploadPageNew() {
                   </>
                 )}
               </button>
-              <button
-                onClick={clearAll}
-                disabled={isProcessing}
-                className="btn-outline"
-              >
+              <button onClick={clearAll} disabled={isUploading || anyProcessing} className="btn-outline">
                 <X className="w-4 h-4" />
                 Clear All
               </button>
             </div>
           </div>
-          
           <div className="space-y-3">
             {/* JD Files */}
-            {jdFiles.map((file) => (
-              <div 
+            {jdItems.map((file) => (
+              <div
                 key={file.id}
                 className="flex items-center justify-between p-4 rounded-lg"
                 style={{ backgroundColor: 'var(--gray-50)' }}
@@ -401,31 +508,20 @@ export default function UploadPageNew() {
                   <FileText className="w-5 h-5" style={{ color: 'var(--green-600)' }} />
                   <div>
                     <div className="font-medium text-sm" style={{ color: 'var(--gray-900)' }}>
-                      {file.file.name}
+                      {file.name}
                     </div>
-                    {file.status === 'completed' && file.extractedData && (
-                      <div className="text-xs" style={{ color: 'var(--gray-600)' }}>
-                        {file.extractedData.jobTitle} • {file.extractedData.years} experience
-                      </div>
-                    )}
-                    {file.status === 'error' && (
-                      <div className="text-xs" style={{ color: 'var(--red-600)' }}>
-                        {file.error}
-                      </div>
-                    )}
-                    {file.status === 'processing' && (
-                      <div className="text-xs" style={{ color: 'var(--yellow-600)' }}>
-                        Extracting requirements...
-                      </div>
-                    )}
+                    <div className="text-xs" style={{ color: getStatusColor(file.status) }}>
+                      {getStatusText(file)}
+                      {file.dbId && <span className="ml-2 text-green-600">(ID: {file.dbId?.substring(0, 8)}...)</span>}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
                   <span className="text-xs" style={{ color: 'var(--gray-500)' }}>
-                    {(file.file.size / 1024 / 1024).toFixed(1)}MB
+                    {sizeMB(file.size)}MB
                   </span>
                   <button
-                    onClick={() => removeFile(file.id, 'jd')}
+                    onClick={() => removeFile(file.id)}
                     disabled={file.status === 'processing'}
                     className="p-1 rounded hover:bg-red-50"
                     style={{ color: 'var(--gray-400)' }}
@@ -435,10 +531,9 @@ export default function UploadPageNew() {
                 </div>
               </div>
             ))}
-            
             {/* CV Files */}
-            {cvFiles.map((file) => (
-              <div 
+            {cvItems.map((file) => (
+              <div
                 key={file.id}
                 className="flex items-center justify-between p-4 rounded-lg"
                 style={{ backgroundColor: 'var(--gray-50)' }}
@@ -461,31 +556,20 @@ export default function UploadPageNew() {
                   <Users className="w-5 h-5" style={{ color: 'var(--primary-600)' }} />
                   <div>
                     <div className="font-medium text-sm" style={{ color: 'var(--gray-900)' }}>
-                      {file.file.name}
+                      {file.name}
                     </div>
-                    {file.status === 'completed' && file.extractedData && (
-                      <div className="text-xs" style={{ color: 'var(--gray-600)' }}>
-                        {file.extractedData.name} • {file.extractedData.jobTitle} • {file.extractedData.years} years
-                      </div>
-                    )}
-                    {file.status === 'error' && (
-                      <div className="text-xs" style={{ color: 'var(--red-600)' }}>
-                        {file.error}
-                      </div>
-                    )}
-                    {file.status === 'processing' && (
-                      <div className="text-xs" style={{ color: 'var(--yellow-600)' }}>
-                        Extracting candidate info...
-                      </div>
-                    )}
+                    <div className="text-xs" style={{ color: getStatusColor(file.status) }}>
+                      {getStatusText(file)}
+                      {file.dbId && <span className="ml-2 text-green-600">(ID: {file.dbId?.substring(0, 8)}...)</span>}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
                   <span className="text-xs" style={{ color: 'var(--gray-500)' }}>
-                    {(file.file.size / 1024 / 1024).toFixed(1)}MB
+                    {sizeMB(file.size)}MB
                   </span>
                   <button
-                    onClick={() => removeFile(file.id, 'cv')}
+                    onClick={() => removeFile(file.id)}
                     disabled={file.status === 'processing'}
                     className="p-1 rounded hover:bg-red-50"
                     style={{ color: 'var(--gray-400)' }}
@@ -498,37 +582,75 @@ export default function UploadPageNew() {
           </div>
         </div>
       )}
-      
+      {/* Debug Info - Remove in production */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="card-simple bg-yellow-50 border-yellow-200">
+          <h4 className="font-medium text-yellow-800">Debug Info:</h4>
+          <p className="text-sm text-yellow-700">
+            Queue items: {items.length} (JDs: {jdItems.length}, CVs: {cvItems.length})
+          </p>
+          <p className="text-sm text-yellow-700">
+            Completed JDs with dbId: {jdItems.filter(f => f.status === 'completed' && f.dbId).length}
+          </p>
+          <p className="text-sm text-yellow-700">
+            Completed CVs with dbId: {cvItems.filter(f => f.status === 'completed' && f.dbId).length}
+          </p>
+          <details className="mt-2">
+            <summary className="text-sm font-medium text-yellow-800 cursor-pointer">Queue Details</summary>
+            <pre className="text-xs mt-1 p-2 bg-yellow-100 rounded overflow-auto max-h-40">
+              {JSON.stringify(items, null, 2)}
+            </pre>
+          </details>
+        </div>
+      )}
       {/* Next Steps */}
       {canContinue && (
         <div className="card-simple">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center space-x-3">
               <CheckCircle className="w-8 h-8" style={{ color: 'var(--green-500)' }} />
               <div>
                 <h4 className="font-medium" style={{ color: 'var(--gray-900)' }}>
-                  Documents processed successfully!
+                  Documents ready!
                 </h4>
                 <p className="text-sm" style={{ color: 'var(--gray-600)' }}>
-                  {completedFiles} files ready for review and matching
+                  {hasDBData
+                    ? `Database has ${cvs.length} CV(s) and ${jds.length} JD(s).`
+                    : `${completedFiles} file(s) uploaded and processed`}
                 </p>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setCurrentTab('database')}
-                className="btn-secondary"
+            
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+              <button 
+                onClick={() => setCurrentTab('database')} 
+                className="btn-secondary w-full sm:w-auto"
               >
                 <Eye className="w-4 h-4" />
                 Review Database
               </button>
-              <button
-                onClick={() => setCurrentTab('match')}
-                className="btn-primary"
-              >
-                Start Matching
-                <ArrowRight className="w-4 h-4" />
-              </button>
+              
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                <button
+                  onClick={handleStartMatching}
+                  className="btn-primary w-full sm:w-auto"
+                  disabled={loadingStates.matching?.isLoading}
+                  title="Auto-selects latest JD and all CVs if nothing is selected"
+                >
+                  <Play className="w-4 h-4" />
+                  {loadingStates.matching?.isLoading ? 'Matching...' : 'Match All'}
+                </button>
+                
+                <button
+                  onClick={handleMatchUploadedOnly}
+                  className="btn-primary w-full sm:w-auto"
+                  disabled={loadingStates.matching?.isLoading || !(jdItems.some(f => f.status === 'completed') || cvItems.some(f => f.status === 'completed'))}
+                  title="Match only the files uploaded in this session"
+                >
+                  <Play className="w-4 h-4" />
+                  {loadingStates.matching?.isLoading ? 'Matching...' : 'Match Only Uploaded'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -536,3 +658,15 @@ export default function UploadPageNew() {
     </div>
   );
 }
+/**
+ * NOTE:
+ * This component expects a persisted upload-queue store at:
+ *   `@/stores/uploadQueue`
+ * with the API:
+ *   - items: { id, name, size?, status: 'pending'|'processing'|'completed'|'error', error?, extractedData?, file?, kind: 'cv'|'jd', dbId? }[]
+ *   - addMany(kind: 'cv'|'jd', files: File[]): void
+ *   - update(id: string, patch: Partial<Item>): void
+ *   - remove(id: string): void
+ *   - clearAll(): void
+ * See the store implementation I outlined earlier for a drop-in version.
+ */
