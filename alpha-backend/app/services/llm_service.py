@@ -14,6 +14,89 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+# ----------------- Updated Prompts -----------------
+DEFAULT_CV_PROMPT = """You are an information-extraction engine. You will receive the full plain text of ONE resume/CV.
+Your job is to output STRICT JSON with the following schema, extracting:
+Candidate NAME
+Exactly 20 SKILL PHRASES (by reviewing the full CV and understanding the skills possessed by this candidate; if fewer than 20 exist, leave the remaining slots as "").
+Exactly 10 RESPONSIBILITY PHRASES (from WORK EXPERIENCE / PROFESSIONAL EXPERIENCE sections; if fewer than 10, derive the remaining from CERTIFICATIONS or other professional sections, but never from skills).
+The most recent JOB TITLE.
+YEARS OF EXPERIENCE (total professional experience by seeing the date the candidate started working and taking a general calculation from start to present. do not calculate using code and you may infer from the text in the CV if you find phrases such as "15 years of experience").
+General Rules:
+Output valid JSON only. No markdown, no comments, no trailing commas.
+Use English only.
+Do not invent facts. If something is missing, leave empty strings "" or null.
+Arrays must be fixed length: skills_sentences = 20, responsibility_sentences = 10.
+De-duplicate near-duplicates (case-insensitive). Keep the most informative version.
+Each skill/responsibility must be a concise, descriptive phrase (not a full sentence).
+Example: "active directory security assessments to strengthen authentication and access controls"
+Avoid: "Performs active directory security assessments to strengthen authentication and access controls."
+Remove filler verbs such as performs, provides, carries out, responsible for, manages, oversees.
+Skills must be derived by reviewing the full document and understanding what skills the candidate possesses.
+Responsibilities must come only from EXPERIENCE/WORK HISTORY sections (and CERTIFICATIONS if needed).
+Expand acronyms into their full professional terms (e.g., AWS → Amazon Web Services, SQL → Structured Query Language). Apply consistently.
+Ensure skill and responsibility lists are domain-specific phrases only without generic wording.
+No duplication across skills and responsibilities.
+Output Format:
+{
+  "doc_type": "resume",
+  "name": string | null,
+  "job_title": string | null,
+  "years_of_experience": number | null,
+  "skills_sentences": [
+    "<Skill phrase 1>",
+    "... (total 20 items)",
+    ""
+  ],
+  "responsibility_sentences": [
+    "<Responsibility phrase 1>",
+    "... (total 10 items)",
+    ""
+  ],
+  "contact_info": {"name": string | null}
+}
+"""
+
+DEFAULT_JD_PROMPT = """You are an information-extraction engine. You will receive the full plain text of ONE job description (JD).
+Your job is to output STRICT JSON with the following schema, extracting:
+Exactly 20 SKILL PHRASES (by preferring SKILLS, REQUIREMENTS, QUALIFICATIONS, TECHNOLOGY STACK sections, however read the full document and suggest what skills are required for this position; if fewer than 20 exist, create additional descriptive phrases from related requirements until 20 are filled).
+Exactly 10 RESPONSIBILITY PHRASES (from RESPONSIBILITIES, DUTIES, WHAT YOU’LL DO sections; if fewer than 10 exist, expand implied responsibilities until 10 are filled).
+The JOB TITLE of the role.
+YEARS OF EXPERIENCE (minimum required, if explicitly stated; if a range is given, use the minimum).
+General Rules:
+Output valid JSON only. No markdown, no comments, no trailing commas.
+Use English only.
+Do not invent facts. If something is missing, leave empty strings "" or null.
+Arrays must be fixed length: skills_sentences = 20, responsibility_sentences = 10.
+De-duplicate near-duplicates (case-insensitive). Keep the most informative version.
+Each skill/responsibility must be a concise, descriptive phrase (not a full sentence).
+Example: "structured query language database administration"
+Avoid: "Uses Structured Query Language to administer relational databases."
+Remove filler verbs such as develops, implements, provides, generates, manages, responsible for.
+Skills should come from SKILLS/REQUIREMENTS/QUALIFICATIONS sections, however review the full document and suggest the skills required for this position.
+Responsibilities should come from RESPONSIBILITIES/DUTIES/WHAT YOU’LL DO sections.
+Expand acronyms into their full professional terms (e.g., CRM → Customer Relationship Management, API → Application Programming Interface). Apply consistently.
+Ensure skills and responsibilities remain short, embedding-friendly phrases with no generic filler wording.
+Skills and responsibilities must remain distinct, with no overlap.
+Output Format:
+{
+  "doc_type": "job_description",
+  "job_title": string | null,
+  "years_of_experience": number | null,
+  "skills_sentences": [
+    "<Skill phrase 1>",
+    "... (total 20 items)",
+    ""
+  ],
+  "responsibility_sentences": [
+    "<Responsibility phrase 1>",
+    "... (total 10 items)",
+    ""
+  ]
+}
+"""
+
+# ----------------- Data structures -----------------
 @dataclass
 class LLMResponse:
     """Structured response from LLM processing."""
@@ -37,7 +120,7 @@ class LLMService:
 
         # We use the HTTP endpoint directly to avoid SDK differences
         self.base_url = "https://api.openai.com/v1/chat/completions"
-        self.default_model = "gpt-4o-mini"  # keep in sync with infra
+        self.default_model = "gpt-4.1-mini"  # keep in sync with infra
         self.max_retries = 2
         self.base_delay = 0.5
 
@@ -75,8 +158,10 @@ class LLMService:
                 "model_used": response.model_used,
                 "text_length": len(raw_text),
             }
-            logger.info(f"✅ CV standardized: {len(normalized.get('skills', []))} skills, "
-                        f"{len(normalized.get('responsibilities', []))} responsibilities")
+            logger.info(
+                f"✅ CV standardized: {len(normalized.get('skills_sentences', []))} skills, "
+                f"{len(normalized.get('responsibility_sentences', []))} responsibilities"
+            )
             return normalized
         except Exception as e:
             logger.error(f"❌ CV standardization failed: {e}")
@@ -105,8 +190,10 @@ class LLMService:
                 "model_used": response.model_used,
                 "text_length": len(raw_text),
             }
-            logger.info(f"✅ JD standardized: {len(normalized.get('skills', []))} skills, "
-                        f"{len(normalized.get('responsibilities', []))} responsibilities")
+            logger.info(
+                f"✅ JD standardized: {len(normalized.get('skills_sentences', []))} skills, "
+                f"{len(normalized.get('responsibility_sentences', []))} responsibilities"
+            )
             return normalized
         except Exception as e:
             logger.error(f"❌ JD standardization failed: {e}")
@@ -180,46 +267,10 @@ class LLMService:
     # ------------ Prompt builders ------------
 
     def _build_cv_prompt(self, text: str) -> List[Dict[str, str]]:
-        prompt = f"""Extract from CV and return JSON with EXACTLY this structure:
-
-Skills: EXACTLY 20 skills as complete sentences starting with action verbs.
-Responsibilities: EXACTLY 10 responsibilities from recent positions.
-Experience Years: Number only (e.g., "5" or "3-5")
-Job Title: Current/most recent title
-Contact Info: Extract name, email, phone
-
-Return JSON with EXACTLY this format:
-{{
-  "skills": ["... 20 items exactly ..."],
-  "responsibilities": ["... 10 items exactly ..."],
-  "experience_years": "5",
-  "job_title": "Senior Software Engineer",
-  "contact_info": {{"name": "John Doe", "email": "john@email.com", "phone": "+1234567890"}}
-}}
-
-CV CONTENT:
-{text}"""
-        return [{"role": "user", "content": prompt}]
+        return [{"role": "user", "content": f"{DEFAULT_CV_PROMPT}\n\nCV CONTENT:\n{text}"}]
 
     def _build_jd_prompt(self, text: str) -> List[Dict[str, str]]:
-        prompt = f"""Extract from Job Description and return JSON with EXACTLY this structure:
-
-Skills: EXACTLY 20 required skills as complete sentences starting with action verbs.
-Responsibilities: EXACTLY 10 job responsibilities.
-Experience Years: Required experience (e.g., "5" or "3-5")
-Job Title: Position title
-
-Return JSON with EXACTLY this format:
-{{
-  "skills": ["... 20 items exactly ..."],
-  "responsibilities": ["... 10 items exactly ..."],
-  "experience_years": "5",
-  "job_title": "Senior Software Engineer"
-}}
-
-JOB DESCRIPTION:
-{text}"""
-        return [{"role": "user", "content": prompt}]
+        return [{"role": "user", "content": f"{DEFAULT_JD_PROMPT}\n\nJOB DESCRIPTION:\n{text}"}]
 
     # ------------ Parsing & validation ------------
 
@@ -231,58 +282,67 @@ JOB DESCRIPTION:
             raise json.JSONDecodeError("No valid JSON found", content, 0)
         return json.loads(cleaned[start:end + 1])
 
+    @staticmethod
+    def _normalize_fixed_list(items: Optional[List[Any]], target_len: int) -> List[str]:
+        """
+        Trim whitespace, drop empties, de-duplicate case-insensitively,
+        then pad to target_len with "" and truncate if needed.
+        """
+        cleaned: List[str] = []
+        seen = set()
+        for x in (items or []):
+            s = ("" if x is None else str(x)).strip()
+            if not s:
+                continue
+            key = s.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(s)
+        # pad / trim
+        if len(cleaned) < target_len:
+            cleaned.extend([""] * (target_len - len(cleaned)))
+        return cleaned[:target_len]
+
     def _validate_cv_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        out = data.copy()
+        # prefer new keys, fall back to legacy if present
+        skills_src = data.get("skills_sentences") or data.get("skills") or []
+        resp_src = data.get("responsibility_sentences") or data.get("responsibilities") or []
 
-        # Normalize key names (we standardize on "experience_years")
-        if "experience_years" not in out and "years_of_experience" in out:
-            out["experience_years"] = out.get("years_of_experience")
-        if "years_of_experience" not in out and "experience_years" in out:
-            out["years_of_experience"] = out.get("experience_years")
+        skills = self._normalize_fixed_list(skills_src, 20)
+        resps  = self._normalize_fixed_list(resp_src, 10)
 
-        out.setdefault("skills", [])
-        out.setdefault("responsibilities", [])
-        out.setdefault("experience_years", "Not specified")
-        out.setdefault("job_title", "Not specified")
-
-        # Force counts
-        skills = [s.strip() for s in (out.get("skills") or []) if s and s.strip()]
-        out["skills"] = (skills + ["General professional skills and competencies"] * 20)[:20]
-
-        resps = [r.strip() for r in (out.get("responsibilities") or []) if r and r.strip()]
-        if len(resps) < 10:
-            resps += ["Collaborated with team members on project deliverables"] * (10 - len(resps))
-        out["responsibilities"] = resps[:10]
-
+        out = {
+            "doc_type": "resume",
+            "name": data.get("name"),
+            "job_title": data.get("job_title"),
+            "years_of_experience": data.get("years_of_experience"),
+            "skills_sentences": skills,
+            "responsibility_sentences": resps,
+            # Back-compat aliases so existing UI/DB that reads 'skills' / 'responsibilities' still works
+            "skills": skills,
+            "responsibilities": resps,
+            "contact_info": {"name": data.get("name")},
+        }
         return out
 
     def _validate_jd_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        out = data.copy()
+        skills_src = data.get("skills_sentences") or data.get("skills") or []
+        resp_src   = data.get("responsibility_sentences") or data.get("responsibilities") or []
 
-        # Normalize key names
-        if "experience_years" not in out and "years_of_experience" in out:
-            out["experience_years"] = out.get("years_of_experience")
-        if "years_of_experience" not in out and "experience_years" in out:
-            out["years_of_experience"] = out.get("experience_years")
+        skills = self._normalize_fixed_list(skills_src, 20)
+        resps  = self._normalize_fixed_list(resp_src, 10)
 
-        out.setdefault("skills", [])
-        out.setdefault("responsibilities", [])
-        out.setdefault("experience_years", "Not specified")
-        out.setdefault("job_title", "Not specified")
-
-        # Force exact counts
-        skills = [s.strip() for s in (out.get("skills") or []) if s and s.strip()]
-        while len(skills) < 20:
-            skills.append("General professional skills and competencies")
-        out["skills"] = skills[:20]
-
-        resps = [r.strip() for r in (out.get("responsibilities") or []) if r and r.strip()]
-        while len(resps) < 10:
-            resps.append("Work collaboratively with team members on assigned projects.")
-        out["responsibilities"] = resps[:10]
-
-        # Back-compat field
-        out["responsibility_sentences"] = out["responsibilities"]
+        out = {
+            "doc_type": "job_description",
+            "job_title": data.get("job_title"),
+            "years_of_experience": data.get("years_of_experience"),
+            "skills_sentences": skills,
+            "responsibility_sentences": resps,
+            # Back-compat aliases
+            "skills": skills,
+            "responsibilities": resps,
+        }
         return out
 
     # ------------ Logging helpers ------------
@@ -324,9 +384,11 @@ async def extract_jd(jd_text: str) -> Dict[str, Any]:
     service = get_llm_service()
     data = service.standardize_jd(jd_text, "jd_input.txt")
     # Normalize to expected keys
+    skills = data.get("skills_sentences") or data.get("skills") or []
+    resps  = data.get("responsibility_sentences") or data.get("responsibilities") or []
     return {
         "job_title": data.get("job_title", ""),
-        "years_of_experience": data.get("experience_years", data.get("years_of_experience", 0)),
-        "skills_sentences": (data.get("skills") or [])[:20],
-        "responsibility_sentences": (data.get("responsibilities") or data.get("responsibility_sentences") or [])[:10],
+        "years_of_experience": data.get("years_of_experience", 0),
+        "skills_sentences": skills[:20],
+        "responsibility_sentences": resps[:10],
     }

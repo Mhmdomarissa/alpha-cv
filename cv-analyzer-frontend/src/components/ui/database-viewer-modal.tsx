@@ -86,7 +86,7 @@ export default function DatabaseViewerModal({ isOpen, onClose }: DatabaseViewMod
       if (response.success) {
         setData(response.data);
       } else {
-        throw new Error(response.error || 'Failed to fetch database view');
+        throw new Error('Failed to fetch database view');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load database view');

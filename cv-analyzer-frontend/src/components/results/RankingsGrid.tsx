@@ -186,7 +186,7 @@ export default function RankingsGrid() {
       )}
       
       {/* Enhanced JD Selection */}
-      <Card variant="elevated" className="shadow-lg border-indigo-100">
+      <Card className="shadow-lg border-indigo-100">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-3">
             <div className="p-2 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl shadow-md">
@@ -266,7 +266,7 @@ export default function RankingsGrid() {
       
       {/* Premium Analytics Dashboard */}
       {matchResult && showAnalytics && (
-        <Card variant="elevated" className="shadow-xl border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+        <Card className="shadow-xl border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-purple-50">
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-3">
               <div className="p-2 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl shadow-md">
@@ -466,7 +466,7 @@ export default function RankingsGrid() {
       {matchResult && (
         <>
           {/* Enhanced Weights & Controls */}
-          <Card variant="elevated" className="shadow-lg border-indigo-100">
+          <Card className="shadow-lg border-indigo-100">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-3">

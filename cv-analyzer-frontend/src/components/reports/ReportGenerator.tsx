@@ -181,7 +181,7 @@ export default function ReportGenerator() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatsCard
             title="Total Candidates"
-            value={totalCandidates}
+            value={totalCandidates.toString()}
             subtitle="CVs processed"
             icon={<Users />}
             trend={{
@@ -193,7 +193,7 @@ export default function ReportGenerator() {
           
           <StatsCard
             title="Active Positions"
-            value={totalJobs}
+            value={totalJobs.toString()}
             subtitle="Job descriptions"
             icon={<Target />}
             trend={{
@@ -205,7 +205,7 @@ export default function ReportGenerator() {
           
           <StatsCard
             title="Successful Matches"
-            value={totalMatches}
+            value={totalMatches.toString()}
             subtitle="AI-powered matches"
             icon={<BarChart3 />}
           />
@@ -227,7 +227,7 @@ export default function ReportGenerator() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Report Configuration */}
         <div className="lg:col-span-1">
-          <Card variant="elevated">
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Filter className="w-5 h-5 text-primary-600" />
@@ -329,7 +329,7 @@ export default function ReportGenerator() {
         {/* Analytics Dashboard */}
         <div className="lg:col-span-2 space-y-6">
           {/* Matching Performance */}
-          <Card variant="elevated">
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-primary-600" />
@@ -404,7 +404,7 @@ export default function ReportGenerator() {
           </Card>
 
           {/* Insights & Recommendations */}
-          <Card variant="elevated">
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-primary-600" />
