@@ -207,7 +207,7 @@ class QdrantUtils:
                 )
 
             if not points:
-                logger.warning(f"⚠️ No vectors to store for {doc_id}")
+                logger.warning(f"⚠ No vectors to store for {doc_id}")
                 return False
 
             self.client.upsert(collection_name=collection_name, points=points)
