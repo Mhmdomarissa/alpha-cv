@@ -748,9 +748,9 @@ export default function MatchingPageNew() {
                                     return (
                                       <div key={idx} className="p-3 rounded-lg border border-gray-200 bg-white">
                                         <div className="text-sm text-gray-900">
-                                          Required: <span className="font-medium">{a.jd_item}</span>
+                                          JD Required: <span className="font-medium">{a.jd_item}</span>
                                         </div>
-                                        <div className="text-sm text-gray-700">Candidate has: {a.cv_item}</div>
+                                        <div className="text-sm text-gray-700">CV has: {a.cv_item}</div>
                                         <div className="flex items-center gap-2 mt-2">
                                           <div className="flex-1 bg-gray-200 rounded-full h-2">
                                             <div className={`h-2 rounded-full ${barColor(s)}`} style={{ width: `${s * 100}%` }} />
@@ -801,9 +801,9 @@ export default function MatchingPageNew() {
                                     return (
                                       <div key={idx} className="p-3 rounded-lg border border-gray-200 bg-white">
                                         <div className="text-sm text-gray-900">
-                                          Required: <span className="font-medium">{a.jd_item}</span>
+                                          JD Required: <span className="font-medium">{a.jd_item}</span>
                                         </div>
-                                        <div className="text-sm text-gray-700">Experience: {a.cv_item}</div>
+                                        <div className="text-sm text-gray-700">CV has: {a.cv_item}</div>
                                         <div className="flex items-center gap-2 mt-2">
                                           <div className="flex-1 bg-gray-200 rounded-full h-2">
                                             <div className={`h-2 rounded-full ${barColor(s)}`} style={{ width: `${s * 100}%` }} />
