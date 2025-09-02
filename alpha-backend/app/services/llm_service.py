@@ -1,27 +1,41 @@
+
 """
-LLM Service - Consolidated Large Language Model Operations
-Handles ALL OpenAI GPT interactions for standardization and analysis.
-Single responsibility: Convert raw text into structured, standardized data.
+LLM Service - Deterministic, Cached, Structured Extraction
+----------------------------------------------------------
+- Pinned model snapshot + seed + temp=0, top_p=1, penalties=0
+- response_format JSON (or JSON Schema strict mode via env)
+- Normalizes source text; caches by (kind, model, seed, prompt, text) SHA256
+- Stable, deterministic ordering of phrases by first source occurrence
+- JD prompt updated to NOT invent extra phrases (pads with "")
 """
+
+from __future__ import annotations
+
+import hashlib
+import json
 import logging
 import os
-import json
 import re
 import time
-import requests
-from typing import Dict, Any, List, Optional
+import unicodedata
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
+import requests
 
 logger = logging.getLogger(__name__)
 
-# ----------------- Updated Prompts -----------------
+# =========================
+# ---- Prompts (final) ----
+# =========================
+
 DEFAULT_CV_PROMPT = """You are an information-extraction engine. You will receive the full plain text of ONE resume/CV.
 Your job is to output STRICT JSON with the following schema, extracting:
 Candidate NAME
 Exactly 20 SKILL PHRASES (by reviewing the full CV and understanding the skills possessed by this candidate; if fewer than 20 exist, leave the remaining slots as "").
 Exactly 10 RESPONSIBILITY PHRASES (from WORK EXPERIENCE / PROFESSIONAL EXPERIENCE sections; if fewer than 10, derive the remaining from CERTIFICATIONS or other professional sections, but never from skills).
 The most recent JOB TITLE.
-YEARS OF EXPERIENCE (total professional experience by seeing the date the candidate started working and taking a general calculation from start to present. do not calculate using code and you may infer from the text in the CV if you find phrases such as "15 years of experience").
+YEARS OF EXPERIENCE (total professional experience by seeing the date the candidate started working and taking a general calculation from start to present; you may infer from phrases like "15 years of experience").
 General Rules:
 Output valid JSON only. No markdown, no comments, no trailing commas.
 Use English only.
@@ -59,8 +73,8 @@ Output Format:
 
 DEFAULT_JD_PROMPT = """You are an information-extraction engine. You will receive the full plain text of ONE job description (JD).
 Your job is to output STRICT JSON with the following schema, extracting:
-Exactly 20 SKILL PHRASES (by preferring SKILLS, REQUIREMENTS, QUALIFICATIONS, TECHNOLOGY STACK sections, however read the full document and suggest what skills are required for this position; if fewer than 20 exist, create additional descriptive phrases from related requirements until 20 are filled).
-Exactly 10 RESPONSIBILITY PHRASES (from RESPONSIBILITIES, DUTIES, WHAT YOU’LL DO sections; if fewer than 10 exist, expand implied responsibilities until 10 are filled).
+Exactly 20 SKILL PHRASES (prefer SKILLS, REQUIREMENTS, QUALIFICATIONS, TECHNOLOGY STACK sections; read the full document. If fewer than 20 exist, leave remaining slots as "").
+Exactly 10 RESPONSIBILITY PHRASES (from RESPONSIBILITIES, DUTIES, WHAT YOU’LL DO sections; if fewer than 10 exist, leave remaining slots as "").
 The JOB TITLE of the role.
 YEARS OF EXPERIENCE (minimum required, if explicitly stated; if a range is given, use the minimum).
 General Rules:
@@ -73,7 +87,7 @@ Each skill/responsibility must be a concise, descriptive phrase (not a full sent
 Example: "structured query language database administration"
 Avoid: "Uses Structured Query Language to administer relational databases."
 Remove filler verbs such as develops, implements, provides, generates, manages, responsible for.
-Skills should come from SKILLS/REQUIREMENTS/QUALIFICATIONS sections, however review the full document and suggest the skills required for this position.
+Skills should come from SKILLS/REQUIREMENTS/QUALIFICATIONS sections; also review the full document.
 Responsibilities should come from RESPONSIBILITIES/DUTIES/WHAT YOU’LL DO sections.
 Expand acronyms into their full professional terms (e.g., CRM → Customer Relationship Management, API → Application Programming Interface). Apply consistently.
 Ensure skills and responsibilities remain short, embedding-friendly phrases with no generic filler wording.
@@ -96,21 +110,98 @@ Output Format:
 }
 """
 
-# ----------------- Data structures -----------------
+# ===================================
+# ---- Optional JSON Schema lock ----
+# ===================================
+
+STRICT_SCHEMA_ENABLED = os.getenv("LLM_JSON_SCHEMA_STRICT", "0") not in {"0", "false", "False", ""}
+
+CV_JSON_SCHEMA: Dict[str, Any] = {
+    "name": "cv_schema",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "doc_type", "name", "job_title", "years_of_experience",
+            "skills_sentences", "responsibility_sentences", "contact_info"
+        ],
+        "properties": {
+            "doc_type": {"type": "string", "const": "resume"},
+            "name": {"type": ["string", "null"]},
+            "job_title": {"type": ["string", "null"]},
+            "years_of_experience": {"type": ["number", "integer", "null"]},
+            "skills_sentences": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 20,
+                "maxItems": 20
+            },
+            "responsibility_sentences": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 10,
+                "maxItems": 10
+            },
+            "contact_info": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name"],
+                "properties": {"name": {"type": ["string", "null"]}}
+            }
+        }
+    }
+}
+
+JD_JSON_SCHEMA: Dict[str, Any] = {
+    "name": "jd_schema",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "doc_type", "job_title", "years_of_experience",
+            "skills_sentences", "responsibility_sentences"
+        ],
+        "properties": {
+            "doc_type": {"type": "string", "const": "job_description"},
+            "job_title": {"type": ["string", "null"]},
+            "years_of_experience": {"type": ["number", "integer", "null"]},
+            "skills_sentences": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 20,
+                "maxItems": 20
+            },
+            "responsibility_sentences": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 10,
+                "maxItems": 10
+            }
+        }
+    }
+}
+
+# ============================
+# ---- Data structures ----
+# ============================
+
 @dataclass
 class LLMResponse:
-    """Structured response from LLM processing."""
     success: bool
     data: Dict[str, Any]
     processing_time: float
     model_used: str
     error_message: Optional[str] = None
+    system_fingerprint: Optional[str] = None
 
+
+# ============================
+# ---- Main service class ----
+# ============================
 
 class LLMService:
     """
-    Consolidated service for all LLM operations.
-    Uses OpenAI Chat Completions endpoint (via requests.Session).
+    Deterministic, cached LLM extraction using OpenAI Chat Completions.
     """
 
     def __init__(self):
@@ -118,101 +209,151 @@ class LLMService:
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
 
-        # We use the HTTP endpoint directly to avoid SDK differences
-        self.base_url = "https://api.openai.com/v1/chat/completions"
-        self.default_model = "gpt-4.1-mini"  # keep in sync with infra
-        self.max_retries = 2
-        self.base_delay = 0.5
+        # Pinned snapshot (override with env). Avoid floating aliases for stability.
+        self.default_model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini-2025-04-14")
 
+        # Determinism knobs
+        self.seed = int(os.getenv("OPENAI_SEED", "1337"))
+        self.max_retries = int(os.getenv("OPENAI_MAX_RETRIES", "2"))
+        self.base_delay = float(os.getenv("OPENAI_RETRY_BASE_DELAY", "0.5"))
+
+        # Cache on disk (works across restarts)
+        self.cache_dir = os.getenv("LLM_CACHE_DIR", ".llm_cache")
+        os.makedirs(self.cache_dir, exist_ok=True)
+
+        # Endpoint & session
+        self.base_url = "https://api.openai.com/v1/chat/completions"
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         })
 
-        logger.info("🧠 LLMService initialized")
+        logger.info("🧠 LLMService initialized (deterministic & cached)")
 
-    # ------------ Public: standardization ------------
+    # ------------- Public APIs -------------
 
     def standardize_cv(self, raw_text: str, filename: str = "cv.txt") -> Dict[str, Any]:
-        """Extract and standardize CV content to a normalized JSON."""
+        """
+        Extract & standardize CV → normalized, stable JSON.
+        Caches by (model+seed+prompt+normalized-text) to return identical results for identical content.
+        """
         try:
-            logger.info(f"🔍 Standardizing CV: {filename} ({len(raw_text):,} chars)")
-            if len(raw_text) > 50000:
-                logger.warning(f"⚠️ Large CV detected ({len(raw_text):,}); truncating to 50k")
-                raw_text = raw_text[:50000] + "\n\n[TRUNCATED FOR PROCESSING]"
+            # Normalize + guard size
+            norm = self._normalize_text(raw_text)
+            if len(norm) > 50000:
+                logger.warning(f"⚠️ Large CV detected ({len(norm):,}); truncating to 50k")
+                norm = norm[:50000] + "\n\n[TRUNCATED FOR PROCESSING]"
 
-            messages = self._build_cv_prompt(raw_text)
-            self._log_llm_outbound("CV", filename, raw_text, messages)
-            response = self._call_openai_api(messages)
+            cache_key = self._hash_key("cv", norm)
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                logger.info("📦 Cache hit (CV)")
+                return cached
 
+            messages = self._build_cv_prompt(norm)
+            self._log_llm_outbound("CV", filename, norm, messages)
+
+            response = self._call_openai_api(messages, json_schema=CV_JSON_SCHEMA if STRICT_SCHEMA_ENABLED else None)
             self._log_llm_inbound("CV", response)
+
             if not response.success:
                 raise Exception(response.error_message or "Unknown LLM error")
 
-            normalized = self._validate_cv_response(response.data)
-            # attach processing metadata
+            normalized = self._validate_cv_response(response.data, source_text=norm)
             normalized["processing_metadata"] = {
                 "filename": filename,
                 "processing_time": response.processing_time,
                 "model_used": response.model_used,
-                "text_length": len(raw_text),
+                "system_fingerprint": response.system_fingerprint,
+                "text_length": len(norm),
+                "cache_key": cache_key,
             }
-            logger.info(
-                f"✅ CV standardized: {len(normalized.get('skills_sentences', []))} skills, "
-                f"{len(normalized.get('responsibility_sentences', []))} responsibilities"
-            )
+
+            self._cache_put(cache_key, normalized)
             return normalized
+
         except Exception as e:
             logger.error(f"❌ CV standardization failed: {e}")
             raise
 
     def standardize_jd(self, raw_text: str, filename: str = "jd.txt") -> Dict[str, Any]:
-        """Extract and standardize JD content to a normalized JSON."""
+        """
+        Extract & standardize JD → normalized, stable JSON.
+        Caches by (model+seed+prompt+normalized-text) to return identical results for identical content.
+        """
         try:
-            logger.info(f"🔍 Standardizing JD: {filename} ({len(raw_text):,} chars)")
-            if len(raw_text) > 30000:
-                logger.warning(f"⚠️ Large JD detected ({len(raw_text):,}); truncating to 30k")
-                raw_text = raw_text[:30000] + "\n\n[TRUNCATED FOR PROCESSING]"
+            norm = self._normalize_text(raw_text)
+            if len(norm) > 30000:
+                logger.warning(f"⚠️ Large JD detected ({len(norm):,}); truncating to 30k")
+                norm = norm[:30000] + "\n\n[TRUNCATED FOR PROCESSING]"
 
-            messages = self._build_jd_prompt(raw_text)
-            self._log_llm_outbound("JD", filename, raw_text, messages)
-            response = self._call_openai_api(messages)
+            cache_key = self._hash_key("jd", norm)
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                logger.info("📦 Cache hit (JD)")
+                return cached
 
+            messages = self._build_jd_prompt(norm)
+            self._log_llm_outbound("JD", filename, norm, messages)
+
+            response = self._call_openai_api(messages, json_schema=JD_JSON_SCHEMA if STRICT_SCHEMA_ENABLED else None)
             self._log_llm_inbound("JD", response)
+
             if not response.success:
                 raise Exception(response.error_message or "Unknown LLM error")
 
-            normalized = self._validate_jd_response(response.data)
+            normalized = self._validate_jd_response(response.data, source_text=norm)
             normalized["processing_metadata"] = {
                 "filename": filename,
                 "processing_time": response.processing_time,
                 "model_used": response.model_used,
-                "text_length": len(raw_text),
+                "system_fingerprint": response.system_fingerprint,
+                "text_length": len(norm),
+                "cache_key": cache_key,
             }
-            logger.info(
-                f"✅ JD standardized: {len(normalized.get('skills_sentences', []))} skills, "
-                f"{len(normalized.get('responsibility_sentences', []))} responsibilities"
-            )
+
+            self._cache_put(cache_key, normalized)
             return normalized
+
         except Exception as e:
             logger.error(f"❌ JD standardization failed: {e}")
             raise
 
-    # ------------ Internal: OpenAI call ------------
+    # ------------- OpenAI call -------------
 
     def _call_openai_api(
         self,
         messages: List[Dict[str, str]],
+        *,
         model: Optional[str] = None,
         max_tokens: int = 1500,
-        temperature: float = 0.0
+        json_schema: Optional[Dict[str, Any]] = None
     ) -> LLMResponse:
         if not model:
             model = self.default_model
 
-        body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
+        # response_format: JSON object (or JSON Schema strict)
+        if json_schema:
+            response_format = {"type": "json_schema", "json_schema": json_schema}
+        else:
+            response_format = {"type": "json_object"}
+
+        body = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.0,
+            "top_p": 1,
+            "n": 1,
+            "frequency_penalty": 0,
+            "presence_penalty": 0,
+            "seed": self.seed,
+            "response_format": response_format
+        }
+
         start = time.time()
+        last_err: Optional[str] = None
 
         for attempt in range(self.max_retries):
             try:
@@ -220,34 +361,34 @@ class LLMService:
                 r = self.session.post(self.base_url, json=body, timeout=60)
                 if r.status_code == 200:
                     payload = r.json()
-                    if not payload.get("choices"):
-                        raise Exception(f"Invalid API response: {payload}")
-                    content = payload["choices"][0]["message"]["content"]
+                    sys_fp = payload.get("system_fingerprint")
+                    content = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+
                     if not content or not content.strip():
                         raise Exception("Empty response from OpenAI")
 
-                    try:
-                        data = self._parse_json_response(content)
-                        return LLMResponse(
-                            success=True,
-                            data=data,
-                            processing_time=time.time() - start,
-                            model_used=model,
-                        )
-                    except json.JSONDecodeError as je:
-                        logger.error(f"JSON parsing failed: {je}")
-                        logger.error(f"Raw response: {content}")
-                        raise
+                    data = self._parse_json_response(content)
+                    return LLMResponse(
+                        success=True,
+                        data=data,
+                        processing_time=time.time() - start,
+                        model_used=model,
+                        system_fingerprint=sys_fp
+                    )
 
-                # retryable errors
+                # Retryable HTTP statuses
                 if r.status_code in (429, 502, 503, 504):
+                    last_err = f"API error: {r.status_code} - {r.text}"
                     if attempt < self.max_retries - 1:
                         delay = self.base_delay * (2 ** attempt)
-                        logger.warning(f"⏳ API error {r.status_code}, retrying in {delay}s...")
+                        logger.warning(f"⏳ {last_err}, retrying in {delay}s...")
                         time.sleep(delay)
                         continue
-                raise Exception(f"API error: {r.status_code} - {r.text}")
+                # Non-retryable
+                return LLMResponse(False, {}, time.time() - start, model, f"API error: {r.status_code} - {r.text}")
+
             except requests.exceptions.Timeout:
+                last_err = "Timeout"
                 if attempt < self.max_retries - 1:
                     delay = self.base_delay * (2 ** attempt)
                     logger.warning(f"⏳ Timeout, retrying in {delay}s...")
@@ -255,26 +396,29 @@ class LLMService:
                     continue
                 return LLMResponse(False, {}, time.time() - start, model, "Timeout")
             except Exception as e:
+                last_err = str(e)
                 if attempt < self.max_retries - 1:
                     delay = self.base_delay * (2 ** attempt)
                     logger.warning(f"⏳ Error: {e}, retrying in {delay}s...")
                     time.sleep(delay)
                     continue
-                return LLMResponse(False, {}, time.time() - start, model, str(e))
+                return LLMResponse(False, {}, time.time() - start, model, last_err)
 
-        return LLMResponse(False, {}, time.time() - start, model, "All retries failed")
+        return LLMResponse(False, {}, time.time() - start, model, last_err or "All retries failed")
 
-    # ------------ Prompt builders ------------
+    # ------------- Prompt builders -------------
 
     def _build_cv_prompt(self, text: str) -> List[Dict[str, str]]:
+        # Using a single user message keeps prompt hashing simple/stable.
         return [{"role": "user", "content": f"{DEFAULT_CV_PROMPT}\n\nCV CONTENT:\n{text}"}]
 
     def _build_jd_prompt(self, text: str) -> List[Dict[str, str]]:
         return [{"role": "user", "content": f"{DEFAULT_JD_PROMPT}\n\nJOB DESCRIPTION:\n{text}"}]
 
-    # ------------ Parsing & validation ------------
+    # ------------- Parsing & validation -------------
 
     def _parse_json_response(self, content: str) -> Dict[str, Any]:
+        # response_format is JSON, but we still guard against code fences etc.
         cleaned = re.sub(r'```(json)?', '', content, flags=re.IGNORECASE).strip()
         start = cleaned.find("{")
         end = cleaned.rfind("}")
@@ -299,18 +443,45 @@ class LLMService:
                 continue
             seen.add(key)
             cleaned.append(s)
-        # pad / trim
         if len(cleaned) < target_len:
             cleaned.extend([""] * (target_len - len(cleaned)))
         return cleaned[:target_len]
 
-    def _validate_cv_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        # prefer new keys, fall back to legacy if present
+    def _stable_order(self, phrases: List[str], source: str) -> List[str]:
+        """
+        Deterministic ordering: by first occurrence in source (case-insensitive),
+        with blanks last; ties resolved lexicographically.
+        """
+        src = source.lower()
+        tagged = []
+        BIG = 10 ** 9
+        for p in phrases:
+            if not p:
+                tagged.append((BIG, ""))  # blanks at end
+            else:
+                c = self._canonicalize(p)
+                idx = src.find(c.lower())
+                if idx < 0:
+                    idx = BIG - 1
+                tagged.append((idx, c))
+        tagged.sort(key=lambda t: (t[0], t[1]))
+        return [t[1] for t in tagged]
+
+    def _canonicalize(self, s: str) -> str:
+        s = unicodedata.normalize("NFKC", s).strip()
+        s = re.sub(r"\s+", " ", s)
+        return s
+
+    def _validate_cv_response(self, data: Dict[str, Any], *, source_text: str) -> Dict[str, Any]:
         skills_src = data.get("skills_sentences") or data.get("skills") or []
         resp_src = data.get("responsibility_sentences") or data.get("responsibilities") or []
 
         skills = self._normalize_fixed_list(skills_src, 20)
         resps  = self._normalize_fixed_list(resp_src, 10)
+
+        # deterministic ordering by appearance in source
+        skills = self._stable_order(skills, source_text)
+        resps  = self._stable_order(resps, source_text)
 
         out = {
             "doc_type": "resume",
@@ -319,19 +490,22 @@ class LLMService:
             "years_of_experience": data.get("years_of_experience"),
             "skills_sentences": skills,
             "responsibility_sentences": resps,
-            # Back-compat aliases so existing UI/DB that reads 'skills' / 'responsibilities' still works
+            # Back-compat aliases
             "skills": skills,
             "responsibilities": resps,
             "contact_info": {"name": data.get("name")},
         }
         return out
 
-    def _validate_jd_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_jd_response(self, data: Dict[str, Any], *, source_text: str) -> Dict[str, Any]:
         skills_src = data.get("skills_sentences") or data.get("skills") or []
         resp_src   = data.get("responsibility_sentences") or data.get("responsibilities") or []
 
         skills = self._normalize_fixed_list(skills_src, 20)
         resps  = self._normalize_fixed_list(resp_src, 10)
+
+        skills = self._stable_order(skills, source_text)
+        resps  = self._stable_order(resps, source_text)
 
         out = {
             "doc_type": "job_description",
@@ -345,13 +519,49 @@ class LLMService:
         }
         return out
 
-    # ------------ Logging helpers ------------
+    # ------------- Normalization & cache -------------
+
+    def _normalize_text(self, s: str) -> str:
+        s = unicodedata.normalize("NFKC", s)
+        s = s.replace("\r\n", "\n").replace("\r", "\n")
+        s = re.sub(r"[ \t]+", " ", s)
+        s = re.sub(r"\n{3,}", "\n\n", s)
+        return s.strip()
+
+    def _hash_key(self, kind: str, text: str) -> str:
+        # Include prompt + model + seed so any change invalidates cache deterministically
+        prompt = DEFAULT_CV_PROMPT if kind == "cv" else DEFAULT_JD_PROMPT
+        basis = f"{kind}||{self.default_model}||{self.seed}||{prompt}||{text}"
+        return hashlib.sha256(basis.encode("utf-8")).hexdigest()
+
+    def _cache_path(self, key: str) -> str:
+        return os.path.join(self.cache_dir, f"{key}.json")
+
+    def _cache_get(self, key: str) -> Optional[Dict[str, Any]]:
+        p = self._cache_path(key)
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"Cache read failed for {p}: {e}")
+        return None
+
+    def _cache_put(self, key: str, obj: Dict[str, Any]) -> None:
+        p = self._cache_path(key)
+        try:
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(obj, f, ensure_ascii=False)
+        except Exception as e:
+            logger.warning(f"Cache write failed for {p}: {e}")
+
+    # ------------- Logging helpers -------------
 
     def _log_llm_outbound(self, kind: str, filename: str, raw_text: str, messages: List[Dict[str, str]]):
         logger.info(f"---------- DATA SENT TO LLM ({kind}) ----------")
         logger.info(f"Filename: {filename}")
         logger.info(f"Text length: {len(raw_text)} characters")
-        logger.info(f"Prompt:\n{messages[0]['content'][:1500]}")
+        logger.info(f"Prompt (first 1500 chars):\n{messages[0]['content'][:1500]}")
         logger.info("----------------------------------------------")
 
     def _log_llm_inbound(self, kind: str, response: LLMResponse):
@@ -359,6 +569,7 @@ class LLMService:
         logger.info(f"Success: {response.success}")
         logger.info(f"Processing time: {response.processing_time:.2f}s")
         logger.info(f"Model used: {response.model_used}")
+        logger.info(f"system_fingerprint: {response.system_fingerprint}")
         if response.success:
             logger.info(f"Response data keys: {list(response.data.keys())}")
         else:
@@ -366,7 +577,9 @@ class LLMService:
         logger.info("-----------------------------------------------")
 
 
-# -------- Thin helpers used by routes/special endpoints --------
+# ============================
+# ---- Thin helpers / DI  ----
+# ============================
 
 _llm_service: Optional[LLMService] = None
 
@@ -376,19 +589,36 @@ def get_llm_service() -> LLMService:
         _llm_service = LLMService()
     return _llm_service
 
+
+# Keep your existing async route helper for JD
 async def extract_jd(jd_text: str) -> Dict[str, Any]:
     """
-    Extract JD structure from raw text (no DB). Returns SAME shape as our DB-structured JD:
+    Extract JD structure from raw text (no DB). Returns:
       { job_title, years_of_experience, skills_sentences[20], responsibility_sentences[10] }
     """
     service = get_llm_service()
     data = service.standardize_jd(jd_text, "jd_input.txt")
-    # Normalize to expected keys
-    skills = data.get("skills_sentences") or data.get("skills") or []
-    resps  = data.get("responsibility_sentences") or data.get("responsibilities") or []
+    # Normalize keys (already fixed-length and ordered)
     return {
         "job_title": data.get("job_title", ""),
         "years_of_experience": data.get("years_of_experience", 0),
-        "skills_sentences": skills[:20],
-        "responsibility_sentences": resps[:10],
+        "skills_sentences": (data.get("skills_sentences") or data.get("skills") or [])[:20],
+        "responsibility_sentences": (data.get("responsibility_sentences") or data.get("responsibilities") or [])[:10],
+    }
+
+
+# (Optional) symmetry helper if you want parity with extract_jd
+async def extract_cv(cv_text: str) -> Dict[str, Any]:
+    """
+    Extract CV structure from raw text (no DB). Returns:
+      { name, job_title, years_of_experience, skills_sentences[20], responsibility_sentences[10] }
+    """
+    service = get_llm_service()
+    data = service.standardize_cv(cv_text, "cv_input.txt")
+    return {
+        "name": data.get("name", None),
+        "job_title": data.get("job_title", ""),
+        "years_of_experience": data.get("years_of_experience", 0),
+        "skills_sentences": data.get("skills_sentences", []),
+        "responsibility_sentences": data.get("responsibility_sentences", []),
     }

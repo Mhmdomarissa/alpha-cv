@@ -3,24 +3,38 @@ import { create } from 'zustand';
 export interface QueueItem {
   id: string;
   file: File;
-  type: 'cv' | 'jd';
-  status: 'pending' | 'uploading' | 'completed' | 'error';
+  kind: 'cv' | 'jd'; // Changed from 'type' to 'kind' to match existing usage
+  status: 'pending' | 'uploading' | 'processing' | 'completed' | 'error';
   progress?: number;
   error?: string;
   dbId?: string; // ID returned from successful upload
+  name?: string;
+  size?: number;
+  extractedData?: {
+    name?: string;
+    jobTitle?: string;
+    years?: string;
+    skills?: string[];
+    responsibilities?: string[];
+  };
 }
 
 interface UploadQueueStore {
-  queue: QueueItem[];
+  items: QueueItem[]; // Changed from 'queue' to 'items' to match existing usage
   isProcessing: boolean;
   
-  // Actions
+  // Actions that match existing usage
+  addMany: (kind: 'cv' | 'jd', files: File[]) => void;
+  update: (id: string, updates: Partial<QueueItem>) => void;
+  remove: (id: string) => void;
+  clearAll: () => void;
+  setProcessing: (processing: boolean) => void;
+  
+  // Legacy actions for backward compatibility
   addToQueue: (file: File, type: 'cv' | 'jd') => string;
   removeFromQueue: (id: string) => void;
   updateItemStatus: (id: string, status: QueueItem['status'], progress?: number, error?: string, dbId?: string) => void;
   clearCompleted: () => void;
-  clearAll: () => void;
-  setProcessing: (processing: boolean) => void;
   
   // Getters
   getPendingItems: () => QueueItem[];
@@ -29,65 +43,90 @@ interface UploadQueueStore {
 }
 
 export const useUploadQueue = create<UploadQueueStore>((set, get) => ({
-  queue: [],
+  items: [],
   isProcessing: false,
   
-  addToQueue: (file: File, type: 'cv' | 'jd') => {
-    const id = Math.random().toString(36).substr(2, 9);
-    const newItem: QueueItem = {
-      id,
+  // Main actions that match existing usage
+  addMany: (kind: 'cv' | 'jd', files: File[]) => {
+    const newItems: QueueItem[] = files.map(file => ({
+      id: Math.random().toString(36).substr(2, 9),
       file,
-      type,
-      status: 'pending',
+      name: file.name,
+      size: file.size,
+      kind,
+      status: 'pending' as const,
       progress: 0
-    };
-    
-    set(state => ({
-      queue: [...state.queue, newItem]
     }));
     
-    return id;
-  },
-  
-  removeFromQueue: (id: string) => {
     set(state => ({
-      queue: state.queue.filter(item => item.id !== id)
+      items: [...state.items, ...newItems]
     }));
   },
   
-  updateItemStatus: (id: string, status: QueueItem['status'], progress?: number, error?: string, dbId?: string) => {
+  update: (id: string, updates: Partial<QueueItem>) => {
     set(state => ({
-      queue: state.queue.map(item => 
-        item.id === id 
-          ? { ...item, status, progress, error, dbId }
-          : item
+      items: state.items.map(item => 
+        item.id === id ? { ...item, ...updates } : item
       )
     }));
   },
   
-  clearCompleted: () => {
+  remove: (id: string) => {
     set(state => ({
-      queue: state.queue.filter(item => item.status !== 'completed')
+      items: state.items.filter(item => item.id !== id)
     }));
   },
   
   clearAll: () => {
-    set({ queue: [] });
+    set({ items: [] });
   },
   
   setProcessing: (processing: boolean) => {
     set({ isProcessing: processing });
   },
   
+  // Legacy actions for backward compatibility
+  addToQueue: (file: File, type: 'cv' | 'jd') => {
+    const id = Math.random().toString(36).substr(2, 9);
+    const newItem: QueueItem = {
+      id,
+      file,
+      kind: type,
+      status: 'pending',
+      progress: 0
+    };
+    
+    set(state => ({
+      items: [...state.items, newItem]
+    }));
+    
+    return id;
+  },
+  
+  removeFromQueue: (id: string) => {
+    get().remove(id);
+  },
+  
+  updateItemStatus: (id: string, status: QueueItem['status'], progress?: number, error?: string, dbId?: string) => {
+    get().update(id, { status, progress, error, dbId });
+  },
+  
+  clearCompleted: () => {
+    set(state => ({
+      items: state.items.filter(item => item.status !== 'completed')
+    }));
+  },
+  
+  // Getters
   getPendingItems: () => {
-    return get().queue.filter(item => item.status === 'pending');
+    return get().items.filter(item => item.status === 'pending');
   },
   
   getCompletedItems: () => {
-    return get().queue.filter(item => item.status === 'completed');
+    return get().items.filter(item => item.status === 'completed');
   },
   
   getErrorItems: () => {
-    return get().queue.filter(item => item.status === 'error');
+    return get().items.filter(item => item.status === 'error');
   }
 }));

@@ -303,3 +303,42 @@ export interface DatabaseViewResponse {
   };
   timestamp: number;
 }
+
+// Auth types
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  username: string;
+  role: 'admin' | 'user';
+}
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  role: 'admin' | 'user';
+  is_active: boolean;
+}
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  role: 'admin' | 'user';
+  is_active: boolean;
+}
+
+export interface CreateUserRequest {
+  username: string;
+  password: string;
+  role: 'admin' | 'user';
+}
+
+export interface UpdateUserRequest {
+  password?: string;
+  role?: 'admin' | 'user';
+  is_active?: boolean;
+}
