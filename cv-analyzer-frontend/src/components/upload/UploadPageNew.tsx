@@ -13,6 +13,7 @@ import {
   Play,
   Eye,
   ArrowRight,
+  Trash2,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useUploadQueue } from '@/stores/uploadQueue';
@@ -53,6 +54,43 @@ export default function UploadPageNew() {
   const hasDBData = (cvs?.length ?? 0) > 0 && (jds?.length ?? 0) > 0;
   const hasLocalCompletedBoth = completedCVs > 0 && completedJDs > 0;
   const canContinue = hasDBData || hasLocalCompletedBoth;
+  
+  /* --------------------------------- Duplicates Detection --------------------------------- */
+  const hasDuplicates = useMemo(() => {
+    const fileMap = new Map<string, boolean>();
+    
+    for (const item of items) {
+      const key = `${item.kind}-${item.name}`;
+      if (fileMap.has(key)) {
+        return true;
+      }
+      fileMap.set(key, true);
+    }
+    return false;
+  }, [items]);
+  
+  const removeDuplicates = useCallback(() => {
+    const seen = new Map<string, string>();
+    const duplicates: string[] = [];
+    
+    // First pass: identify duplicates
+    for (const item of items) {
+      const key = `${item.kind}-${item.name}`;
+      if (seen.has(key)) {
+        duplicates.push(item.id);
+      } else {
+        seen.set(key, item.id);
+      }
+    }
+    
+    // Remove duplicates
+    if (duplicates.length > 0) {
+      if (confirm(`Remove ${duplicates.length} duplicate file(s)?`)) {
+        duplicates.forEach(id => remove(id));
+      }
+    }
+  }, [items, remove]);
+  
   /* --------------------------------- Dropzones --------------------------------- */
   const onCVDrop = useCallback((accepted: File[]) => addMany('cv', accepted), [addMany]);
   const onJDDrop = useCallback((accepted: File[]) => addMany('jd', accepted), [addMany]);
@@ -100,10 +138,12 @@ export default function UploadPageNew() {
         const response = await api.uploadJD(f.file as File);
         console.log('JD upload response:', response);
         
-        // Extract the ID from the response
+        // Extract the ID from the response - handle different response formats
         let dbId: string | undefined = undefined;
         if (response && response.jd_id) {
           dbId = response.jd_id;
+        } else if (response && response.cv_id) {
+          dbId = response.cv_id;
         }
         
         console.log(`Extracted JD dbId: ${dbId}`);
@@ -134,10 +174,12 @@ export default function UploadPageNew() {
         const response = await api.uploadCV(f.file as File);
         console.log('CV upload response:', response);
         
-        // Extract the ID from the response
+        // Extract the ID from the response - handle different response formats
         let dbId: string | undefined = undefined;
         if (response && response.cv_id) {
           dbId = response.cv_id;
+        } else if (response && response.jd_id) {
+          dbId = response.jd_id;
         }
         
         console.log(`Extracted CV dbId: ${dbId}`);
@@ -476,12 +518,39 @@ export default function UploadPageNew() {
                   </>
                 )}
               </button>
+              
+              {hasDuplicates && (
+                <button
+                  onClick={removeDuplicates}
+                  disabled={isUploading || anyProcessing}
+                  className="btn-outline"
+                  title="Remove duplicate files"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Remove Duplicates
+                </button>
+              )}
+              
               <button onClick={clearAll} disabled={isUploading || anyProcessing} className="btn-outline">
                 <X className="w-4 h-4" />
                 Clear All
               </button>
             </div>
           </div>
+          
+          {/* Duplicate warning */}
+          {hasDuplicates && (
+            <div className="mb-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200 flex items-start space-x-2">
+              <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-yellow-800">Duplicate files detected</p>
+                <p className="text-sm text-yellow-700">
+                  You have uploaded the same file multiple times. Use "Remove Duplicates" to keep only the first occurrence of each file.
+                </p>
+              </div>
+            </div>
+          )}
+          
           <div className="space-y-3">
             {/* JD Files */}
             {jdItems.map((file) => (
@@ -594,6 +663,9 @@ export default function UploadPageNew() {
           </p>
           <p className="text-sm text-yellow-700">
             Completed CVs with dbId: {cvItems.filter(f => f.status === 'completed' && f.dbId).length}
+          </p>
+          <p className="text-sm text-yellow-700">
+            Has duplicates: {hasDuplicates ? 'Yes' : 'No'}
           </p>
           <details className="mt-2">
             <summary className="text-sm font-medium text-yellow-800 cursor-pointer">Queue Details</summary>

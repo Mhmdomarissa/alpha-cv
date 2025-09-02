@@ -1,5 +1,6 @@
 export const config = {
-  apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://13.62.91.25:8000',
+  apiUrl: process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  appName: process.env.NEXT_PUBLIC_APP_NAME || 'CV Analyzer',
   appVersion: '2.0.0',
   requestTimeout: 30000,
 } as const;

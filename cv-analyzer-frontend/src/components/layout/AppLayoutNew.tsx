@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   Home,
   Upload, 
@@ -14,9 +15,12 @@ import {
   Users,
   FileText,
   Clock,
-  Zap
+  Zap,
+  LogOut,
+  User
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import { useAuthStore } from '@/stores/authStore';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -58,8 +62,15 @@ const navigationTabs: TabItem[] = [
 ];
 
 export default function AppLayoutNew({ children }: AppLayoutProps) {
+  const router = useRouter();
   const { currentTab, setCurrentTab, systemHealth, cvs, jds, matchResult } = useAppStore();
+  const { user, logout } = useAuthStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
 
   const getTabStats = (tabId: string) => {
     switch (tabId) {
@@ -141,8 +152,42 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
               })}
             </nav>
 
-            {/* System Status */}
-            <div className="flex items-center space-x-3">
+            {/* User Info & Logout */}
+            <div className="flex items-center space-x-4">
+              {user && (
+                <div className="hidden sm:flex items-center space-x-3">
+                  <div className="flex items-center space-x-2">
+                    <User className="w-4 h-4" style={{ color: 'var(--gray-500)' }} />
+                    <span className="text-sm" style={{ color: 'var(--gray-700)' }}>
+                      {user.username}
+                    </span>
+                    <span 
+                      className="text-xs px-2 py-1 rounded-full"
+                      style={{ 
+                        backgroundColor: user.role === 'admin' ? 'var(--red-100)' : 'var(--blue-100)',
+                        color: user.role === 'admin' ? 'var(--red-800)' : 'var(--blue-800)'
+                      }}
+                    >
+                      {user.role}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center space-x-1 px-3 py-1 rounded-lg transition-colors"
+                    style={{ 
+                      color: 'var(--gray-600)',
+                      backgroundColor: 'transparent'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--gray-100)'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span className="text-sm">Logout</span>
+                  </button>
+                </div>
+              )}
+
+              {/* System Status */}
               <div className="hidden sm:flex items-center space-x-2">
                 <div 
                   className="w-2 h-2 rounded-full"

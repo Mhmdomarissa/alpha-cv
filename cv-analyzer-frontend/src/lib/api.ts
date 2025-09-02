@@ -16,7 +16,13 @@ import {
   EmbeddingsInfoResponse,
   CVDataResponse,
   JDDataResponse,
-  DatabaseViewResponse
+  DatabaseViewResponse,
+  LoginRequest,
+  LoginResponse,
+  UserProfile,
+  AdminUser,
+  CreateUserRequest,
+  UpdateUserRequest
 } from './types';
 
 class ApiClient {
@@ -215,6 +221,60 @@ async downloadCV(cvId: string): Promise<Blob> {
   });
   return response.data;
 }
+
+  // Auth methods
+  async login(username: string, password: string): Promise<LoginResponse> {
+    const response = await this.client.post<LoginResponse>('/api/auth/login', {
+      username,
+      password,
+    });
+    return response.data;
+  }
+
+  async me(token: string): Promise<UserProfile> {
+    const response = await this.client.get<UserProfile>('/api/auth/me', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.data;
+  }
+
+  // Admin methods
+  async listUsers(token: string): Promise<AdminUser[]> {
+    const response = await this.client.get<AdminUser[]>('/api/admin/users', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.data;
+  }
+
+  async createUser(token: string, body: CreateUserRequest): Promise<AdminUser> {
+    const response = await this.client.post<AdminUser>('/api/admin/users', body, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.data;
+  }
+
+  async updateUser(token: string, id: string, body: UpdateUserRequest): Promise<AdminUser> {
+    const response = await this.client.patch<AdminUser>(`/api/admin/users/${id}`, body, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.data;
+  }
+
+  async deleteUser(token: string, id: string): Promise<void> {
+    await this.client.delete(`/api/admin/users/${id}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  }
 }
 
 
@@ -254,5 +314,18 @@ export const api = {
   getDatabaseView: () => RequestRetryHandler.withRetry(() => apiClient.getDatabaseView()),
   clearDatabase: (confirm: boolean) => RequestRetryHandler.withRetry(() => apiClient.clearDatabase(confirm)),
   downloadCV: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.downloadCV(cvId)),
+
+  // Auth
+  login: (username: string, password: string) => RequestRetryHandler.withRetry(() => apiClient.login(username, password)),
+  me: (token: string) => RequestRetryHandler.withRetry(() => apiClient.me(token)),
+
+  // Admin Users (admin only)
+  listUsers: (token: string) => RequestRetryHandler.withRetry(() => apiClient.listUsers(token)),
+  createUser: (token: string, body: CreateUserRequest) => RequestRetryHandler.withRetry(() => apiClient.createUser(token, body)),
+  updateUser: (token: string, id: string, body: UpdateUserRequest) => RequestRetryHandler.withRetry(() => apiClient.updateUser(token, id, body)),
+  deleteUser: (token: string, id: string) => RequestRetryHandler.withRetry(() => apiClient.deleteUser(token, id)),
 };
+
+// Re-export types for convenience
+export type { AdminUser, CreateUserRequest, UpdateUserRequest, LoginResponse, UserProfile } from './types';
 
