@@ -36,6 +36,9 @@ Exactly 20 SKILL PHRASES (by reviewing the full CV and understanding the skills 
 Exactly 10 RESPONSIBILITY PHRASES (from WORK EXPERIENCE / PROFESSIONAL EXPERIENCE sections; if fewer than 10, derive the remaining from CERTIFICATIONS or other professional sections, but never from skills).
 The most recent JOB TITLE.
 YEARS OF EXPERIENCE (total professional experience by seeing the date the candidate started working and taking a general calculation from start to present; you may infer from phrases like "15 years of experience").
+JOB CATEGORY: Classify the candidate's role as one of (Technical/Management/Sales/Finance/HR/Marketing/Operations/Specialized).
+SENIORITY LEVEL: Determine the seniority as one of (Entry/Junior/Mid/Senior/Lead/Manager/Director/VP/C-Level).
+ROLE FAMILY: Identify the role family such as (Engineering/Management/Sales/Finance/HR/Marketing/Operations/Healthcare/Education/etc).
 General Rules:
 Output valid JSON only. No markdown, no comments, no trailing commas.
 Use English only.
@@ -57,6 +60,9 @@ Output Format:
   "name": string | null,
   "job_title": string | null,
   "years_of_experience": number | null,
+  "job_category": string | null,
+  "seniority_level": string | null,
+  "role_family": string | null,
   "skills_sentences": [
     "<Skill phrase 1>",
     "... (total 20 items)",
@@ -74,9 +80,12 @@ Output Format:
 DEFAULT_JD_PROMPT = """You are an information-extraction engine. You will receive the full plain text of ONE job description (JD).
 Your job is to output STRICT JSON with the following schema, extracting:
 Exactly 20 SKILL PHRASES (prefer SKILLS, REQUIREMENTS, QUALIFICATIONS, TECHNOLOGY STACK sections; read the full document. If fewer than 20 exist, leave remaining slots as "").
-Exactly 10 RESPONSIBILITY PHRASES (from RESPONSIBILITIES, DUTIES, WHAT YOU’LL DO sections; if fewer than 10 exist, leave remaining slots as "").
+Exactly 10 RESPONSIBILITY PHRASES (from RESPONSIBILITIES, DUTIES, WHAT YOU'LL DO sections; if fewer than 10 exist, leave remaining slots as "").
 The JOB TITLE of the role.
 YEARS OF EXPERIENCE (minimum required, if explicitly stated; if a range is given, use the minimum).
+JOB CATEGORY: Classify the role as one of (Technical/Management/Sales/Finance/HR/Marketing/Operations/Specialized).
+SENIORITY LEVEL: Determine the seniority as one of (Entry/Junior/Mid/Senior/Lead/Manager/Director/VP/C-Level).
+ROLE FAMILY: Identify the role family such as (Engineering/Management/Sales/Finance/HR/Marketing/Operations/Healthcare/Education/etc).
 General Rules:
 Output valid JSON only. No markdown, no comments, no trailing commas.
 Use English only.
@@ -97,6 +106,9 @@ Output Format:
   "doc_type": "job_description",
   "job_title": string | null,
   "years_of_experience": number | null,
+  "job_category": string | null,
+  "seniority_level": string | null,
+  "role_family": string | null,
   "skills_sentences": [
     "<Skill phrase 1>",
     "... (total 20 items)",

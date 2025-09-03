@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from app.services.matching_service import (
     get_matching_service,
-    normalize_weights,
     years_score,
     hungarian_mean,
 )
@@ -56,6 +55,13 @@ class TextMatchRequest(BaseModel):
 # ----------------------------
 # Helpers
 # ----------------------------
+def normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
+    """Normalize weights to sum to 1.0"""
+    total = sum(weights.values())
+    if total <= 0:
+        return {"skills": 0.25, "responsibilities": 0.25, "job_title": 0.25, "experience": 0.25}
+    return {k: v / total for k, v in weights.items()}
+
 def safe_parse_years(years_value) -> int:
     """Safely parse years of experience, handling string values like 'Not specified' or '5-8'."""
     if not years_value:

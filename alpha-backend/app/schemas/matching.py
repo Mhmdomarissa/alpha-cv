@@ -3,10 +3,10 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal, Dict
 
 class MatchWeights(BaseModel):
-    skills: float = 80
-    responsibilities: float = 15
-    job_title: float = 2.5
-    experience: float = 2.5
+    skills: float = 50
+    responsibilities: float = 20
+    job_title: float = 20
+    experience: float = 10
 
 class MatchRequest(BaseModel):
     # Provide one of: jd_id OR jd_text
