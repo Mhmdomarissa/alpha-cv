@@ -15,11 +15,14 @@ from fastapi.responses import JSONResponse
 
 # Routers
 from app.routes import cv_routes, jd_routes, special_routes
+from app.routes.auth_routes import router as auth_router
+from app.routes.admin_routes import router as admin_router
 
 # Services init
 from app.utils.qdrant_utils import get_qdrant_utils
 from app.services.embedding_service import get_embedding_service
 from app.utils.cache import get_cache_service
+from app.db.auth_db import init_auth_db
 
 # --------------------
 # Logging
@@ -59,6 +62,10 @@ async def lifespan(app: FastAPI):
         logger.info("🧰 Initializing cache service...")
         get_cache_service()
         logger.info("✅ Cache ready")
+
+        logger.info("🔐 Initializing auth database...")
+        init_auth_db()
+        logger.info("✅ Auth database ready")
 
         logger.info("🎉 Startup complete")
     except Exception as e:
@@ -103,6 +110,11 @@ app.add_middleware(
 # --------------------
 # Routes
 # --------------------
+# Auth routes
+app.include_router(auth_router)
+app.include_router(admin_router)
+
+# Existing routes (unchanged)
 app.include_router(cv_routes.router, prefix="/api/cv", tags=["CV Management"])
 app.include_router(jd_routes.router, prefix="/api/jd", tags=["Job Description Management"])
 app.include_router(special_routes.router, prefix="/api", tags=["Matching & System"])
@@ -130,6 +142,9 @@ async def root():
             "matching_deterministic": "/api/match",
             "text_match": "/api/match-text",
             "health": "/api/health",
+            "auth_login": "/api/auth/login",
+            "auth_me": "/api/auth/me",
+            "admin_users": "/api/admin/users",
             "docs": "/docs",
             "redoc": "/redoc",
         },
@@ -140,6 +155,7 @@ async def root():
             "EXACT 32-vector storage for embeddings",
             "Explainable + Hungarian deterministic matching",
             "Bulk processing & top candidate search",
+            "JWT Authentication & User Management",
         ],
         "qdrant_collections": [
             "cv_documents", "cv_structured", "cv_embeddings",

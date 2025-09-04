@@ -38,38 +38,41 @@ const formatDate = (dateString?: string) => {
 };
 
 const getCVBasics = (cv: any) => {
-  const c = cv?.candidate || {};
+  // Handle nested API response structure: response.cv.candidate
+  const candidate = cv?.cv?.candidate || cv?.candidate || {};
+  const cvData = cv?.cv || cv;
+  
   return {
-    name: cv?.full_name ?? c.full_name ?? 'Unknown',
-    title: cv?.job_title ?? c.job_title ?? 'Unknown',
-    years: cv?.years_of_experience ?? c.years_of_experience ?? '0',
-    skillsCount: cv?.skills_count ?? c.skills_count ?? (cv?.skills?.length ?? c.skills?.length ?? 0),
-    respCount:
-      cv?.responsibilities_count ??
-      c.responsibilities_count ??
-      (cv?.responsibilities?.length ?? c.responsibilities?.length ?? 0),
+    name: candidate?.full_name || cvData?.full_name || 'Unknown',
+    title: candidate?.job_title || cvData?.job_title || 'Unknown', 
+    years: candidate?.years_of_experience || cvData?.years_of_experience || '0',
+    skillsCount: candidate?.skills_count || candidate?.skills?.length || cvData?.skills?.length || 0,
+    respCount: candidate?.responsibilities_count || candidate?.responsibilities?.length || cvData?.responsibilities?.length || 0,
   };
 };
 
 const getJDBasics = (jd: any) => {
-  const src = jd?.job_requirements || jd?.structured_info || {};
-  const title = src.job_title ?? jd?.job_title ?? 'N/A';
+  // Handle nested API response structure: response.jd or direct response
+  const jdData = jd?.jd || jd;
+  const src = jdData?.job_requirements || jdData?.structured_info || {};
+  
+  const title = src.job_title ?? jdData?.job_title ?? 'N/A';
   const years =
-    src.years_of_experience ?? src.experience_years ?? jd?.years_of_experience ?? '0';
+    src.years_of_experience ?? src.experience_years ?? jdData?.years_of_experience ?? '0';
   const skills =
     src.skills ??
-    jd?.skills ??
+    jdData?.skills ??
     [];
   const responsibilities =
     src.responsibilities ??
     src.responsibility_sentences ??
-    jd?.responsibilities ??
+    jdData?.responsibilities ??
     [];
   const skillsCount =
-    src.skills_count ?? jd?.skills_count ?? (Array.isArray(skills) ? skills.length : 0);
+    src.skills_count ?? jdData?.skills_count ?? (Array.isArray(skills) ? skills.length : 0);
   const responsibilitiesCount =
     src.responsibilities_count ??
-    jd?.responsibilities_count ??
+    jdData?.responsibilities_count ??
     (Array.isArray(responsibilities) ? responsibilities.length : 0);
   return { title, years, skills, responsibilities, skillsCount, responsibilitiesCount };
 };
@@ -241,7 +244,7 @@ export default function DatabasePageNew() {
         Cancel
       </Button>
       <Button
-        variant="destructive"
+        variant="error"
         onClick={handleClearDatabase}
         disabled={isClearing}
         className="bg-rose-600 hover:bg-rose-700"
@@ -445,7 +448,7 @@ export default function DatabasePageNew() {
                                 <DialogTitle className="text-xl font-semibold">CV Details</DialogTitle>
                                 <Button
                                   variant="ghost"
-                                  size="icon"
+                                  size="sm"
                                   onClick={() => setSelectedCVForDetails(null)}
                                   className="h-6 w-6 rounded-full hover:bg-gray-100"
                                 >
@@ -551,7 +554,7 @@ export default function DatabasePageNew() {
                                 <DialogTitle className="text-xl font-semibold">Job Description Details</DialogTitle>
                                 <Button
                                   variant="ghost"
-                                  size="icon"
+                                  size="sm"
                                   onClick={() => setSelectedJDForDetails(null)}
                                   className="h-6 w-6 rounded-full hover:bg-gray-100"
                                 >
@@ -599,7 +602,7 @@ function CVDetails({ cvId }: { cvId: string }) {
         setLoading(true);
         setError(null);
         const response = await api.getCVDetails(cvId);
-        const cvData = response.cv || response.data || response;
+        const cvData = response;
         setCV(cvData);
       } catch (err: any) {
         setError(err.message || 'Failed to load CV details');
@@ -643,7 +646,7 @@ function CVDetails({ cvId }: { cvId: string }) {
           </div>
           <div>
             <h4 className="text-sm font-medium text-gray-500">Upload Date</h4>
-            <p className="text-base font-semibold">{formatDate(cv.upload_date)}</p>
+            <p className="text-base font-semibold">{formatDate(cv?.cv?.upload_date || cv?.upload_date)}</p>
           </div>
         </div>
         
@@ -675,15 +678,18 @@ function CVDetails({ cvId }: { cvId: string }) {
           <h3 className="text-lg font-semibold">Skills</h3>
           <Badge className="ml-2">{b.skillsCount}</Badge>
         </div>
-        {(cv.skills || cv.candidate?.skills)?.length ? (
-          <ul className="space-y-2">
-            {(cv.skills || cv.candidate?.skills).map((skill: string, i: number) => (
-              <li key={i} className="text-gray-700">{skill}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-gray-500">No skills information available</p>
-        )}
+        {(() => {
+          const skills = cv?.cv?.candidate?.skills || cv?.candidate?.skills || cv?.cv?.skills || cv?.skills || [];
+          return skills.length ? (
+            <ul className="space-y-2">
+              {skills.map((skill: string, i: number) => (
+                <li key={i} className="text-gray-700">{skill}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-gray-500">No skills information available</p>
+          );
+        })()}
       </div>
       
       {/* Responsibilities */}
@@ -692,15 +698,18 @@ function CVDetails({ cvId }: { cvId: string }) {
           <h3 className="text-lg font-semibold">Responsibilities</h3>
           <Badge className="ml-2">{b.respCount}</Badge>
         </div>
-        {(cv.responsibilities || cv.candidate?.responsibilities)?.length ? (
-          <ul className="space-y-2">
-            {(cv.responsibilities || cv.candidate?.responsibilities).map((resp: string, i: number) => (
-              <li key={i} className="text-gray-700">{resp}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-gray-500">No responsibilities information available</p>
-        )}
+        {(() => {
+          const responsibilities = cv?.cv?.candidate?.responsibilities || cv?.candidate?.responsibilities || cv?.cv?.responsibilities || cv?.responsibilities || [];
+          return responsibilities.length ? (
+            <ul className="space-y-2">
+              {responsibilities.map((resp: string, i: number) => (
+                <li key={i} className="text-gray-700">{resp}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-gray-500">No responsibilities information available</p>
+          );
+        })()}
       </div>
       
       {/* Text Preview */}
@@ -708,11 +717,11 @@ function CVDetails({ cvId }: { cvId: string }) {
         <h3 className="text-lg font-semibold mb-3">Text Preview</h3>
         <div className="bg-gray-50 p-3 rounded max-h-40 overflow-y-auto">
           <p className="text-sm text-gray-700 whitespace-pre-line">
-            {cv.text_info?.extracted_text_preview || cv.extracted_text_preview || 'No text preview available'}
+            {cv?.cv?.text_info?.extracted_text_preview || cv?.text_info?.extracted_text_preview || cv?.extracted_text_preview || 'No text preview available'}
           </p>
         </div>
         <div className="mt-2 text-sm text-gray-500">
-          Text length: {cv.text_info?.extracted_text_length || cv.extracted_text_length || 0} characters
+          Text length: {cv?.cv?.text_info?.extracted_text_length || cv?.text_info?.extracted_text_length || cv?.extracted_text_length || 0} characters
         </div>
       </div>
       
@@ -721,30 +730,31 @@ function CVDetails({ cvId }: { cvId: string }) {
         <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
           <h3 className="text-lg font-semibold mb-3">Embeddings Information</h3>
           <div className="space-y-2">
-            <Row label="Skills Embeddings" value={cv.embeddings_info?.skills_embeddings || cv.skills_embeddings || 0} />
-            <Row label="Responsibilities Embeddings" value={cv.embeddings_info?.responsibilities_embeddings || cv.responsibilities_embeddings || 0} />
-            <Row label="Title Embedding" value={(cv.embeddings_info?.has_title_embedding || cv.has_title_embedding) ? 'Yes' : 'No'} />
-            <Row label="Experience Embedding" value={(cv.embeddings_info?.has_experience_embedding || cv.has_experience_embedding) ? 'Yes' : 'No'} />
-            <Row label="Embedding Dimension" value={cv.embeddings_info?.embedding_dimension || cv.embedding_dimension || 'N/A'} />
+            <Row label="Skills Embeddings" value={cv?.cv?.embeddings_info?.skills_embeddings || cv?.embeddings_info?.skills_embeddings || cv?.skills_embeddings || 0} />
+            <Row label="Responsibilities Embeddings" value={cv?.cv?.embeddings_info?.responsibilities_embeddings || cv?.embeddings_info?.responsibilities_embeddings || cv?.responsibilities_embeddings || 0} />
+            <Row label="Title Embedding" value={(cv?.cv?.embeddings_info?.has_title_embedding || cv?.embeddings_info?.has_title_embedding || cv?.has_title_embedding) ? 'Yes' : 'No'} />
+            <Row label="Experience Embedding" value={(cv?.cv?.embeddings_info?.has_experience_embedding || cv?.embeddings_info?.has_experience_embedding || cv?.has_experience_embedding) ? 'Yes' : 'No'} />
+            <Row label="Embedding Dimension" value={cv?.cv?.embeddings_info?.embedding_dimension || cv?.embeddings_info?.embedding_dimension || cv?.embedding_dimension || 'N/A'} />
           </div>
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
           <h3 className="text-lg font-semibold mb-3">Processing Information</h3>
           <div className="space-y-2">
-            <Row label="Filename" value={cv.processing_metadata?.filename || cv.filename || 'N/A'} mono />
-            <Row label="Model Used" value={cv.processing_metadata?.model_used || cv.model_used || 'N/A'} />
+            <Row label="Filename" value={cv?.cv?.processing_metadata?.filename || cv?.processing_metadata?.filename || cv?.cv?.filename || cv?.filename || 'N/A'} mono />
+            <Row label="Model Used" value={cv?.cv?.processing_metadata?.model_used || cv?.processing_metadata?.model_used || cv?.model_used || 'N/A'} />
             <Row
               label="Processing Time"
               value={
-                cv.processing_metadata?.processing_time || cv.processing_time
+                cv?.cv?.processing_metadata?.processing_time || cv?.processing_metadata?.processing_time || cv?.processing_time
                   ? `${(
-                      (cv.processing_metadata?.processing_time ??
-                        cv.processing_time) as number
+                      (cv?.cv?.processing_metadata?.processing_time ??
+                        cv?.processing_metadata?.processing_time ??
+                        cv?.processing_time) as number
                     ).toFixed(2)}s`
                   : 'N/A'
               }
             />
-            <Row label="Text Length" value={cv.processing_metadata?.text_length || cv.text_length || 0} />
+            <Row label="Text Length" value={cv?.cv?.processing_metadata?.text_length || cv?.cv?.text_info?.extracted_text_length || cv?.processing_metadata?.text_length || cv?.text_info?.extracted_text_length || cv?.text_length || 0} />
           </div>
         </div>
       </div>
@@ -766,7 +776,7 @@ function JDDetails({ jdId }: { jdId: string }) {
         setError(null);
         const response = await api.getJDDetails(jdId);
         // accept several shapes
-        const jdData = response.jd || response.data || response.job_description || response;
+        const jdData = response;
         setJD(jdData);
       } catch (err: any) {
         setError(err.message || 'Failed to load JD details');
@@ -798,8 +808,8 @@ function JDDetails({ jdId }: { jdId: string }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Row label="Job Title" value={b.title} />
           <Row label="Experience Required" value={`${b.years} years`} />
-          <Row label="Upload Date" value={formatDate(jd.upload_date)} />
-          <Row label="Document Type" value={jd.document_type || 'jd'} />
+          <Row label="Upload Date" value={formatDate(jd?.jd?.upload_date || jd?.upload_date)} />
+          <Row label="Document Type" value={jd?.jd?.document_type || jd?.document_type || 'jd'} />
         </div>
       </div>
       
@@ -855,39 +865,40 @@ function JDDetails({ jdId }: { jdId: string }) {
         <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
           <h3 className="text-lg font-semibold mb-3">Embeddings Information</h3>
           <div className="space-y-2">
-            <Row label="Skills Embeddings" value={jd.embeddings_info?.skills_embeddings || jd.skills_embeddings || 0} />
+            <Row label="Skills Embeddings" value={jd?.jd?.embeddings_info?.skills_embeddings || jd?.embeddings_info?.skills_embeddings || jd?.skills_embeddings || 0} />
             <Row
               label="Responsibilities Embeddings"
-              value={jd.embeddings_info?.responsibilities_embeddings || jd.responsibilities_embeddings || 0}
+              value={jd?.jd?.embeddings_info?.responsibilities_embeddings || jd?.embeddings_info?.responsibilities_embeddings || jd?.responsibilities_embeddings || 0}
             />
             <Row
               label="Title Embedding"
-              value={(jd.embeddings_info?.has_title_embedding || jd.has_title_embedding) ? 'Yes' : 'No'}
+              value={(jd?.jd?.embeddings_info?.has_title_embedding || jd?.embeddings_info?.has_title_embedding || jd?.has_title_embedding) ? 'Yes' : 'No'}
             />
             <Row
               label="Experience Embedding"
-              value={(jd.embeddings_info?.has_experience_embedding || jd.has_experience_embedding) ? 'Yes' : 'No'}
+              value={(jd?.jd?.embeddings_info?.has_experience_embedding || jd?.embeddings_info?.has_experience_embedding || jd?.has_experience_embedding) ? 'Yes' : 'No'}
             />
-            <Row label="Embedding Dimension" value={jd.embeddings_info?.embedding_dimension || jd.embedding_dimension || 'N/A'} />
+            <Row label="Embedding Dimension" value={jd?.jd?.embeddings_info?.embedding_dimension || jd?.embeddings_info?.embedding_dimension || jd?.embedding_dimension || 'N/A'} />
           </div>
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
           <h3 className="text-lg font-semibold mb-3">Processing Information</h3>
           <div className="space-y-2">
-            <Row label="Filename" value={jd.processing_metadata?.filename || jd.filename || 'N/A'} mono />
-            <Row label="Model Used" value={jd.processing_metadata?.model_used || jd.model_used || 'N/A'} />
+            <Row label="Filename" value={jd?.jd?.processing_metadata?.filename || jd?.processing_metadata?.filename || jd?.jd?.filename || jd?.filename || 'N/A'} mono />
+            <Row label="Model Used" value={jd?.jd?.processing_metadata?.model_used || jd?.processing_metadata?.model_used || jd?.model_used || 'N/A'} />
             <Row
               label="Processing Time"
               value={
-                jd.processing_metadata?.processing_time || jd.processing_time
+                jd?.jd?.processing_metadata?.processing_time || jd?.processing_metadata?.processing_time || jd?.processing_time
                   ? `${(
-                      (jd.processing_metadata?.processing_time ??
-                        jd.processing_time) as number
+                      (jd?.jd?.processing_metadata?.processing_time ??
+                        jd?.processing_metadata?.processing_time ??
+                        jd?.processing_time) as number
                     ).toFixed(2)}s`
                   : 'N/A'
               }
             />
-            <Row label="Text Length" value={jd.processing_metadata?.text_length || jd.text_length || 0} />
+            <Row label="Text Length" value={jd?.jd?.processing_metadata?.text_length || jd?.jd?.text_info?.extracted_text_length || jd?.processing_metadata?.text_length || jd?.text_info?.extracted_text_length || jd?.text_length || 0} />
           </div>
         </div>
       </div>

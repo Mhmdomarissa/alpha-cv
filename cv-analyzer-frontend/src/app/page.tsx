@@ -10,6 +10,7 @@ import SystemPanel from '@/components/system/SystemPanel';
 import ReportGenerator from '@/components/reports/ReportGenerator';
 import ErrorBanner from '@/components/common/ErrorBanner';
 import { LoadingPage } from '@/components/ui/loading';
+import Protected from '@/components/layout/Protected';
 
 export default function HomePage() {
   const { currentTab, systemHealth, loadSystemHealth, loadingStates } = useAppStore();
@@ -41,25 +42,27 @@ export default function HomePage() {
   };
 
   return (
-    <AppLayoutNew>
-      <div className="space-y-6">
-        {/* Global Error Messages */}
-        <div className="space-y-2">
-          {Object.entries(loadingStates).map(([operation, state]) => (
-            state.error && (
-              <ErrorBanner
-                key={operation}
-                error={state.error}
-                operation={operation}
-              />
-            )
-          ))}
+    <Protected>
+      <AppLayoutNew>
+        <div className="space-y-6">
+          {/* Global Error Messages */}
+          <div className="space-y-2">
+            {Object.entries(loadingStates).map(([operation, state]) => (
+              state.error && (
+                <ErrorBanner
+                  key={operation}
+                  error={state.error}
+                  operation={operation}
+                />
+              )
+            ))}
+          </div>
+          {/* Dynamic Tab Content */}
+          <div className="animate-fade-in">
+            {renderTabContent()}
+          </div>
         </div>
-        {/* Dynamic Tab Content */}
-        <div className="animate-fade-in">
-          {renderTabContent()}
-        </div>
-      </div>
-    </AppLayoutNew>
+      </AppLayoutNew>
+    </Protected>
   );
 }

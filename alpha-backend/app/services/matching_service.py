@@ -15,11 +15,7 @@ logger = logging.getLogger(__name__)
 # ----------------------------
 # Utilities
 # ----------------------------
-def normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
-    total = sum(weights.values())
-    if total <= 0:
-        return {"skills": 0.25, "responsibilities": 0.25, "job_title": 0.25, "experience": 0.25}
-    return {k: v / total for k, v in weights.items()}
+# normalize_weights function removed - no longer used with enhanced matching system
 
 def years_score(jd_years: int, cv_years: int) -> float:
     if jd_years <= 0:
@@ -76,19 +72,275 @@ class MatchResult:
 # Matching Service
 # ----------------------------
 class MatchingService:
-    # Final presentation weights (percent-based inputs later scaled to 0..1 here)
-    SCORING_WEIGHTS = {"skills": 0.80, "responsibilities": 0.15, "title": 0.025, "experience": 0.025}
+    # Enhanced scoring weights for logical job matching
+    SCORING_WEIGHTS = {"job_title": 0.20, "skills": 0.50, "experience": 0.10, "responsibilities": 0.20}
+    
+    # Domain-based universal job title similarity system
+    DOMAIN_KEYWORDS = {
+        'sharepoint': ['sharepoint', 'sp', 'sharepoint online', 'sharepoint server', 'moss'],
+        'azure': ['azure', 'microsoft cloud', 'azure infrastructure', 'azure solution', 'cloud engineer'],
+        'business_intelligence': ['business intelligence', 'bi', 'data analytics', 'reporting', 'data visualization', 'data analyst', 'data specialist'],
+        'power_platform': ['power platform', 'powerapps', 'power bi', 'power automate', 'dynamics', 'power platform developer'],
+        'oracle': ['oracle', 'oracle ebs', 'oracle cloud', 'oracle database', 'plsql', 'oracle applications'],
+        'data': ['data', 'database', 'sql', 'analytics', 'data science', 'big data', 'data engineer', 'data warehouse'],
+        'cloud': ['cloud', 'aws', 'azure', 'gcp', 'google cloud', 'cloud infrastructure', 'cloud architect'],
+        'systems': ['systems', 'infrastructure', 'network', 'server', 'hardware', 'systems engineer'],
+        'development': ['developer', 'development', 'programming', 'coding', 'software', 'engineer'],
+        'management': ['manager', 'lead', 'director', 'head', 'supervisor', 'team lead'],
+        'consulting': ['consultant', 'consulting', 'advisory', 'specialist', 'expert'],
+        'analysis': ['analyst', 'analysis', 'research', 'specialist', 'business analyst'],
+        'devops': ['devops', 'site reliability', 'platform engineer', 'infrastructure', 'automation'],
+        'security': ['security', 'cybersecurity', 'information security', 'security analyst'],
+        'qa': ['qa', 'quality assurance', 'testing', 'test', 'quality'],
+        'finance': ['finance', 'financial', 'accounting', 'budget', 'treasury'],
+        'hr': ['hr', 'human resources', 'recruiting', 'talent', 'people'],
+        'sales': ['sales', 'account', 'business development', 'revenue', 'commercial'],
+        'marketing': ['marketing', 'brand', 'content', 'digital marketing', 'campaign']
+    }
+
+    ROLE_TYPES = {
+        'developer': ['developer', 'engineer', 'programmer', 'architect', 'coder'],
+        'analyst': ['analyst', 'specialist', 'consultant', 'advisor', 'researcher'],
+        'manager': ['manager', 'lead', 'director', 'head', 'supervisor'],
+        'engineer': ['engineer', 'developer', 'architect', 'specialist'],
+        'specialist': ['specialist', 'analyst', 'consultant', 'expert', 'advisor'],
+        'administrator': ['administrator', 'admin', 'manager', 'specialist'],
+        'lead': ['lead', 'senior', 'principal', 'manager', 'head'],
+        'senior': ['senior', 'sr', 'lead', 'principal', 'expert'],
+        'team_lead': ['team lead', 'technical lead', 'lead', 'manager']
+    }
+
+    SENIORITY_LEVELS = {
+        'entry': ['junior', 'jr', 'entry', 'associate', 'trainee', 'graduate'],
+        'mid': ['', 'mid', 'regular', 'standard'],
+        'senior': ['senior', 'sr', 'principal', 'staff', 'expert'],
+        'lead': ['lead', 'team lead', 'tech lead', 'technical lead'],
+        'management': ['manager', 'head', 'director', 'supervisor'],
+        'executive': ['vp', 'vice president', 'ceo', 'cto', 'cfo', 'president']
+    }
+    
+    # Business rules for bonuses and penalties
+    BUSINESS_RULES = {
+        'exact_title_match_bonus': 0.25,        # +25% for exact job title match
+        'same_family_bonus': 0.15,              # +15% for same job family
+        'related_role_bonus': 0.10,             # +10% for related roles (similarity > 0.8)
+        'cross_functional_bonus': 0.05,         # +5% for cross-functional moves (similarity 0.6-0.8)
+        'unrelated_field_penalty': -0.20,       # -20% for unrelated fields (similarity < 0.4)
+        'wrong_seniority_penalty': -0.10,       # -10% for wrong seniority level
+        'management_vs_ic_penalty': -0.15,      # -15% when IC applies for management or vice versa
+    }
+
 
     def __init__(self):
         self.embedding_service = get_embedding_service()
         self.qdrant = get_qdrant_utils()
         logger.info("🎯 MatchingService initialized (uses *_structured & *_embeddings)")
 
+    # ---------- Universal Dynamic Job Title Similarity Methods ----------
+    
+    def extract_domains_from_title(self, title):
+        """Extract all relevant domains from job title"""
+        if not title:
+            return []
+        
+        title_lower = title.lower()
+        found_domains = []
+        
+        for domain, keywords in self.DOMAIN_KEYWORDS.items():
+            for keyword in keywords:
+                if keyword in title_lower:
+                    found_domains.append(domain)
+                    break
+        
+        return found_domains
+
+    def extract_role_type(self, title):
+        """Extract core role type from title"""
+        if not title:
+            return 'unknown'
+        
+        title_lower = title.lower()
+        
+        for role_type, synonyms in self.ROLE_TYPES.items():
+            for synonym in synonyms:
+                if synonym in title_lower:
+                    return role_type
+        
+        return 'general'
+
+    def extract_seniority_level(self, title):
+        """Extract seniority level from title"""
+        if not title:
+            return 'mid'
+        
+        title_lower = title.lower()
+        
+        for level, keywords in self.SENIORITY_LEVELS.items():
+            for keyword in keywords:
+                if keyword and keyword in title_lower:
+                    return level
+        
+        return 'mid'
+
+    def calculate_domain_similarity(self, jd_domains, cv_domains):
+        """Calculate similarity based on shared domains"""
+        if not jd_domains or not cv_domains:
+            return 0.0
+        
+        # Exact domain matches get highest score
+        common_domains = set(jd_domains).intersection(set(cv_domains))
+        total_domains = set(jd_domains).union(set(cv_domains))
+        
+        if len(total_domains) == 0:
+            return 0.0
+        
+        # Jaccard similarity with heavy bonus for exact matches
+        jaccard_score = len(common_domains) / len(total_domains)
+        
+        # Major bonus for multiple domain matches
+        if len(common_domains) >= 2:
+            jaccard_score += 0.2
+        elif len(common_domains) >= 1:
+            jaccard_score += 0.1
+        
+        return min(1.0, jaccard_score)
+
+    def calculate_role_type_similarity(self, jd_role, cv_role):
+        """Calculate similarity between role types"""
+        if jd_role == cv_role:
+            return 1.0
+        
+        # Check if roles are synonyms
+        jd_synonyms = self.ROLE_TYPES.get(jd_role, [jd_role])
+        cv_synonyms = self.ROLE_TYPES.get(cv_role, [cv_role])
+        
+        # Check for overlap in synonyms
+        if any(syn in cv_synonyms for syn in jd_synonyms):
+            return 0.9
+        
+        # Related role scoring
+        role_relationships = {
+            ('developer', 'engineer'): 0.95,
+            ('analyst', 'specialist'): 0.90,
+            ('manager', 'lead'): 0.85,
+            ('developer', 'analyst'): 0.4,
+            ('engineer', 'manager'): 0.5,
+            ('analyst', 'manager'): 0.6,
+            ('specialist', 'analyst'): 0.85,
+            ('lead', 'manager'): 0.80,
+            ('senior', 'lead'): 0.75
+        }
+        
+        relationship_key = tuple(sorted([jd_role, cv_role]))
+        return role_relationships.get(relationship_key, 0.2)
+
+    def calculate_seniority_similarity(self, jd_seniority, cv_seniority):
+        """Calculate similarity between seniority levels"""
+        seniority_order = ['entry', 'mid', 'senior', 'lead', 'management', 'executive']
+        
+        if jd_seniority == cv_seniority:
+            return 1.0
+        
+        try:
+            jd_idx = seniority_order.index(jd_seniority)
+            cv_idx = seniority_order.index(cv_seniority)
+            
+            # Adjacent levels are quite similar
+            diff = abs(jd_idx - cv_idx)
+            if diff == 1:
+                return 0.8
+            elif diff == 2:
+                return 0.6
+            elif diff == 3:
+                return 0.4
+            else:
+                return 0.2
+        except ValueError:
+            return 0.5
+
+    def get_enhanced_title_similarity(self, jd_title: str, cv_title: str) -> float:
+        """
+        COMPLETELY NEW: Universal dynamic job title similarity
+        """
+        if not jd_title or not cv_title:
+            return 0.0
+        
+        # Normalize titles
+        jd_clean = jd_title.lower().strip()
+        cv_clean = cv_title.lower().strip()
+        
+        # Exact match
+        if jd_clean == cv_clean:
+            return 1.0
+        
+        # Extract components
+        jd_domains = self.extract_domains_from_title(jd_title)
+        cv_domains = self.extract_domains_from_title(cv_title)
+        jd_role = self.extract_role_type(jd_title)
+        cv_role = self.extract_role_type(cv_title)
+        jd_seniority = self.extract_seniority_level(jd_title)
+        cv_seniority = self.extract_seniority_level(cv_title)
+        
+        # Calculate component similarities
+        domain_sim = self.calculate_domain_similarity(jd_domains, cv_domains)
+        role_sim = self.calculate_role_type_similarity(jd_role, cv_role)
+        seniority_sim = self.calculate_seniority_similarity(jd_seniority, cv_seniority)
+        
+        # Weight components (domain expertise is most important)
+        final_similarity = (domain_sim * 0.6 + role_sim * 0.3 + seniority_sim * 0.1)
+        
+        # Bonus for exact domain + role matches
+        if domain_sim > 0.8 and role_sim > 0.8:
+            final_similarity += 0.1
+        
+        return min(1.0, final_similarity)
+
+    def apply_business_rules(self, cv_title: str, jd_title: str, title_similarity: float) -> float:
+        """Enhanced business rules with domain-specific bonuses"""
+        modifier = 0.0
+        
+        # Extract domains for bonus calculation
+        cv_domains = self.extract_domains_from_title(cv_title)
+        jd_domains = self.extract_domains_from_title(jd_title)
+        common_domains = set(cv_domains).intersection(set(jd_domains))
+        
+        # Exact title match super bonus
+        if cv_title.lower().strip() == jd_title.lower().strip():
+            modifier += 0.30  # +30% for exact match
+        
+        # Domain expertise bonuses
+        elif len(common_domains) >= 2:
+            modifier += 0.25  # +25% for multiple domain match
+        elif len(common_domains) >= 1:
+            modifier += 0.15  # +15% for single domain match
+        
+        # High similarity bonus
+        elif title_similarity >= 0.8:
+            modifier += 0.15  # +15% for high similarity
+        elif title_similarity >= 0.6:
+            modifier += 0.10  # +10% for good similarity
+        elif title_similarity >= 0.4:
+            modifier += 0.05  # +5% for moderate similarity
+        
+        # Unrelated field penalty
+        elif title_similarity < 0.3:
+            modifier -= 0.20  # -20% for unrelated fields
+        
+        # Seniority mismatch penalties
+        cv_seniority = self.extract_seniority_level(cv_title)
+        jd_seniority = self.extract_seniority_level(jd_title)
+        seniority_sim = self.calculate_seniority_similarity(cv_seniority, jd_seniority)
+        
+        if seniority_sim < 0.4:
+            modifier -= 0.10  # -10% for wrong seniority
+        
+        return modifier
+
     # ---------- Public APIs ----------
     def match_cv_against_jd_exact(self, cv_id: str, jd_id: str) -> dict:
         """
         EXACT vector matching (32 vectors) using {cv,jd}_embeddings.
-        Weights: 80% skills, 15% responsibilities, 2.5% title, 2.5% experience.
+        Enhanced weights: 50% skills, 20% responsibilities, 20% title, 10% experience.
         """
         try:
             logger.info(f"🎯 EXACT 32-vector matching: CV {cv_id} vs JD {jd_id}")
@@ -97,15 +349,15 @@ class MatchingService:
             jd_vecs = self._get_exact_vectors(jd_id, "jd")
             if not cv_vecs or not jd_vecs:
                 raise Exception("Missing embeddings for CV or JD")
-            # 80% - Skills (average best alignment of each CV skill to JD skills)
+            # 50% - Skills (average best alignment of each CV skill to JD skills)
             skills_score = self._avg_best_similarity(cv_vecs["skill_vectors"], jd_vecs["skill_vectors"])
-            # 15% - Responsibilities
+            # 20% - Responsibilities
             resp_score = self._avg_best_similarity(cv_vecs["responsibility_vectors"], jd_vecs["responsibility_vectors"])
-            # 2.5% - Experience (1 vs 1)
+            # 10% - Experience (1 vs 1)
             exp_score = self._cos_sim_list(cv_vecs["experience_vector"][0], jd_vecs["experience_vector"][0]) if (cv_vecs["experience_vector"] and jd_vecs["experience_vector"]) else 0.0
-            # 2.5% - Title (1 vs 1)
+            # 20% - Title (1 vs 1)
             title_score = self._cos_sim_list(cv_vecs["job_title_vector"][0], jd_vecs["job_title_vector"][0]) if (cv_vecs["job_title_vector"] and jd_vecs["job_title_vector"]) else 0.0
-            final = skills_score * 0.80 + resp_score * 0.15 + exp_score * 0.025 + title_score * 0.025
+            final = skills_score * self.SCORING_WEIGHTS["skills"] + resp_score * self.SCORING_WEIGHTS["responsibilities"] + exp_score * self.SCORING_WEIGHTS["experience"] + title_score * self.SCORING_WEIGHTS["job_title"]
             dt = time.time() - t0
             return {
                 "cv_id": cv_id,
@@ -113,10 +365,10 @@ class MatchingService:
                 "final_score": final,
                 "final_score_percentage": final * 100.0,
                 "breakdown": {
-                    "skills_score": skills_score * 0.80,
-                    "responsibilities_score": resp_score * 0.15,
-                    "experience_score": exp_score * 0.025,
-                    "job_title_score": title_score * 0.025,
+                    "skills_score": skills_score * self.SCORING_WEIGHTS["skills"],
+                    "responsibilities_score": resp_score * self.SCORING_WEIGHTS["responsibilities"],
+                    "experience_score": exp_score * self.SCORING_WEIGHTS["experience"],
+                    "job_title_score": title_score * self.SCORING_WEIGHTS["job_title"],
                 },
                 "processing_time": dt,
                 "vector_counts": {
@@ -162,23 +414,35 @@ class MatchingService:
                 jd_std.get("responsibilities", []) or jd_std.get("responsibility_sentences", []),
                 cv_std.get("responsibilities", [])
             )
-            title_sim = 0.0
-            if jd_emb["title"] is not None and cv_emb["title"] is not None:
-                title_sim = self.embedding_service.calculate_cosine_similarity(jd_emb["title"], cv_emb["title"])
+            # ---- Enhanced title similarity using semantic mappings ----
+            cv_title = cv_std.get("job_title", "")
+            jd_title = jd_std.get("job_title", "")
+            title_sim = self.get_enhanced_title_similarity(jd_title, cv_title)
+            
             meets, exp_score_pct = self._experience_match(
                 jd_std.get("experience_years", "") or jd_std.get("years_of_experience", ""),
                 cv_std.get("experience_years", "") or cv_std.get("years_of_experience", "")
             )
-            # ---- assemble weighted score ----
+            
+            # ---- Calculate base scores ----
             skills_pct = skills_analysis["skill_match_percentage"]
             resp_pct = responsibilities_analysis["responsibility_match_percentage"]
             title_pct = title_sim * 100.0
-            overall = (
+            
+            # ---- Apply enhanced weighted scoring ----
+            base_score = (
                 skills_pct * self.SCORING_WEIGHTS["skills"] +
                 resp_pct * self.SCORING_WEIGHTS["responsibilities"] +
-                title_pct * self.SCORING_WEIGHTS["title"] +
+                title_pct * self.SCORING_WEIGHTS["job_title"] +
                 exp_score_pct * self.SCORING_WEIGHTS["experience"]
             )
+            
+            # ---- Apply business rules and bonuses ----
+            business_rule_modifier = self.apply_business_rules(cv_title, jd_title, title_sim)
+            overall = base_score + (business_rule_modifier * 100.0)  # Convert to percentage
+            
+            # Ensure score stays within bounds
+            overall = max(0.0, min(100.0, overall))
             explanation = self._build_explanation(
                 skills_pct, skills_analysis, resp_pct, responsibilities_analysis, title_sim, meets
             )
@@ -239,10 +503,10 @@ class MatchingService:
                 cv_structured.get("responsibilities", [])
             )
             
-            # Calculate title similarity
-            title_sim = 0.0
-            if jd_emb["title"] is not None and cv_emb["title"] is not None:
-                title_sim = self.embedding_service.calculate_cosine_similarity(jd_emb["title"], cv_emb["title"])
+            # ---- Enhanced title similarity using semantic mappings ----
+            cv_title = cv_structured.get("job_title", "")
+            jd_title = jd_structured.get("job_title", "")
+            title_sim = self.get_enhanced_title_similarity(jd_title, cv_title)
             
             # Calculate experience match
             meets, exp_score_pct = self._experience_match(
@@ -250,17 +514,25 @@ class MatchingService:
                 str(cv_years)   # Convert to string for the experience_match method
             )
             
-            # Calculate weighted overall score
+            # ---- Calculate base scores ----
             skills_pct = skills_analysis["skill_match_percentage"]
             resp_pct = responsibilities_analysis["responsibility_match_percentage"]
             title_pct = title_sim * 100.0
             
-            overall = (
-                skills_pct * weights.get("skills", 0.25) +
-                resp_pct * weights.get("responsibilities", 0.25) +
-                title_pct * weights.get("job_title", 0.25) +
-                exp_score_pct * weights.get("experience", 0.25)
+            # ---- Apply enhanced weighted scoring ----
+            base_score = (
+                skills_pct * weights.get("skills", self.SCORING_WEIGHTS["skills"]) +
+                resp_pct * weights.get("responsibilities", self.SCORING_WEIGHTS["responsibilities"]) +
+                title_pct * weights.get("job_title", self.SCORING_WEIGHTS["job_title"]) +
+                exp_score_pct * weights.get("experience", self.SCORING_WEIGHTS["experience"])
             )
+            
+            # ---- Apply business rules and bonuses ----
+            business_rule_modifier = self.apply_business_rules(cv_title, jd_title, title_sim)
+            overall = base_score + (business_rule_modifier * 100.0)  # Convert to percentage
+            
+            # Ensure score stays within bounds
+            overall = max(0.0, min(100.0, overall))
             
             # Build explanation
             explanation = self._build_explanation(

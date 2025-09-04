@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useUploadQueue } from '@/stores/uploadQueue';
+import { api } from '@/lib/api';
 /**
  * UploadPageNew
  * - Uses a persisted Zustand queue (useUploadQueue) so items don't "disappear" on navigation.
@@ -25,8 +26,6 @@ import { useUploadQueue } from '@/stores/uploadQueue';
  */
 export default function UploadPageNew() {
   const {
-    uploadCV,
-    uploadJD,
     loadingStates,
     setCurrentTab,
     loadCVs,
@@ -136,19 +135,15 @@ export default function UploadPageNew() {
       update(f.id, { status: 'processing', error: undefined });
       try {
         console.log(`Uploading JD: ${f.file?.name}`);
-        const response = await uploadJD(f.file as File);
+        const response = await api.uploadJD(f.file as File);
         console.log('JD upload response:', response);
         
         // Extract the ID from the response - handle different response formats
-        let dbId = null;
-        if (response && response.id) {
-          dbId = response.id;
-        } else if (response && response.data && response.data.id) {
-          dbId = response.data.id;
+        let dbId: string | undefined = undefined;
+        if (response && response.jd_id) {
+          dbId = response.jd_id;
         } else if (response && response.cv_id) {
           dbId = response.cv_id;
-        } else if (response && response.jd_id) {
-          dbId = response.jd_id;
         }
         
         console.log(`Extracted JD dbId: ${dbId}`);
@@ -176,16 +171,12 @@ export default function UploadPageNew() {
       update(f.id, { status: 'processing', error: undefined });
       try {
         console.log(`Uploading CV: ${f.file?.name}`);
-        const response = await uploadCV(f.file as File);
+        const response = await api.uploadCV(f.file as File);
         console.log('CV upload response:', response);
         
         // Extract the ID from the response - handle different response formats
-        let dbId = null;
-        if (response && response.id) {
-          dbId = response.id;
-        } else if (response && response.data && response.data.id) {
-          dbId = response.data.id;
-        } else if (response && response.cv_id) {
+        let dbId: string | undefined = undefined;
+        if (response && response.cv_id) {
           dbId = response.cv_id;
         } else if (response && response.jd_id) {
           dbId = response.jd_id;
@@ -322,7 +313,7 @@ export default function UploadPageNew() {
     console.log("Selected JD ID:", jdId);
     console.log("Selected CV IDs:", cvIds);
     // Set selections in the store
-    selectJD(jdId);
+    selectJD(jdId || null);
     deselectAllCVs(); // Clear existing selections
     cvIds.forEach(id => selectCV(id)); // Select only uploaded CVs
     // Run matching and navigate to results

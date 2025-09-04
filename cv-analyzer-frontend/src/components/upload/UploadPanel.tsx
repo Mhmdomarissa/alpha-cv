@@ -124,7 +124,7 @@ export default function UploadPanel() {
     <div className="space-y-8">
       {/* Performance Dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card variant="elevated" className="p-6">
+        <Card className="p-6">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-primary-100 rounded-lg">
               <Users className="w-6 h-6 text-primary-600" />
@@ -136,7 +136,7 @@ export default function UploadPanel() {
           </div>
         </Card>
 
-        <Card variant="elevated" className="p-6">
+        <Card className="p-6">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-accent-100 rounded-lg">
               <Target className="w-6 h-6 text-accent-600" />
@@ -148,7 +148,7 @@ export default function UploadPanel() {
           </div>
         </Card>
 
-        <Card variant="elevated" className="p-6">
+        <Card className="p-6">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-success-100 rounded-lg">
               <Clock className="w-6 h-6 text-success-600" />
@@ -162,7 +162,7 @@ export default function UploadPanel() {
           </div>
         </Card>
 
-        <Card variant="elevated" className="p-6">
+        <Card className="p-6">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-warning-100 rounded-lg">
               <Database className="w-6 h-6 text-warning-600" />
@@ -209,7 +209,7 @@ export default function UploadPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* JD Upload */}
         <div className="space-y-6">
-          <Card variant="elevated">
+          <Card>
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-3">
                 <div className="p-2 bg-accent-100 rounded-lg">
@@ -280,7 +280,7 @@ export default function UploadPanel() {
 
         {/* CV Upload */}
         <div className="space-y-6">
-          <Card variant="elevated">
+          <Card>
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-3">
                 <div className="p-2 bg-primary-100 rounded-lg">

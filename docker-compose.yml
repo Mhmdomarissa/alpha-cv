@@ -42,8 +42,8 @@ services:
     env_file:
       - ./.env
     environment:
-      # Expose the backend URL to the browser
-      NEXT_PUBLIC_API_URL: "http://localhost:8000"
+      # Expose the backend URL to the browser (through nginx proxy)
+      NEXT_PUBLIC_API_URL: "http://13.62.91.25"
       BACKEND_URL: "http://backend:8000"
     restart: unless-stopped
     depends_on:

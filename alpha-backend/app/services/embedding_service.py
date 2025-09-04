@@ -14,19 +14,19 @@ class EmbeddingService:
     Uses all-mpnet-base-v2 model (768 dimensions) for consistent, high-quality embeddings.
     """
     
-    # Optimal similarity thresholds for matching
+    # Lowered similarity thresholds for better matching
     SIMILARITY_THRESHOLDS = {
         "skills": {
-            "excellent": 0.85,
-            "good": 0.75,
-            "moderate": 0.65,
-            "minimum": 0.60
-        },
-        "responsibilities": {
             "excellent": 0.80,
             "good": 0.70,
             "moderate": 0.60,
-            "minimum": 0.55
+            "minimum": 0.50
+        },
+        "responsibilities": {
+            "excellent": 0.75,
+            "good": 0.65,
+            "moderate": 0.55,
+            "minimum": 0.45
         }
     }
     

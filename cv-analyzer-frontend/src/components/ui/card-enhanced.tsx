@@ -68,4 +68,79 @@ const CardFooter = React.forwardRef<
 ));
 CardFooter.displayName = "CardFooter";
 
-export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent };
+// StatsCard component for displaying statistics
+interface StatsCardProps {
+  icon?: React.ReactNode;
+  trend?: 'up' | 'down' | 'neutral' | { value: number; label: string; positive: boolean };
+  trendValue?: string;
+  title: string;
+  value: string;
+  subtitle?: string;
+}
+
+const StatsCard: React.FC<StatsCardProps> = ({ 
+  icon, 
+  trend, 
+  trendValue, 
+  title, 
+  value, 
+  subtitle 
+}) => {
+  const getTrendIcon = () => {
+    if (typeof trend === 'string') {
+      switch (trend) {
+        case 'up':
+          return <div className="text-green-500">↗</div>;
+        case 'down':
+          return <div className="text-red-500">↘</div>;
+        case 'neutral':
+          return <div className="text-gray-500">→</div>;
+        default:
+          return null;
+      }
+    } else if (trend && typeof trend === 'object') {
+      return trend.positive ? 
+        <div className="text-green-500">↗</div> : 
+        <div className="text-red-500">↘</div>;
+    }
+    return null;
+  };
+
+  const getTrendText = () => {
+    if (typeof trend === 'string') {
+      return trendValue;
+    } else if (trend && typeof trend === 'object') {
+      return `${trend.value} ${trend.label}`;
+    }
+    return null;
+  };
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          {icon && <div className="text-2xl text-muted-foreground">{icon}</div>}
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">{title}</p>
+            <p className="text-2xl font-bold">{value}</p>
+            {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+          </div>
+        </div>
+        <div className="text-right">
+          {getTrendIcon()}
+          {getTrendText() && (
+            <p className={`text-sm font-medium ${
+              typeof trend === 'string' ? 
+                (trend === 'up' ? 'text-green-600' : trend === 'down' ? 'text-red-600' : 'text-gray-600') :
+                (trend && typeof trend === 'object' && trend.positive ? 'text-green-600' : 'text-red-600')
+            }`}>
+              {getTrendText()}
+            </p>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+};
+
+export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent, StatsCard };

@@ -22,6 +22,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/stores/appStore';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button-enhanced';
+import { MatchWeights } from '@/lib/types';
 
 type SortKey = 'score' | 'skills' | 'experience';
 
@@ -36,7 +37,7 @@ const DEFAULT_WEIGHTS = {
 const uuidLike = (s?: string) =>
   !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 
-function normalizeWeights(w: Record<string, number>) {
+function normalizeWeights(w: MatchWeights) {
   const keys = ['skills', 'responsibilities', 'job_title', 'experience'] as const;
   const sum = keys.reduce((s, k) => s + (w?.[k] ?? 0), 0);
   if (!sum || sum <= 0) return { ...DEFAULT_WEIGHTS };
@@ -114,6 +115,7 @@ export default function MatchingPageNew() {
   const [sortBy, setSortBy] = useState<SortKey>('score');
   const [filterThreshold, setFilterThreshold] = useState(0);
   const [downloadingCV, setDownloadingCV] = useState<string | null>(null);
+  const [resultsLimit, setResultsLimit] = useState<number | 'all'>(3); // Default to top 3
   
   // Ensure default weights present
   useEffect(() => {
@@ -158,7 +160,7 @@ export default function MatchingPageNew() {
   }, [candidates, normWeights]);
   
   const sortedCandidates = useMemo(() => {
-    return [...candidatesWithComputed]
+    const filtered = [...candidatesWithComputed]
       .filter((c) => (c.computed_overall ?? 0) >= filterThreshold)
       .sort((a, b) => {
         if (sortBy === 'score') return (b.computed_overall ?? 0) - (a.computed_overall ?? 0);
@@ -166,9 +168,15 @@ export default function MatchingPageNew() {
         if (sortBy === 'experience') return (b.years_score ?? 0) - (a.years_score ?? 0);
         return 0;
       });
-  }, [candidatesWithComputed, sortBy, filterThreshold]);
+    
+    // Apply results limit
+    if (resultsLimit === 'all') {
+      return filtered;
+    }
+    return filtered.slice(0, resultsLimit);
+  }, [candidatesWithComputed, sortBy, filterThreshold, resultsLimit]);
   
-  // Analytics
+  // Analytics - both total and visible
   const totalMatches = candidatesWithComputed.length;
   const excellentMatches = candidatesWithComputed.filter((c) => c.computed_overall >= 0.8).length;
   const goodMatches = candidatesWithComputed.filter((c) => c.computed_overall >= 0.6 && c.computed_overall < 0.8).length;
@@ -182,6 +190,20 @@ export default function MatchingPageNew() {
     totalMatches > 0
       ? Math.round(Math.max(...candidatesWithComputed.map((c) => c.computed_overall ?? 0)) * 100)
       : 0;
+  
+  // Visible analytics for current view
+  const visibleMatches = sortedCandidates.length;
+  const visibleExcellent = sortedCandidates.filter((c) => c.computed_overall >= 0.8).length;
+  const visibleGood = sortedCandidates.filter((c) => c.computed_overall >= 0.6 && c.computed_overall < 0.8).length;
+  const visibleAverage = visibleMatches > 0 
+    ? Math.round((sortedCandidates.reduce((s, c) => s + (c.computed_overall ?? 0), 0) / visibleMatches) * 100)
+    : 0;
+  const visibleTop = visibleMatches > 0 
+    ? Math.round(Math.max(...sortedCandidates.map((c) => c.computed_overall ?? 0)) * 100)
+    : 0;
+  
+  // Total filtered candidates (before results limit)
+  const totalFiltered = candidatesWithComputed.filter((c) => (c.computed_overall ?? 0) >= filterThreshold).length;
   
   // Download CV handler
   const handleDownloadCV = async (cvId: string, filename: string) => {
@@ -234,7 +256,7 @@ export default function MatchingPageNew() {
   const fadeInUp = {
     initial: { opacity: 0, y: 8 },
     animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.25, ease: 'easeOut' },
+    transition: { duration: 0.25, ease: "easeOut" as const },
   };
   
   return (
@@ -258,8 +280,15 @@ export default function MatchingPageNew() {
               <Users className="w-5 h-5 text-indigo-600" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-gray-900">{totalMatches}</div>
-          <p className="text-sm text-gray-600">Total Candidates</p>
+          <div className="text-2xl font-semibold text-gray-900">
+            {visibleMatches}
+            {resultsLimit !== 'all' && totalMatches > visibleMatches && (
+              <span className="text-sm text-gray-500 ml-1">/{totalMatches}</span>
+            )}
+          </div>
+          <p className="text-sm text-gray-600">
+            {resultsLimit !== 'all' ? `Top ${resultsLimit} Candidates` : 'Total Candidates'}
+          </p>
         </motion.div>
         <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
           <div className="flex justify-center mb-3">
@@ -267,8 +296,8 @@ export default function MatchingPageNew() {
               <Award className="w-5 h-5 text-amber-600" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-amber-600">{topScore}%</div>
-          <p className="text-sm text-gray-600">Best Match</p>
+          <div className="text-2xl font-semibold text-amber-600">{visibleTop}%</div>
+          <p className="text-sm text-gray-600">Best {resultsLimit !== 'all' ? 'Visible' : ''} Match</p>
         </motion.div>
         <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
           <div className="flex justify-center mb-3">
@@ -276,8 +305,8 @@ export default function MatchingPageNew() {
               <BarChart3 className="w-5 h-5 text-emerald-600" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-gray-900">{averageScore}%</div>
-          <p className="text-sm text-gray-600">Average Score</p>
+          <div className="text-2xl font-semibold text-gray-900">{visibleAverage}%</div>
+          <p className="text-sm text-gray-600">{resultsLimit !== 'all' ? 'Visible' : ''} Average Score</p>
         </motion.div>
         <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
           <div className="flex justify-center mb-3">
@@ -285,8 +314,8 @@ export default function MatchingPageNew() {
               <Star className="w-5 h-5 text-emerald-600" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-emerald-600">{excellentMatches}</div>
-          <p className="text-sm text-gray-600">Excellent (≥80%)</p>
+          <div className="text-2xl font-semibold text-emerald-600">{visibleExcellent}</div>
+          <p className="text-sm text-gray-600">{resultsLimit !== 'all' ? 'Visible' : ''} Excellent (≥80%)</p>
         </motion.div>
       </motion.div>
       
@@ -356,6 +385,8 @@ export default function MatchingPageNew() {
             {showWeights ? 'Hide' : 'Show'} Weights
             {showWeights ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
           </button>
+          
+          
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortKey)}
@@ -365,16 +396,17 @@ export default function MatchingPageNew() {
             <option value="skills">Sort by Skills Match</option>
             <option value="experience">Sort by Experience Years</option>
           </select>
+          
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-gray-500" />
             <select
-              value={filterThreshold}
-              onChange={(e) => setFilterThreshold(Number(e.target.value))}
+              value={resultsLimit}
+              onChange={(e) => setResultsLimit(e.target.value === 'all' ? 'all' : Number(e.target.value))}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value={0}>All Matches</option>
-              <option value={0.6}>Good+ (≥60%)</option>
-              <option value={0.8}>Excellent (≥80%)</option>
+              <option value={3}>Show Top 3</option>
+              <option value={5}>Show Top 5</option>
+              <option value="all">Show All</option>
             </select>
           </div>
         </div>
@@ -481,7 +513,8 @@ export default function MatchingPageNew() {
             <div>
               <h3 className="text-lg font-semibold text-gray-900">Ranked Candidates</h3>
               <p className="text-sm text-gray-600">
-                {sortedCandidates.length} shown. Sorted by {sortBy === 'score' ? 'overall match' : sortBy}.
+                {sortedCandidates.length} shown{resultsLimit !== 'all' ? ` (top ${resultsLimit})` : ''} of {totalFiltered} total. 
+                Sorted by {sortBy === 'score' ? 'overall match' : sortBy}.
               </p>
             </div>
           </div>
@@ -875,6 +908,33 @@ export default function MatchingPageNew() {
               })}
             </AnimatePresence>
           </div>
+          
+          {/* Show All Notice */}
+          {resultsLimit !== 'all' && 
+           totalFiltered > sortedCandidates.length && (
+            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-blue-600" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-900">
+                      Showing top {resultsLimit} of {totalFiltered} candidates
+                    </p>
+                    <p className="text-sm text-blue-700">
+                      {totalFiltered - sortedCandidates.length} more candidates available
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setResultsLimit('all')}
+                  className="px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Show All
+                </button>
+              </div>
+            </div>
+          )}
+          
           {sortedCandidates.length === 0 && (
             <div className="text-center py-12">
               <Filter className="w-12 h-12 mx-auto mb-3 text-gray-400" />
