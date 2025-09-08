@@ -17,7 +17,8 @@ import {
   Clock,
   Zap,
   LogOut,
-  User
+  User,
+  Briefcase
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -34,32 +35,46 @@ interface TabItem {
   badge?: string;
 }
 
-const navigationTabs: TabItem[] = [
-  {
-    id: 'dashboard',
-    label: 'Dashboard',
-    icon: Home,
-    description: 'Overview and quick actions',
-  },
-  {
-    id: 'upload',
-    label: 'Upload',
-    icon: Upload,
-    description: 'Upload documents',
-  },
-  {
-    id: 'database',
-    label: 'Database',
-    icon: Database,
-    description: 'Manage documents',
-  },
-  {
-    id: 'match',
-    label: 'Match',
-    icon: Target,
-    description: 'AI matching results',
-  },
-];
+const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
+  const baseTabs: TabItem[] = [
+    {
+      id: 'dashboard',
+      label: 'Dashboard',
+      icon: Home,
+      description: 'Overview and quick actions',
+    },
+    {
+      id: 'upload',
+      label: 'Upload',
+      icon: Upload,
+      description: 'Upload documents',
+    },
+    {
+      id: 'database',
+      label: 'Database',
+      icon: Database,
+      description: 'Manage documents',
+    },
+    {
+      id: 'match',
+      label: 'Match',
+      icon: Target,
+      description: 'AI matching results',
+    },
+  ];
+
+  // Add careers tab for all authenticated users (HR and admin)
+  if (userRole) {
+    baseTabs.push({
+      id: 'careers',
+      label: 'Careers',
+      icon: Briefcase,
+      description: 'Manage job postings',
+    });
+  }
+
+  return baseTabs;
+};
 
 export default function AppLayoutNew({ children }: AppLayoutProps) {
   const router = useRouter();
@@ -82,6 +97,8 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         return `${cvs.length} CVs, ${jds.length} JDs`;
       case 'match':
         return matchResult ? `${matchResult.candidates.length} matches` : 'No matches yet';
+      case 'careers':
+        return 'Job postings & applications';
       default:
         return '';
     }
@@ -97,6 +114,8 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         return cvs.length > 0 && jds.length > 0;
       case 'match':
         return !!matchResult;
+      case 'careers':
+        return true; // Always available for admin users
       default:
         return false;
     }
@@ -126,7 +145,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
 
             {/* Navigation Tabs - Desktop */}
             <nav className="hidden md:flex items-center space-x-1">
-              {navigationTabs.map((tab) => {
+              {getNavigationTabs(user?.role).map((tab) => {
                 const isActive = currentTab === tab.id;
                 const isCompleted = getProgress(tab.id);
                 const IconComponent = tab.icon;
@@ -218,7 +237,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         <div className="md:hidden bg-white border-b" style={{ borderColor: 'var(--gray-200)' }}>
           <div className="container mx-auto px-4 py-4">
             <nav className="space-y-2">
-              {navigationTabs.map((tab) => {
+              {getNavigationTabs(user?.role).map((tab) => {
                 const isActive = currentTab === tab.id;
                 const isCompleted = getProgress(tab.id);
                 const IconComponent = tab.icon;

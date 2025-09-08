@@ -22,7 +22,12 @@ import {
   UserProfile,
   AdminUser,
   CreateUserRequest,
-  UpdateUserRequest
+  UpdateUserRequest,
+  JobPostingResponse,
+  JobPostingListItem,
+  PublicJobView,
+  JobApplicationResponse,
+  JobApplicationListItem
 } from './types';
 
 class ApiClient {
@@ -275,6 +280,78 @@ async downloadCV(cvId: string): Promise<Blob> {
       },
     });
   }
+
+  // Careers methods
+  async createJobPosting(file: File): Promise<JobPostingResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await this.client.post<JobPostingResponse>(
+      '/api/careers/admin/jobs/post', 
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+      }
+    );
+    return response.data;
+  }
+
+  async listJobPostings(): Promise<JobPostingListItem[]> {
+    const response = await this.client.get<JobPostingListItem[]>(
+      '/api/careers/admin/jobs',
+      {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      }
+    );
+    return response.data;
+  }
+
+  async getPublicJob(token: string): Promise<PublicJobView> {
+    const response = await this.client.get<PublicJobView>(`/api/careers/jobs/${token}`);
+    return response.data;
+  }
+
+  async submitJobApplication(
+    token: string, 
+    applicantName: string,
+    applicantEmail: string, 
+    applicantPhone: string | undefined,
+    cvFile: File
+  ): Promise<JobApplicationResponse> {
+    const formData = new FormData();
+    formData.append('applicant_name', applicantName);
+    formData.append('applicant_email', applicantEmail);
+    if (applicantPhone) formData.append('applicant_phone', applicantPhone);
+    formData.append('cv_file', cvFile);
+    
+    const response = await this.client.post<JobApplicationResponse>(
+      `/api/careers/jobs/${token}/apply`, 
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return response.data;
+  }
+
+  async getJobApplications(jobId: string): Promise<JobApplicationListItem[]> {
+    const response = await this.client.get<JobApplicationListItem[]>(
+      `/api/careers/admin/jobs/${jobId}/applications`,
+      {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      }
+    );
+    return response.data;
+  }
 }
 
 
@@ -324,6 +401,14 @@ export const api = {
   createUser: (token: string, body: CreateUserRequest) => RequestRetryHandler.withRetry(() => apiClient.createUser(token, body)),
   updateUser: (token: string, id: string, body: UpdateUserRequest) => RequestRetryHandler.withRetry(() => apiClient.updateUser(token, id, body)),
   deleteUser: (token: string, id: string) => RequestRetryHandler.withRetry(() => apiClient.deleteUser(token, id)),
+
+  // Careers API
+  createJobPosting: (file: File) => RequestRetryHandler.withRetry(() => apiClient.createJobPosting(file)),
+  listJobPostings: () => RequestRetryHandler.withRetry(() => apiClient.listJobPostings()),
+  getPublicJob: (token: string) => RequestRetryHandler.withRetry(() => apiClient.getPublicJob(token)),
+  submitJobApplication: (token: string, name: string, email: string, phone: string | undefined, cvFile: File) => 
+    RequestRetryHandler.withRetry(() => apiClient.submitJobApplication(token, name, email, phone, cvFile)),
+  getJobApplications: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobApplications(jobId)),
 };
 
 // Re-export types for convenience

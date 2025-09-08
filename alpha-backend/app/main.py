@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 # Routers
-from app.routes import cv_routes, jd_routes, special_routes
+from app.routes import cv_routes, jd_routes, special_routes, careers_routes
 from app.routes.auth_routes import router as auth_router
 from app.routes.admin_routes import router as admin_router
 
@@ -114,10 +114,13 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(admin_router)
 
-# Existing routes (unchanged)
+# Core routes
 app.include_router(cv_routes.router, prefix="/api/cv", tags=["CV Management"])
 app.include_router(jd_routes.router, prefix="/api/jd", tags=["Job Description Management"])
 app.include_router(special_routes.router, prefix="/api", tags=["Matching & System"])
+
+# Careers routes (public job postings & applications)
+app.include_router(careers_routes.router, prefix="/api/careers", tags=["Careers & Public Applications"])
 
 # Keep legacy aliases for FE compatibility (can remove later)
 app.include_router(cv_routes.router, prefix="/api/jobs", tags=["Legacy CV Routes"])
@@ -145,6 +148,9 @@ async def root():
             "auth_login": "/api/auth/login",
             "auth_me": "/api/auth/me",
             "admin_users": "/api/admin/users",
+            "careers_admin": "/api/careers/admin",
+            "careers_public": "/api/careers/jobs/{public_token}",
+            "careers_apply": "/api/careers/jobs/{public_token}/apply",
             "docs": "/docs",
             "redoc": "/redoc",
         },
@@ -156,10 +162,15 @@ async def root():
             "Explainable + Hungarian deterministic matching",
             "Bulk processing & top candidate search",
             "JWT Authentication & User Management",
+            "Public job postings with secure tokens",
+            "Anonymous job applications",
+            "Careers page functionality",
         ],
         "qdrant_collections": [
             "cv_documents", "cv_structured", "cv_embeddings",
             "jd_documents", "jd_structured", "jd_embeddings",
+            "job_postings_documents", "job_postings_structured", "job_postings_embeddings",
+            "applications_documents", "applications_structured", "applications_embeddings",
         ],
     }
 

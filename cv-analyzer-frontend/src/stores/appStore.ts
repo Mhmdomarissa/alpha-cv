@@ -20,7 +20,7 @@ interface LoadingState {
 
 interface AppState {
   // Current tab
-  currentTab: 'dashboard' | 'upload' | 'database' | 'match' | 'reports' | 'system';
+  currentTab: 'dashboard' | 'upload' | 'database' | 'match' | 'careers' | 'reports' | 'system';
   
   // Data
   cvs: CVListItem[];
