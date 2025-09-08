@@ -48,78 +48,87 @@ async def upload_cv(
 ) -> JSONResponse:
     try:
         logger.info("---------- CV UPLOAD START ----------")
-
         parsing_service = get_parsing_service()
-
         raw_content = ""
         extracted_text = ""
         filename = "text_input.txt"
         file_ext = ".txt"
         persisted_path: Optional[str] = None
-
+        extracted_pii = {"email": [], "phone": []}  # Initialize PII container
+        
         if file:
             logger.info(f"Processing CV file upload: {file.filename}")
-
             if not file.filename:
                 raise HTTPException(status_code=400, detail="No filename provided")
-
             file_ext = os.path.splitext(file.filename)[1].lower()
             if file_ext not in SUPPORTED_EXTENSIONS:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Unsupported file type: {file_ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}"
                 )
-
             # size check
             file.file.seek(0, 2)
             size = file.file.tell()
             file.file.seek(0)
             if size > MAX_FILE_SIZE:
                 raise HTTPException(status_code=400, detail=f"File too large: {size} bytes (max: {MAX_FILE_SIZE})")
-
             import tempfile
             with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
                 shutil.copyfileobj(file.file, tmp)
                 tmp_path = tmp.name
-
             try:
                 parsed = parsing_service.process_document(tmp_path, "cv")
                 raw_content = parsed["raw_text"]
                 extracted_text = parsed["clean_text"]
                 filename = file.filename
+                # Get PII from parsed document
+                extracted_pii = parsed.get("extracted_pii", {"email": [], "phone": []})
             finally:
                 # leave tmp for now; we may copy it into our storage folder below
                 pass
-
         elif cv_text:
             logger.info("Processing CV text input")
-            cleaned, _pii = parsing_service.remove_pii_data(cv_text.strip())
+            cleaned, extracted_pii = parsing_service.remove_pii_data(cv_text.strip())
             raw_content = cv_text.strip()
             extracted_text = cleaned
             filename = "text_input.txt"
-
             if len(extracted_text) < 50:
                 raise HTTPException(status_code=400, detail="CV text too short (minimum 50 characters required)")
         else:
             raise HTTPException(status_code=400, detail="Either file upload or cv_text must be provided")
-
+        
         logger.info(f"✅ Text ready -> length={len(extracted_text)} (pii removed)")
-
+        logger.info(f"📋 Extracted PII -> emails: {len(extracted_pii.get('email', []))}, phones: {len(extracted_pii.get('phone', []))}")
+        
         # ---- LLM standardization ----
         logger.info("---------- STEP 1: LLM STANDARDIZATION ----------")
         llm = get_llm_service()
         standardized = llm.standardize_cv(extracted_text, filename)
-
+        
+        # Merge extracted PII into standardized data
+        logger.info("---------- STEP 1b: MERGING PII ----------")
+        # Ensure contact_info exists in standardized data
+        if "contact_info" not in standardized:
+            standardized["contact_info"] = {}
+        
+        # Add extracted PII to contact_info
+        if extracted_pii.get("email") and len(extracted_pii["email"]) > 0:
+            standardized["contact_info"]["email"] = extracted_pii["email"][0]
+            logger.info(f"✅ Added email to contact_info: {standardized['contact_info']['email']}")
+        if extracted_pii.get("phone") and len(extracted_pii["phone"]) > 0:
+            standardized["contact_info"]["phone"] = extracted_pii["phone"][0]
+            logger.info(f"✅ Added phone to contact_info: {standardized['contact_info']['phone']}")
+        
         # ---- EXACT embeddings (32 vectors) ----
         logger.info("---------- STEP 2: EMBEDDING GENERATION (32 vectors) ----------")
         emb_service = get_embedding_service()
         doc_embeddings = emb_service.generate_document_embeddings(standardized)
-
+        
         # ---- Store across Qdrant collections ----
         logger.info("---------- STEP 3: DATABASE STORAGE ----------")
         qdrant = get_qdrant_utils()
         cv_id = str(uuid.uuid4())
-
+        
         # Persist the original file (or synthesize a .txt if text input)
         try:
             if file:
@@ -143,9 +152,9 @@ async def upload_cv(
         except Exception as e:
             logger.warning(f"⚠️ Failed to persist original file: {e}")
             persisted_path = None
-
+        
         mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-
+        
         # 3a) Raw doc (+ file_path)
         qdrant.store_document(
             doc_id=cv_id,
@@ -157,7 +166,7 @@ async def upload_cv(
             file_path=persisted_path,          # 👈 store the path
             mime_type=mime_type                 # 👈 store the mime
         )
-
+        
         # 3b) Structured JSON
         qdrant.store_structured_data(
             doc_id=cv_id,
@@ -167,16 +176,16 @@ async def upload_cv(
                 "structured_info": standardized
             }
         )
-
+        
         # 3c) EXACT embeddings
         qdrant.store_embeddings_exact(
             doc_id=cv_id,
             doc_type="cv",
             embeddings_data=doc_embeddings
         )
-
+        
         logger.info(f"✅ CV processed and stored: {cv_id}")
-
+        
         return JSONResponse({
             "status": "success",
             "message": f"CV '{filename}' processed successfully",
@@ -187,10 +196,13 @@ async def upload_cv(
                 "text_length": len(extracted_text),
                 "skills_count": len(standardized.get("skills", [])),
                 "responsibilities_count": len(standardized.get("responsibilities", [])),
-                "embeddings_generated": 32
+                "embeddings_generated": 32,
+                "pii_extracted": {
+                    "emails": len(extracted_pii.get("email", [])),
+                    "phones": len(extracted_pii.get("phone", []))
+                }
             }
         })
-
     except HTTPException:
         raise
     except Exception as e:
@@ -315,33 +327,34 @@ async def get_cv_details(cv_id: str) -> JSONResponse:
         responsibilities = structured.get("responsibilities", structured.get("responsibility_sentences", []))
 
         response = {
-            "id": cv_id,
-            "filename": doc_meta.get("filename", "Unknown"),
-            "upload_date": doc_meta.get("upload_date", "Unknown"),
-            "document_type": "cv",
-            "candidate": {
-                "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
-                "job_title": structured.get("job_title", "Not specified"),
-                "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
-                "skills": structured.get("skills", []),
-                "responsibilities": responsibilities,
-                "skills_count": len(structured.get("skills", [])),
-                "responsibilities_count": len(responsibilities)
-            },
-            "text_info": {
-                "extracted_text_length": len(doc_meta.get("raw_content", "")),
-                "extracted_text_preview": (doc_meta.get("raw_content", "")[:500] + "...") if len(doc_meta.get("raw_content", "")) > 500 else doc_meta.get("raw_content", "")
-            },
-            "embeddings_info": {
-                "skills_embeddings": skills_count,
-                "responsibilities_embeddings": resp_count,
-                "has_title_embedding": has_title,
-                "has_experience_embedding": has_exp,
-                "embedding_dimension": dim,
-            },
-            "structured_info": structured,
-            "processing_metadata": structured.get("processing_metadata", {})
-        }
+    "id": cv_id,
+    "filename": doc_meta.get("filename", "Unknown"),
+    "upload_date": doc_meta.get("upload_date", "Unknown"),
+    "document_type": "cv",
+    "candidate": {
+        "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
+        "job_title": structured.get("job_title", "Not specified"),
+        "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
+        "skills": structured.get("skills", []),
+        "responsibilities": responsibilities,
+        "skills_count": len(structured.get("skills", [])),
+        "responsibilities_count": len(responsibilities),
+        "contact_info": structured.get("contact_info", {})  # Add this line
+    },
+    "text_info": {
+        "extracted_text_length": len(doc_meta.get("raw_content", "")),
+        "extracted_text_preview": (doc_meta.get("raw_content", "")[:500] + "...") if len(doc_meta.get("raw_content", "")) > 500 else doc_meta.get("raw_content", "")
+    },
+    "embeddings_info": {
+        "skills_embeddings": skills_count,
+        "responsibilities_embeddings": resp_count,
+        "has_title_embedding": has_title,
+        "has_experience_embedding": has_exp,
+        "embedding_dimension": dim,
+    },
+    "structured_info": structured,
+    "processing_metadata": structured.get("processing_metadata", {})
+}
 
         return JSONResponse({"status": "success", "cv": response})
 

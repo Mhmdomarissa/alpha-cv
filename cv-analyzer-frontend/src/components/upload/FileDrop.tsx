@@ -26,7 +26,7 @@ export default function FileDrop({
     'text/plain': ['.txt'],
     'image/*': ['.png', '.jpg', '.jpeg', '.tiff', '.bmp'],
   },
-  maxFiles = 10,
+  maxFiles = 200,
   maxSize = 10 * 1024 * 1024, // 10MB
   title,
   description,

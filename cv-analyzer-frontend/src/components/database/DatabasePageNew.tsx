@@ -27,8 +27,56 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { api } from '@/lib/api';
 
+/* ----------------------------- Types ---------------------------- */
+interface CVData {
+  id: string;
+  cv?: any;
+  candidate?: any;
+  structured_info?: any;
+  text_info?: any;
+  embeddings_info?: any;
+  processing_metadata?: any;
+  upload_date?: string;
+  filename?: string;
+}
+
+interface JDData {
+  id: string;
+  jd?: any;
+  job_requirements?: any;
+  structured_info?: any;
+  text_info?: any;
+  embeddings_info?: any;
+  processing_metadata?: any;
+  upload_date?: string;
+  filename?: string;
+}
+
+interface ContactInfo {
+  email?: string;
+  phone?: string;
+}
+
 /* ----------------------------- Small utilities ---------------------------- */
-const formatDate = (dateString?: string) => {
+const toNum = (v: unknown): number | undefined => {
+  if (v === null || v === undefined) return undefined;
+  const n = typeof v === 'string' ? Number(v) : v;
+  return Number.isFinite(n as number) ? (n as number) : undefined;
+};
+
+const firstNumber = (...vals: unknown[]): number => {
+  for (const v of vals) {
+    const n = toNum(v);
+    if (n !== undefined) return n;
+  }
+  return 0;
+};
+
+const len = (a: unknown): number | undefined => {
+  return Array.isArray(a) ? a.length : undefined;
+};
+
+const formatDate = (dateString?: string): string => {
   if (!dateString) return 'N/A';
   try {
     return new Date(dateString).toLocaleDateString();
@@ -37,43 +85,68 @@ const formatDate = (dateString?: string) => {
   }
 };
 
-const getCVBasics = (cv: any) => {
-  // Handle nested API response structure: response.cv.candidate
-  const candidate = cv?.cv?.candidate || cv?.candidate || {};
-  const cvData = cv?.cv || cv;
-  
-  return {
-    name: candidate?.full_name || cvData?.full_name || 'Unknown',
-    title: candidate?.job_title || cvData?.job_title || 'Unknown', 
-    years: candidate?.years_of_experience || cvData?.years_of_experience || '0',
-    skillsCount: candidate?.skills_count || candidate?.skills?.length || cvData?.skills?.length || 0,
-    respCount: candidate?.responsibilities_count || candidate?.responsibilities?.length || cvData?.responsibilities?.length || 0,
-  };
+const extractEmailFromText = (text: string): string => {
+  const emailMatch = text.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+  return emailMatch ? emailMatch[0] : 'not provided';
 };
 
-const getJDBasics = (jd: any) => {
-  // Handle nested API response structure: response.jd or direct response
+const extractPhoneFromText = (text: string): string => {
+  const phoneMatch = text.match(/(\+\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+  return phoneMatch ? phoneMatch[0] : 'not provided';
+};
+
+const safeArrayMap = <T, R>(
+  array: T[] | undefined | null,
+  callback: (item: T, index: number) => R
+): R[] => {
+  return Array.isArray(array) ? array.map(callback) : [];
+};
+
+/** Robustly derive name/title/years + counts across shapes */
+export const getCVBasics = (cv: CVData) => {
+  const cvData = cv?.cv || cv;
+  const candidate = cvData?.candidate || {};
+  const structured = cvData?.structured_info || {};
+
+  const name = candidate?.full_name ?? cvData?.full_name ?? 'Unknown';
+  const title = candidate?.job_title ?? cvData?.job_title ?? 'Unknown';
+  const years = candidate?.years_of_experience ?? cvData?.years_of_experience ?? '0';
+
+  const skillsCount = firstNumber(
+    candidate?.skills_count,
+    cvData?.skills_count,
+    structured?.skills_count,
+    len(candidate?.skills),
+    len(structured?.skills),
+    len(structured?.skills_sentences),
+    len(cvData?.skills)
+  );
+
+  const respCount = firstNumber(
+    candidate?.responsibilities_count,
+    cvData?.responsibilities_count,
+    structured?.responsibilities_count,
+    len(candidate?.responsibilities),
+    len(structured?.responsibilities),
+    len(structured?.responsibility_sentences),
+    len(cvData?.responsibilities)
+  );
+
+  return { name, title, years, skillsCount, respCount };
+};
+
+const getJDBasics = (jd: JDData) => {
   const jdData = jd?.jd || jd;
   const src = jdData?.job_requirements || jdData?.structured_info || {};
   
   const title = src.job_title ?? jdData?.job_title ?? 'N/A';
-  const years =
-    src.years_of_experience ?? src.experience_years ?? jdData?.years_of_experience ?? '0';
-  const skills =
-    src.skills ??
-    jdData?.skills ??
-    [];
-  const responsibilities =
-    src.responsibilities ??
-    src.responsibility_sentences ??
-    jdData?.responsibilities ??
-    [];
-  const skillsCount =
-    src.skills_count ?? jdData?.skills_count ?? (Array.isArray(skills) ? skills.length : 0);
-  const responsibilitiesCount =
-    src.responsibilities_count ??
-    jdData?.responsibilities_count ??
-    (Array.isArray(responsibilities) ? responsibilities.length : 0);
+  const years = src.years_of_experience ?? src.experience_years ?? jdData?.years_of_experience ?? '0';
+  const skills = src.skills ?? jdData?.skills ?? [];
+  const responsibilities = src.responsibilities ?? src.responsibility_sentences ?? jdData?.responsibilities ?? [];
+  
+  const skillsCount = src.skills_count ?? jdData?.skills_count ?? (Array.isArray(skills) ? skills.length : 0);
+  const responsibilitiesCount = src.responsibilities_count ?? jdData?.responsibilities_count ?? (Array.isArray(responsibilities) ? responsibilities.length : 0);
+  
   return { title, years, skills, responsibilities, skillsCount, responsibilitiesCount };
 };
 
@@ -102,10 +175,9 @@ export default function DatabasePageNew() {
   
   const [selectedCVForDetails, setSelectedCVForDetails] = useState<string | null>(null);
   const [selectedJDForDetails, setSelectedJDForDetails] = useState<string | null>(null);
-  const [showJDJSON, setShowJDJSON] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filteredCVs, setFilteredCVs] = useState<any[]>([]);
-  const [filteredJDs, setFilteredJDs] = useState<any[]>([]);
+  const [filteredCVs, setFilteredCVs] = useState<CVData[]>([]);
+  const [filteredJDs, setFilteredJDs] = useState<JDData[]>([]);
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   
@@ -115,7 +187,6 @@ export default function DatabasePageNew() {
   }, [loadCVs, loadJDs]);
   
   useEffect(() => {
-    // Filter CVs based on search query
     if (!searchQuery.trim()) {
       setFilteredCVs(cvs);
     } else {
@@ -133,7 +204,6 @@ export default function DatabasePageNew() {
   }, [cvs, searchQuery]);
   
   useEffect(() => {
-    // Filter JDs based on search query
     if (!searchQuery.trim()) {
       setFilteredJDs(jds);
     } else {
@@ -174,6 +244,7 @@ export default function DatabasePageNew() {
   };
   
   const canStartMatching = selectedCVs.length > 0 && selectedJD;
+  
   const handleStartMatching = async () => {
     await runMatch();
     setCurrentTab('match');
@@ -217,44 +288,43 @@ export default function DatabasePageNew() {
               <Button
                 variant="outline"
                 className="text-red-600 border-red-300 hover:bg-red-50"
+                aria-label="Clear all data from database"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
                 Clear Database
               </Button>
             </DialogTrigger>
             <DialogContent
-  className="bg-rose-50 border border-rose-300 shadow-xl rounded-lg p-6 data-[state=open]:animate-in 
-             data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 
-             data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
->
-  <DialogHeader>
-    <DialogTitle className="flex items-center gap-2 text-rose-700">
-      <AlertTriangle className="h-5 w-5 text-rose-500" />
-      Confirm Database Clear
-    </DialogTitle>
-  </DialogHeader>
-
-  <div className="space-y-4">
-    <p className="text-gray-800">
-      Are you sure you want to permanently delete all CVs and job descriptions?
-    </p>
-    <p className="text-sm text-rose-600 font-medium">This action cannot be undone.</p>
-    <div className="flex justify-end space-x-2">
-      <Button variant="outline" onClick={() => setShowClearDialog(false)}>
-        Cancel
-      </Button>
-      <Button
-        variant="error"
-        onClick={handleClearDatabase}
-        disabled={isClearing}
-        className="bg-rose-600 hover:bg-rose-700"
-      >
-        {isClearing ? 'Clearing...' : 'Clear All Data'}
-      </Button>
-    </div>
-  </div>
-</DialogContent>
-
+              className="bg-rose-50 border border-rose-300 shadow-xl rounded-lg p-6 data-[state=open]:animate-in 
+                         data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 
+                         data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+            >
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-rose-700">
+                  <AlertTriangle className="h-5 w-5 text-rose-500" />
+                  Confirm Database Clear
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-gray-800">
+                  Are you sure you want to permanently delete all CVs and job descriptions?
+                </p>
+                <p className="text-sm text-rose-600 font-medium">This action cannot be undone.</p>
+                <div className="flex justify-end space-x-2">
+                  <Button variant="outline" onClick={() => setShowClearDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="error"
+                    onClick={handleClearDatabase}
+                    disabled={isClearing}
+                    className="bg-rose-600 hover:bg-rose-700"
+                  >
+                    {isClearing ? 'Clearing...' : 'Clear All Data'}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
           </Dialog>
           <Button
             variant="outline"
@@ -263,6 +333,7 @@ export default function DatabasePageNew() {
               loadJDs();
             }}
             disabled={isLoadingCVs || isLoadingJDs}
+            aria-label="Refresh database content"
           >
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
@@ -272,6 +343,7 @@ export default function DatabasePageNew() {
               variant="primary"
               onClick={handleStartMatching}
               disabled={loadingStates.matching.isLoading}
+              aria-label="Start matching selected CVs with job description"
             >
               <Play className="w-4 h-4 mr-2" />
               {loadingStates.matching.isLoading ? 'Matching...' : 'Match Selected'}
@@ -328,11 +400,13 @@ export default function DatabasePageNew() {
               value={searchQuery}
               onChange={handleSearchChange}
               className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              aria-label="Search documents"
             />
             {searchQuery && (
               <button
                 onClick={clearSearch}
                 className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                aria-label="Clear search"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -417,6 +491,7 @@ export default function DatabasePageNew() {
                               }
                             }}
                             className="h-4 w-4 text-blue-600 rounded"
+                            aria-label={`Select CV for ${b.name}`}
                           />
                           <div className="p-2 bg-blue-100 rounded-lg">
                             <Users className="w-5 h-5 text-blue-600" />
@@ -439,6 +514,7 @@ export default function DatabasePageNew() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setSelectedCVForDetails(cv.id)}
+                                aria-label={`View details for ${b.name}`}
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
@@ -451,6 +527,7 @@ export default function DatabasePageNew() {
                                   size="sm"
                                   onClick={() => setSelectedCVForDetails(null)}
                                   className="h-6 w-6 rounded-full hover:bg-gray-100"
+                                  aria-label="Close CV details"
                                 >
                                   <X className="h-4 w-4" />
                                 </Button>
@@ -458,7 +535,13 @@ export default function DatabasePageNew() {
                               <CVDetails cvId={cv.id} />
                             </DialogContent>
                           </Dialog>
-                          <Button variant="ghost" size="sm" onClick={() => handleReprocessCV(cv.id)} disabled={isDeleting}>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => handleReprocessCV(cv.id)} 
+                            disabled={isDeleting}
+                            aria-label={`Reprocess CV for ${b.name}`}
+                          >
                             <RefreshCw className="w-4 h-4" />
                           </Button>
                           <Button
@@ -467,6 +550,7 @@ export default function DatabasePageNew() {
                             onClick={() => handleDeleteCV(cv.id)}
                             disabled={isDeleting}
                             className="text-red-500 hover:text-red-700"
+                            aria-label={`Delete CV for ${b.name}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -525,6 +609,7 @@ export default function DatabasePageNew() {
                             checked={selectedJD === jd.id}
                             onChange={() => selectJD(jd.id)}
                             className="h-4 w-4 text-blue-600"
+                            aria-label={`Select job description: ${b.title}`}
                           />
                           <div className="p-2 bg-green-100 rounded-lg">
                             <FileText className="w-5 h-5 text-green-600" />
@@ -545,6 +630,7 @@ export default function DatabasePageNew() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setSelectedJDForDetails(jd.id)}
+                                aria-label={`View details for ${b.title}`}
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
@@ -557,6 +643,7 @@ export default function DatabasePageNew() {
                                   size="sm"
                                   onClick={() => setSelectedJDForDetails(null)}
                                   className="h-6 w-6 rounded-full hover:bg-gray-100"
+                                  aria-label="Close job description details"
                                 >
                                   <X className="h-4 w-4" />
                                 </Button>
@@ -564,7 +651,13 @@ export default function DatabasePageNew() {
                               <JDDetails jdId={jd.id} />
                             </DialogContent>
                           </Dialog>
-                          <Button variant="ghost" size="sm" onClick={() => handleReprocessJD(jd.id)} disabled={isDeleting}>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => handleReprocessJD(jd.id)} 
+                            disabled={isDeleting}
+                            aria-label={`Reprocess job description: ${b.title}`}
+                          >
                             <RefreshCw className="w-4 h-4" />
                           </Button>
                           <Button
@@ -573,6 +666,7 @@ export default function DatabasePageNew() {
                             onClick={() => handleDeleteJD(jd.id)}
                             disabled={isDeleting}
                             className="text-red-500 hover:text-red-700"
+                            aria-label={`Delete job description: ${b.title}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -592,7 +686,7 @@ export default function DatabasePageNew() {
 
 /* ---------------------------- CV Details (modal) --------------------------- */
 function CVDetails({ cvId }: { cvId: string }) {
-  const [cv, setCV] = useState<any>(null);
+  const [cv, setCV] = useState<CVData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -602,8 +696,7 @@ function CVDetails({ cvId }: { cvId: string }) {
         setLoading(true);
         setError(null);
         const response = await api.getCVDetails(cvId);
-        const cvData = response;
-        setCV(cvData);
+        setCV(response);
       } catch (err: any) {
         setError(err.message || 'Failed to load CV details');
       } finally {
@@ -614,7 +707,7 @@ function CVDetails({ cvId }: { cvId: string }) {
   }, [cvId]);
   
   if (loading) return <div className="flex items-center justify-center py-8">Loading CV details...</div>;
-  if (error)
+  if (error) {
     return (
       <div className="text-center py-8">
         <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
@@ -622,9 +715,62 @@ function CVDetails({ cvId }: { cvId: string }) {
         <p className="text-red-500 mb-4">{error}</p>
       </div>
     );
+  }
   if (!cv) return <div className="text-center py-8">CV not found</div>;
   
   const b = getCVBasics(cv);
+  
+  // Extract contact information
+  const getContactInfo = (cv: CVData): ContactInfo => {
+    const cvData = cv?.cv || cv;
+    const candidate = cvData?.candidate || {};
+    const structured = cvData?.structured_info || {};
+    
+    const email = candidate?.contact_info?.email || 
+                  structured?.contact_info?.email ||
+                  cvData?.contact_info?.email;
+    
+    const phone = candidate?.contact_info?.phone || 
+                  structured?.contact_info?.phone ||
+                  cvData?.contact_info?.phone;
+    
+    const textPreview = cvData?.text_info?.extracted_text_preview || '';
+    
+    return {
+      email: email || extractEmailFromText(textPreview),
+      phone: phone || extractPhoneFromText(textPreview)
+    };
+  };
+  
+  // Get skills data
+  const getSkillsData = (cv: CVData): string[] => {
+    const cvData = cv?.cv || cv;
+    const candidate = cvData?.candidate || {};
+    const structured = cvData?.structured_info || {};
+    
+    return candidate?.skills ?? 
+           structured?.skills ?? 
+           structured?.skills_sentences ??
+           cvData?.skills ?? 
+           [];
+  };
+  
+  // Get responsibilities data
+  const getResponsibilitiesData = (cv: CVData): string[] => {
+    const cvData = cv?.cv || cv;
+    const candidate = cvData?.candidate || {};
+    const structured = cvData?.structured_info || {};
+    
+    return candidate?.responsibilities ?? 
+           structured?.responsibilities ?? 
+           structured?.responsibility_sentences ??
+           cvData?.responsibilities ?? 
+           [];
+  };
+  
+  const contactInfo = getContactInfo(cv);
+  const skillsData = getSkillsData(cv);
+  const responsibilitiesData = getResponsibilitiesData(cv);
   
   return (
     <div className="space-y-4">
@@ -656,175 +802,30 @@ function CVDetails({ cvId }: { cvId: string }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-gray-600">Email</p>
-              <p className="font-medium text-blue-600">
-                {cv.contact_info?.email || cv.structured_info?.contact_info?.email || 'not provided'}
-              </p>
+              <p className="font-medium text-blue-600">{contactInfo.email}</p>
             </div>
             <div>
               <p className="text-sm text-gray-600">Phone</p>
-              <p className="font-medium text-blue-600">
-                {cv.contact_info?.phone || cv.structured_info?.contact_info?.phone || 'not provided'}
-              </p>
+              <p className="font-medium text-blue-600">{contactInfo.phone}</p>
             </div>
           </div>
         </div>
-        
-       
       </div>
       
       {/* Skills */}
       <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold">Skills</h3>
-          <Badge className="ml-2">{b.skillsCount}</Badge>
+          <Badge variant="secondary">{b.skillsCount}</Badge>
         </div>
-        {(() => {
-          const skills = cv?.cv?.candidate?.skills || cv?.candidate?.skills || cv?.cv?.skills || cv?.skills || [];
-          return skills.length ? (
-            <ul className="space-y-2">
-              {skills.map((skill: string, i: number) => (
-                <li key={i} className="text-gray-700">{skill}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-gray-500">No skills information available</p>
-          );
-        })()}
-      </div>
-      
-      {/* Responsibilities */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold">Responsibilities</h3>
-          <Badge className="ml-2">{b.respCount}</Badge>
-        </div>
-        {(() => {
-          const responsibilities = cv?.cv?.candidate?.responsibilities || cv?.candidate?.responsibilities || cv?.cv?.responsibilities || cv?.responsibilities || [];
-          return responsibilities.length ? (
-            <ul className="space-y-2">
-              {responsibilities.map((resp: string, i: number) => (
-                <li key={i} className="text-gray-700">{resp}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-gray-500">No responsibilities information available</p>
-          );
-        })()}
-      </div>
-      
-      {/* Text Preview */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-        <h3 className="text-lg font-semibold mb-3">Text Preview</h3>
-        <div className="bg-gray-50 p-3 rounded max-h-40 overflow-y-auto">
-          <p className="text-sm text-gray-700 whitespace-pre-line">
-            {cv?.cv?.text_info?.extracted_text_preview || cv?.text_info?.extracted_text_preview || cv?.extracted_text_preview || 'No text preview available'}
-          </p>
-        </div>
-        <div className="mt-2 text-sm text-gray-500">
-          Text length: {cv?.cv?.text_info?.extracted_text_length || cv?.text_info?.extracted_text_length || cv?.extracted_text_length || 0} characters
-        </div>
-      </div>
-      
-      {/* Processing / Embeddings */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-          <h3 className="text-lg font-semibold mb-3">Embeddings Information</h3>
-          <div className="space-y-2">
-            <Row label="Skills Embeddings" value={cv?.cv?.embeddings_info?.skills_embeddings || cv?.embeddings_info?.skills_embeddings || cv?.skills_embeddings || 0} />
-            <Row label="Responsibilities Embeddings" value={cv?.cv?.embeddings_info?.responsibilities_embeddings || cv?.embeddings_info?.responsibilities_embeddings || cv?.responsibilities_embeddings || 0} />
-            <Row label="Title Embedding" value={(cv?.cv?.embeddings_info?.has_title_embedding || cv?.embeddings_info?.has_title_embedding || cv?.has_title_embedding) ? 'Yes' : 'No'} />
-            <Row label="Experience Embedding" value={(cv?.cv?.embeddings_info?.has_experience_embedding || cv?.embeddings_info?.has_experience_embedding || cv?.has_experience_embedding) ? 'Yes' : 'No'} />
-            <Row label="Embedding Dimension" value={cv?.cv?.embeddings_info?.embedding_dimension || cv?.embeddings_info?.embedding_dimension || cv?.embedding_dimension || 'N/A'} />
-          </div>
-        </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-          <h3 className="text-lg font-semibold mb-3">Processing Information</h3>
-          <div className="space-y-2">
-            <Row label="Filename" value={cv?.cv?.processing_metadata?.filename || cv?.processing_metadata?.filename || cv?.cv?.filename || cv?.filename || 'N/A'} mono />
-            <Row label="Model Used" value={cv?.cv?.processing_metadata?.model_used || cv?.processing_metadata?.model_used || cv?.model_used || 'N/A'} />
-            <Row
-              label="Processing Time"
-              value={
-                cv?.cv?.processing_metadata?.processing_time || cv?.processing_metadata?.processing_time || cv?.processing_time
-                  ? `${(
-                      (cv?.cv?.processing_metadata?.processing_time ??
-                        cv?.processing_metadata?.processing_time ??
-                        cv?.processing_time) as number
-                    ).toFixed(2)}s`
-                  : 'N/A'
-              }
-            />
-            <Row label="Text Length" value={cv?.cv?.processing_metadata?.text_length || cv?.cv?.text_info?.extracted_text_length || cv?.processing_metadata?.text_length || cv?.text_info?.extracted_text_length || cv?.text_length || 0} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------------- JD Details (modal) --------------------------- */
-function JDDetails({ jdId }: { jdId: string }) {
-  const [jd, setJD] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showJSON, setShowJSON] = useState(false);
-  
-  useEffect(() => {
-    const loadJD = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const response = await api.getJDDetails(jdId);
-        // accept several shapes
-        const jdData = response;
-        setJD(jdData);
-      } catch (err: any) {
-        setError(err.message || 'Failed to load JD details');
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadJD();
-  }, [jdId]);
-  
-  if (loading) return <div className="flex items-center justify-center py-8">Loading JD details...</div>;
-  if (error)
-    return (
-      <div className="text-center py-8">
-        <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
-        <h3 className="text-lg font-medium text-red-900 mb-2">Error Loading Job Description</h3>
-        <p className="text-red-500 mb-4">{error}</p>
-      </div>
-    );
-  if (!jd) return <div className="text-center py-8">Job Description not found</div>;
-  
-  const b = getJDBasics(jd);
-  
-  return (
-    <div className="space-y-4">
-    {/* Job Info */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-        <h3 className="text-lg font-semibold mb-3">Job Information</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Row label="Job Title" value={b.title} />
-          <Row label="Experience Required" value={`${b.years} years`} />
-          <Row label="Upload Date" value={formatDate(jd?.jd?.upload_date || jd?.upload_date)} />
-          <Row label="Document Type" value={jd?.jd?.document_type || jd?.document_type || 'jd'} />
-        </div>
-      </div>
-      
-      {/* Required Skills */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold">Required Skills</h3>
-          <Badge className="ml-2">{b.skillsCount}</Badge>
-        </div>
-        {b.skillsCount > 0 ? (
-          <ul className="space-y-2">
-            {b.skills.map((s: string, i: number) => (
-              <li key={i} className="text-gray-700">{s}</li>
+        {skillsData.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {safeArrayMap(skillsData, (skill: string, i: number) => (
+              <Badge key={i} variant="outline" className="text-sm">
+                {skill}
+              </Badge>
             ))}
-          </ul>
+          </div>
         ) : (
           <p className="text-gray-500">No skills information available</p>
         )}
@@ -834,12 +835,15 @@ function JDDetails({ jdId }: { jdId: string }) {
       <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold">Responsibilities</h3>
-          <Badge className="ml-2">{b.responsibilitiesCount}</Badge>
+          <Badge variant="secondary">{b.respCount}</Badge>
         </div>
-        {b.responsibilitiesCount > 0 ? (
+        {responsibilitiesData.length > 0 ? (
           <ul className="space-y-2">
-            {b.responsibilities.map((r: string, i: number) => (
-              <li key={i} className="text-gray-700">{r}</li>
+            {safeArrayMap(responsibilitiesData, (resp: string, i: number) => (
+              <li key={i} className="text-gray-700 flex items-start">
+                <span className="text-blue-500 mr-2 mt-1">•</span>
+                {resp}
+              </li>
             ))}
           </ul>
         ) : (
@@ -852,11 +856,11 @@ function JDDetails({ jdId }: { jdId: string }) {
         <h3 className="text-lg font-semibold mb-3">Text Preview</h3>
         <div className="bg-gray-50 p-3 rounded max-h-40 overflow-y-auto">
           <p className="text-sm text-gray-700 whitespace-pre-line">
-            {jd.text_info?.extracted_text_preview || jd.extracted_text_preview || 'No text preview available'}
+            {cv?.cv?.text_info?.extracted_text_preview || cv?.text_info?.extracted_text_preview || 'No text preview available'}
           </p>
         </div>
         <div className="mt-2 text-sm text-gray-500">
-          Text length: {jd.text_info?.extracted_text_length || jd.extracted_text_length || 0} characters
+          Text length: {cv?.cv?.text_info?.extracted_text_length || cv?.text_info?.extracted_text_length || 0} characters
         </div>
       </div>
       
@@ -865,40 +869,177 @@ function JDDetails({ jdId }: { jdId: string }) {
         <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
           <h3 className="text-lg font-semibold mb-3">Embeddings Information</h3>
           <div className="space-y-2">
-            <Row label="Skills Embeddings" value={jd?.jd?.embeddings_info?.skills_embeddings || jd?.embeddings_info?.skills_embeddings || jd?.skills_embeddings || 0} />
+            <Row label="Skills Embeddings" value={cv?.cv?.embeddings_info?.skills_embeddings || cv?.embeddings_info?.skills_embeddings || 0} />
+            <Row label="Responsibilities Embeddings" value={cv?.cv?.embeddings_info?.responsibilities_embeddings || cv?.embeddings_info?.responsibilities_embeddings || 0} />
+            <Row label="Title Embedding" value={(cv?.cv?.embeddings_info?.has_title_embedding || cv?.embeddings_info?.has_title_embedding) ? 'Yes' : 'No'} />
+            <Row label="Experience Embedding" value={(cv?.cv?.embeddings_info?.has_experience_embedding || cv?.embeddings_info?.has_experience_embedding) ? 'Yes' : 'No'} />
+            <Row label="Embedding Dimension" value={cv?.cv?.embeddings_info?.embedding_dimension || cv?.embeddings_info?.embedding_dimension || 'N/A'} />
+          </div>
+        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <h3 className="text-lg font-semibold mb-3">Processing Information</h3>
+          <div className="space-y-2">
+            <Row label="Filename" value={cv?.cv?.processing_metadata?.filename || cv?.processing_metadata?.filename || cv?.cv?.filename || cv?.filename || 'N/A'} mono />
+            <Row label="Model Used" value={cv?.cv?.processing_metadata?.model_used || cv?.processing_metadata?.model_used || 'N/A'} />
+            <Row
+              label="Processing Time"
+              value={
+                cv?.cv?.processing_metadata?.processing_time || cv?.processing_metadata?.processing_time
+                  ? `${(
+                      (cv?.cv?.processing_metadata?.processing_time ??
+                        cv?.processing_metadata?.processing_time) as number
+                    ).toFixed(2)}s`
+                  : 'N/A'
+              }
+            />
+            <Row label="Text Length" value={cv?.cv?.processing_metadata?.text_length || cv?.cv?.text_info?.extracted_text_length || cv?.processing_metadata?.text_length || cv?.text_info?.extracted_text_length || 0} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------- JD Details (modal) --------------------------- */
+function JDDetails({ jdId }: { jdId: string }) {
+  const [jd, setJD] = useState<JDData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showJSON, setShowJSON] = useState(false);
+  
+  useEffect(() => {
+    const loadJD = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await api.getJDDetails(jdId);
+        setJD(response);
+      } catch (err: any) {
+        setError(err.message || 'Failed to load JD details');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadJD();
+  }, [jdId]);
+  
+  if (loading) return <div className="flex items-center justify-center py-8">Loading JD details...</div>;
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
+        <h3 className="text-lg font-medium text-red-900 mb-2">Error Loading Job Description</h3>
+        <p className="text-red-500 mb-4">{error}</p>
+      </div>
+    );
+  }
+  if (!jd) return <div className="text-center py-8">Job Description not found</div>;
+  
+  const b = getJDBasics(jd);
+  
+  return (
+    <div className="space-y-4">
+      {/* Job Info */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Job Information</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Row label="Job Title" value={b.title} />
+          <Row label="Experience Required" value={`${b.years} years`} />
+          <Row label="Upload Date" value={formatDate(jd?.jd?.upload_date || jd?.upload_date)} />
+          <Row label="Document Type" value={jd?.jd?.document_type || 'jd'} />
+        </div>
+      </div>
+      
+      {/* Required Skills */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">Required Skills</h3>
+          <Badge variant="secondary">{b.skillsCount}</Badge>
+        </div>
+        {b.skillsCount > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {safeArrayMap(b.skills, (skill: string, i: number) => (
+              <Badge key={i} variant="outline" className="text-sm">
+                {skill}
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-500">No skills information available</p>
+        )}
+      </div>
+      
+      {/* Responsibilities */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">Responsibilities</h3>
+          <Badge variant="secondary">{b.responsibilitiesCount}</Badge>
+        </div>
+        {b.responsibilitiesCount > 0 ? (
+          <ul className="space-y-2">
+            {safeArrayMap(b.responsibilities, (resp: string, i: number) => (
+              <li key={i} className="text-gray-700 flex items-start">
+                <span className="text-blue-500 mr-2 mt-1">•</span>
+                {resp}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-500">No responsibilities information available</p>
+        )}
+      </div>
+      
+      {/* Text Preview */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Text Preview</h3>
+        <div className="bg-gray-50 p-3 rounded max-h-40 overflow-y-auto">
+          <p className="text-sm text-gray-700 whitespace-pre-line">
+            {jd?.jd?.text_info?.extracted_text_preview || jd?.text_info?.extracted_text_preview || 'No text preview available'}
+          </p>
+        </div>
+        <div className="mt-2 text-sm text-gray-500">
+          Text length: {jd?.jd?.text_info?.extracted_text_length || jd?.text_info?.extracted_text_length || 0} characters
+        </div>
+      </div>
+      
+      {/* Processing / Embeddings */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <h3 className="text-lg font-semibold mb-3">Embeddings Information</h3>
+          <div className="space-y-2">
+            <Row label="Skills Embeddings" value={jd?.jd?.embeddings_info?.skills_embeddings || jd?.embeddings_info?.skills_embeddings || 0} />
             <Row
               label="Responsibilities Embeddings"
-              value={jd?.jd?.embeddings_info?.responsibilities_embeddings || jd?.embeddings_info?.responsibilities_embeddings || jd?.responsibilities_embeddings || 0}
+              value={jd?.jd?.embeddings_info?.responsibilities_embeddings || jd?.embeddings_info?.responsibilities_embeddings || 0}
             />
             <Row
               label="Title Embedding"
-              value={(jd?.jd?.embeddings_info?.has_title_embedding || jd?.embeddings_info?.has_title_embedding || jd?.has_title_embedding) ? 'Yes' : 'No'}
+              value={(jd?.jd?.embeddings_info?.has_title_embedding || jd?.embeddings_info?.has_title_embedding) ? 'Yes' : 'No'}
             />
             <Row
               label="Experience Embedding"
-              value={(jd?.jd?.embeddings_info?.has_experience_embedding || jd?.embeddings_info?.has_experience_embedding || jd?.has_experience_embedding) ? 'Yes' : 'No'}
+              value={(jd?.jd?.embeddings_info?.has_experience_embedding || jd?.embeddings_info?.has_experience_embedding) ? 'Yes' : 'No'}
             />
-            <Row label="Embedding Dimension" value={jd?.jd?.embeddings_info?.embedding_dimension || jd?.embeddings_info?.embedding_dimension || jd?.embedding_dimension || 'N/A'} />
+            <Row label="Embedding Dimension" value={jd?.jd?.embeddings_info?.embedding_dimension || jd?.embeddings_info?.embedding_dimension || 'N/A'} />
           </div>
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
           <h3 className="text-lg font-semibold mb-3">Processing Information</h3>
           <div className="space-y-2">
             <Row label="Filename" value={jd?.jd?.processing_metadata?.filename || jd?.processing_metadata?.filename || jd?.jd?.filename || jd?.filename || 'N/A'} mono />
-            <Row label="Model Used" value={jd?.jd?.processing_metadata?.model_used || jd?.processing_metadata?.model_used || jd?.model_used || 'N/A'} />
+            <Row label="Model Used" value={jd?.jd?.processing_metadata?.model_used || jd?.processing_metadata?.model_used || 'N/A'} />
             <Row
               label="Processing Time"
               value={
-                jd?.jd?.processing_metadata?.processing_time || jd?.processing_metadata?.processing_time || jd?.processing_time
+                jd?.jd?.processing_metadata?.processing_time || jd?.processing_metadata?.processing_time
                   ? `${(
                       (jd?.jd?.processing_metadata?.processing_time ??
-                        jd?.processing_metadata?.processing_time ??
-                        jd?.processing_time) as number
+                        jd?.processing_metadata?.processing_time) as number
                     ).toFixed(2)}s`
                   : 'N/A'
               }
             />
-            <Row label="Text Length" value={jd?.jd?.processing_metadata?.text_length || jd?.jd?.text_info?.extracted_text_length || jd?.processing_metadata?.text_length || jd?.text_info?.extracted_text_length || jd?.text_length || 0} />
+            <Row label="Text Length" value={jd?.jd?.processing_metadata?.text_length || jd?.jd?.text_info?.extracted_text_length || jd?.processing_metadata?.text_length || jd?.text_info?.extracted_text_length || 0} />
           </div>
         </div>
       </div>
@@ -908,6 +1049,7 @@ function JDDetails({ jdId }: { jdId: string }) {
         <button
           className="inline-flex items-center text-xs text-gray-500 hover:text-gray-700"
           onClick={() => setShowJSON((s) => !s)}
+          aria-label={showJSON ? 'Hide raw JSON data' : 'Show raw JSON data'}
         >
           <ChevronDown className={`w-4 h-4 mr-1 transition-transform ${showJSON ? 'rotate-180' : ''}`} />
           {showJSON ? 'Hide raw JSON' : 'Show raw JSON'}

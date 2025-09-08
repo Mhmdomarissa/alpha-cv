@@ -108,7 +108,7 @@ export default function UploadPageNew() {
       'text/plain': ['.txt'],
       'image/*': ['.png', '.jpg', '.jpeg', '.tiff', '.bmp'],
     },
-    maxFiles: 10,
+    maxFiles: 200,
     maxSize: 10 * 1024 * 1024,
   });
   const {
@@ -421,7 +421,7 @@ export default function UploadPageNew() {
               </div>
               <div className="text-xs" style={{ color: 'var(--gray-400)' }}>
                 <p>Drag & drop files here, or click to browse</p>
-                <p className="mt-1">Max 10 files, 10MB each</p>
+                <p className="mt-1">Max 200 files, 10MB each</p>
               </div>
               <button className="btn-secondary">Browse Files</button>
             </div>
