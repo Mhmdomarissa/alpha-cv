@@ -342,3 +342,55 @@ export interface UpdateUserRequest {
   role?: 'admin' | 'user';
   is_active?: boolean;
 }
+
+// Careers types
+export interface JobPostingResponse {
+  job_id: string;
+  public_link: string;
+  job_title?: string;
+  upload_date: string;
+  filename: string;
+  is_active: boolean;
+  company_name?: string;
+}
+
+export interface PublicJobView {
+  job_id: string;
+  job_title?: string;
+  company_name?: string;
+  job_description: string;
+  upload_date: string;
+  requirements?: string[];
+  responsibilities?: string[];
+  experience_required?: string;
+  is_active: boolean;
+}
+
+export interface JobApplicationResponse {
+  success: boolean;
+  application_id: string;
+  message: string;
+  next_steps?: string;
+}
+
+export interface JobPostingListItem {
+  job_id: string;
+  job_title?: string;
+  filename: string;
+  upload_date: string;
+  is_active: boolean;
+  application_count?: number;
+  public_token: string;
+}
+
+export interface JobApplicationListItem {
+  application_id: string;
+  job_id: string;
+  applicant_name: string;
+  applicant_email: string;
+  applicant_phone?: string;
+  cv_filename: string;
+  application_date: string;
+  match_score?: number;
+  status?: string;
+}

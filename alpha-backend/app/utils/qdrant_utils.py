@@ -45,6 +45,13 @@ class QdrantUtils:
             "jd_structured":  VectorParams(size=768, distance=Distance.COSINE),
             "cv_embeddings":  VectorParams(size=768, distance=Distance.COSINE),
             "jd_embeddings":  VectorParams(size=768, distance=Distance.COSINE),
+            # New careers collections
+            "job_postings_documents":   VectorParams(size=768, distance=Distance.COSINE),
+            "job_postings_structured":  VectorParams(size=768, distance=Distance.COSINE),
+            "job_postings_embeddings":  VectorParams(size=768, distance=Distance.COSINE),
+            "applications_documents":   VectorParams(size=768, distance=Distance.COSINE),
+            "applications_structured":  VectorParams(size=768, distance=Distance.COSINE),
+            "applications_embeddings":  VectorParams(size=768, distance=Distance.COSINE),
         }
         for name, cfg in collections.items():
             if not self.client.collection_exists(name):
@@ -417,6 +424,327 @@ class QdrantUtils:
         except Exception as e:
             logger.error(f"❌ get_structured_jd({jd_id}) failed: {e}")
             return None
+
+    # ---------- careers functionality methods ----------
+
+    def store_job_posting(
+        self, 
+        job_id: str, 
+        filename: str, 
+        raw_content: str, 
+        file_format: str, 
+        public_token: str,
+        company_name: Optional[str] = None
+    ) -> bool:
+        """
+        Store job posting with public access token for anonymous viewing
+        Uses job_postings_documents collection with special public_token field
+        """
+        try:
+            collection_name = "job_postings_documents"
+            dummy_vector = [0.0] * 768
+            payload = {
+                "id": job_id,
+                "filename": filename,
+                "file_format": file_format,
+                "raw_content": raw_content,
+                "upload_date": datetime.utcnow().isoformat(),
+                "content_hash": hashlib.md5(raw_content.encode()).hexdigest(),
+                "document_type": "job_posting",
+                "public_token": public_token,  # Key field for anonymous access
+                "is_active": True,
+                "company_name": company_name,
+            }
+            
+            point = PointStruct(id=job_id, vector=dummy_vector, payload=payload)
+            self.client.upsert(collection_name=collection_name, points=[point])
+            logger.info(f"✅ Stored job posting: {job_id} with token: {public_token[:8]}...")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to store job posting {job_id}: {e}")
+            return False
+
+    def get_job_posting_by_token(self, public_token: str) -> Optional[Dict]:
+        """
+        Retrieve job posting using public token for anonymous access
+        Returns None if job not found or inactive
+        """
+        try:
+            collection_name = "job_postings_documents"
+            
+            # Search by public_token
+            filter_condition = Filter(
+                must=[
+                    FieldCondition(
+                        key="public_token",
+                        match=MatchValue(value=public_token)
+                    ),
+                    FieldCondition(
+                        key="is_active", 
+                        match=MatchValue(value=True)
+                    )
+                ]
+            )
+            
+            results = self.client.scroll(
+                collection_name=collection_name,
+                scroll_filter=filter_condition,
+                limit=1,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            if results[0]:  # results is (points, next_page_offset)
+                point = results[0][0]
+                payload = point.payload
+                logger.info(f"✅ Found job posting for token: {public_token[:8]}...")
+                return payload
+            else:
+                logger.warning(f"❌ No active job posting found for token: {public_token[:8]}...")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to get job posting by token: {e}")
+            return None
+
+    def get_job_posting_by_id(self, job_id: str) -> Optional[Dict]:
+        """
+        Retrieve job posting by job_id (for admin/HR functions)
+        """
+        try:
+            collection_name = "job_postings_documents"
+            
+            results = self.client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="id", match=MatchValue(value=job_id))]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            if results[0]:
+                return results[0][0].payload
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get job posting {job_id}: {e}")
+            return None
+
+    def update_job_posting_status(self, job_id: str, is_active: bool) -> bool:
+        """
+        Activate or deactivate a job posting
+        """
+        try:
+            collection_name = "job_postings_documents"
+            
+            # First get the current point
+            current_point = self.client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="id", match=MatchValue(value=job_id))]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=True
+            )[0]
+            
+            if not current_point:
+                logger.error(f"❌ Job posting {job_id} not found for status update")
+                return False
+                
+            point = current_point[0]
+            payload = point.payload.copy()
+            payload["is_active"] = is_active
+            payload["status_updated"] = datetime.utcnow().isoformat()
+            
+            # Update the point
+            updated_point = PointStruct(id=job_id, vector=point.vector, payload=payload)
+            self.client.upsert(collection_name=collection_name, points=[updated_point])
+            
+            logger.info(f"✅ Updated job posting {job_id} status to: {is_active}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to update job posting status {job_id}: {e}")
+            return False
+
+    def link_application_to_job(
+        self, 
+        application_id: str, 
+        job_id: str, 
+        applicant_data: Dict,
+        cv_filename: str,
+        application_date: Optional[str] = None
+    ) -> bool:
+        """
+        Store application data linking it to a specific job posting
+        Uses applications_documents collection
+        """
+        try:
+            collection_name = "applications_documents"
+            dummy_vector = [0.0] * 768
+            
+            if not application_date:
+                application_date = datetime.utcnow().isoformat()
+            
+            payload = {
+                "id": application_id,
+                "job_id": job_id,  # Link to job posting
+                "applicant_name": applicant_data.get("applicant_name"),
+                "applicant_email": applicant_data.get("applicant_email"),
+                "applicant_phone": applicant_data.get("applicant_phone"),
+                "cv_filename": cv_filename,
+                "application_date": application_date,
+                "document_type": "application",
+                "status": "pending",
+                "cover_letter": applicant_data.get("cover_letter"),
+            }
+            
+            point = PointStruct(id=application_id, vector=dummy_vector, payload=payload)
+            self.client.upsert(collection_name=collection_name, points=[point])
+            
+            logger.info(f"✅ Linked application {application_id} to job {job_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to link application {application_id} to job {job_id}: {e}")
+            return False
+
+    def get_applications_for_job(self, job_id: str) -> List[Dict]:
+        """
+        Get all applications for a specific job posting
+        """
+        try:
+            collection_name = "applications_documents"
+            
+            results = self.client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="job_id", match=MatchValue(value=job_id))]
+                ),
+                limit=1000,  # Reasonable limit for applications
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            applications = []
+            if results[0]:
+                for point in results[0]:
+                    applications.append(point.payload)
+            
+            logger.info(f"✅ Found {len(applications)} applications for job {job_id}")
+            return applications
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get applications for job {job_id}: {e}")
+            return []
+
+    def get_all_job_postings(self, include_inactive: bool = False) -> List[Dict]:
+        """
+        Get all job postings (for HR dashboard)
+        """
+        try:
+            collection_name = "job_postings_documents"
+            
+            filter_conditions = []
+            if not include_inactive:
+                filter_conditions.append(
+                    FieldCondition(key="is_active", match=MatchValue(value=True))
+                )
+            
+            filter_obj = Filter(must=filter_conditions) if filter_conditions else None
+            
+            results = self.client.scroll(
+                collection_name=collection_name,
+                scroll_filter=filter_obj,
+                limit=1000,  # Reasonable limit
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            jobs = []
+            if results[0]:
+                for point in results[0]:
+                    jobs.append(point.payload)
+            
+            logger.info(f"✅ Found {len(jobs)} job postings")
+            return jobs
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get job postings: {e}")
+            return []
+
+    def get_careers_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics for careers functionality
+        """
+        try:
+            stats = {
+                "job_postings_count": 0,
+                "active_jobs_count": 0,
+                "applications_count": 0,
+                "collections_status": {}
+            }
+            
+            # Count job postings
+            job_results = self.client.scroll(
+                collection_name="job_postings_documents",
+                limit=1000,
+                with_payload=True,
+                with_vectors=False
+            )
+            if job_results[0]:
+                stats["job_postings_count"] = len(job_results[0])
+                stats["active_jobs_count"] = sum(
+                    1 for point in job_results[0] 
+                    if point.payload.get("is_active", False)
+                )
+            
+            # Count applications
+            app_results = self.client.scroll(
+                collection_name="applications_documents",
+                limit=1000,
+                with_payload=False,
+                with_vectors=False
+            )
+            if app_results[0]:
+                stats["applications_count"] = len(app_results[0])
+            
+            # Check collection health
+            careers_collections = [
+                "job_postings_documents", "job_postings_structured", "job_postings_embeddings",
+                "applications_documents", "applications_structured", "applications_embeddings"
+            ]
+            
+            for collection_name in careers_collections:
+                try:
+                    collection_info = self.client.get_collection(collection_name)
+                    stats["collections_status"][collection_name] = {
+                        "exists": True,
+                        "points_count": collection_info.points_count,
+                        "status": "healthy"
+                    }
+                except Exception as e:
+                    stats["collections_status"][collection_name] = {
+                        "exists": False,
+                        "error": str(e),
+                        "status": "unhealthy"
+                    }
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get careers stats: {e}")
+            return {
+                "job_postings_count": 0,
+                "active_jobs_count": 0,
+                "applications_count": 0,
+                "collections_status": {},
+                "error": str(e)
+            }
 
 
 # Global singleton

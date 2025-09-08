@@ -8,6 +8,7 @@ import DatabasePageNew from '@/components/database/DatabasePageNew';
 import MatchingPageNew from '@/components/results/MatchingPageNew';
 import SystemPanel from '@/components/system/SystemPanel';
 import ReportGenerator from '@/components/reports/ReportGenerator';
+import { CareersPage } from '@/components/careers';
 import ErrorBanner from '@/components/common/ErrorBanner';
 import { LoadingPage } from '@/components/ui/loading';
 import Protected from '@/components/layout/Protected';
@@ -32,6 +33,8 @@ export default function HomePage() {
         return <DatabasePageNew />;
       case 'match':
         return <MatchingPageNew />;
+      case 'careers':
+        return <CareersPage />;
       case 'reports':
         return <ReportGenerator />;
       case 'system':
