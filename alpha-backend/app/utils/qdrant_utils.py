@@ -465,27 +465,32 @@ class QdrantUtils:
             logger.error(f"❌ Failed to store job posting {job_id}: {e}")
             return False
 
-    def get_job_posting_by_token(self, public_token: str) -> Optional[Dict]:
+    def get_job_posting_by_token(self, public_token: str, include_inactive: bool = False) -> Optional[Dict]:
         """
         Retrieve job posting using public token for anonymous access
-        Returns None if job not found or inactive
+        Returns None if job not found or (if include_inactive is False) inactive
         """
         try:
             collection_name = "job_postings_documents"
             
             # Search by public_token
-            filter_condition = Filter(
-                must=[
-                    FieldCondition(
-                        key="public_token",
-                        match=MatchValue(value=public_token)
-                    ),
+            filter_conditions = [
+                FieldCondition(
+                    key="public_token",
+                    match=MatchValue(value=public_token)
+                )
+            ]
+            
+            # Only add active filter if we're not including inactive jobs
+            if not include_inactive:
+                filter_conditions.append(
                     FieldCondition(
                         key="is_active", 
                         match=MatchValue(value=True)
                     )
-                ]
-            )
+                )
+            
+            filter_condition = Filter(must=filter_conditions)
             
             results = self.client.scroll(
                 collection_name=collection_name,
@@ -501,7 +506,7 @@ class QdrantUtils:
                 logger.info(f"✅ Found job posting for token: {public_token[:8]}...")
                 return payload
             else:
-                logger.warning(f"❌ No active job posting found for token: {public_token[:8]}...")
+                logger.warning(f"❌ No job posting found for token: {public_token[:8]}...")
                 return None
                 
         except Exception as e:

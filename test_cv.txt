@@ -1,16 +1,30 @@
-John Doe
-Software Engineer
-Email: john.doe@example.com
-Phone: +1-555-0123
+John Doe - Senior Python Developer
 
-Experience:
-- 5 years of Python development
-- Full-stack web development with React and FastAPI
-- Machine learning model deployment
-- Database design and optimization
+Contact: john.doe@example.com | +1-555-0123
 
-Skills:
-- Python, JavaScript, React, FastAPI
-- PostgreSQL, MongoDB
-- Docker, Kubernetes
-- AWS, Azure
+EXPERIENCE
+Senior Software Engineer at TechCorp (2019-2024)
+- Led development of microservices architecture using Python and Django
+- Designed and implemented RESTful APIs serving 1M+ daily requests  
+- Mentored team of 5 junior developers
+- Established CI/CD pipelines using Docker and Kubernetes
+
+Python Developer at StartupXYZ (2017-2019)
+- Built scalable web applications using Django and PostgreSQL
+- Implemented automated testing frameworks
+- Collaborated with frontend teams on API design
+
+SKILLS
+- Languages: Python, JavaScript, SQL
+- Frameworks: Django, FastAPI, Flask, React
+- Databases: PostgreSQL, MySQL, Redis
+- Tools: Docker, Git, Linux, AWS
+- Methodologies: Agile, TDD, Code Reviews
+
+EDUCATION
+Bachelor of Computer Science - State University (2017)
+
+ACHIEVEMENTS
+- Reduced API response times by 60% through optimization
+- Led migration of legacy system to modern architecture
+- Contributed to 3 open-source Python projects

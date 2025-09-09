@@ -64,13 +64,17 @@ const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
   ];
 
   // Add careers tab for all authenticated users (HR and admin)
+  console.log('DEBUG getNavigationTabs - userRole:', userRole, 'type:', typeof userRole);
   if (userRole) {
+    console.log('DEBUG: Adding careers tab for user role:', userRole);
     baseTabs.push({
       id: 'careers',
       label: 'Careers',
       icon: Briefcase,
       description: 'Manage job postings',
     });
+  } else {
+    console.log('DEBUG: No userRole provided, careers tab not added');
   }
 
   return baseTabs;
@@ -81,6 +85,13 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
   const { currentTab, setCurrentTab, systemHealth, cvs, jds, matchResult } = useAppStore();
   const { user, logout } = useAuthStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // FORCE DEBUG OUTPUT
+  console.log('🔍 NAVIGATION DEBUG - User object:', user);
+  console.log('🔍 NAVIGATION DEBUG - User role:', user?.role);
+  console.log('🔍 NAVIGATION DEBUG - Calling getNavigationTabs with:', user?.role);
+  const navigationTabs = getNavigationTabs(user?.role);
+  console.log('🔍 NAVIGATION DEBUG - Result tabs:', navigationTabs.map(t => t.id));
 
   const handleLogout = () => {
     logout();
@@ -145,7 +156,13 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
 
             {/* Navigation Tabs - Desktop */}
             <nav className="hidden md:flex items-center space-x-1">
-              {getNavigationTabs(user?.role).map((tab) => {
+              {(() => {
+                console.log('DEBUG: Current user:', user);
+                console.log('DEBUG: User role:', user?.role);
+                const tabs = getNavigationTabs(user?.role);
+                console.log('DEBUG: Generated tabs:', tabs.map(t => t.id));
+                return tabs;
+              })().map((tab) => {
                 const isActive = currentTab === tab.id;
                 const isCompleted = getProgress(tab.id);
                 const IconComponent = tab.icon;

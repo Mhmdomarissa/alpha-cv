@@ -19,9 +19,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <AuthInitializer />
-        <div className="min-h-screen bg-background">
-          {children}
-        </div>
+        {children}
       </body>
     </html>
   );

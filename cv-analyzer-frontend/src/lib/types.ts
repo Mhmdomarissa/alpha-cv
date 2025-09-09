@@ -347,6 +347,7 @@ export interface UpdateUserRequest {
 export interface JobPostingResponse {
   job_id: string;
   public_link: string;
+  public_token: string; // Added this field
   job_title?: string;
   upload_date: string;
   filename: string;
@@ -380,7 +381,7 @@ export interface JobPostingListItem {
   upload_date: string;
   is_active: boolean;
   application_count?: number;
-  public_token: string;
+  public_token: string; // Already present
 }
 
 export interface JobApplicationListItem {

@@ -1,0 +1,56 @@
+SharePoint Developer Resume
+
+Name: Michael Rodriguez
+Email: michael.rodriguez@email.com
+Phone: (555) 987-6543
+
+PROFESSIONAL SUMMARY
+Senior SharePoint Developer with 7 years of experience in SharePoint development, customization, and administration. Expert in SharePoint Online, SharePoint Server, Power Platform, and Microsoft 365 ecosystem.
+
+EXPERIENCE
+
+Senior SharePoint Developer | Microsoft Solutions Ltd | 2019-Present
+• Developed custom SharePoint solutions using SPFx, React, and TypeScript
+• Designed and implemented SharePoint Online sites and workflows
+• Created Power Apps and Power Automate solutions for business processes
+• Developed custom web parts and SharePoint Framework solutions
+• Migrated on-premises SharePoint farms to SharePoint Online
+• Implemented governance policies and best practices for SharePoint
+• Integrated SharePoint with Microsoft Teams and other M365 services
+
+SharePoint Developer | Digital Workspace Corp | 2017-2019
+• Built custom SharePoint applications using C#, .NET, and JavaScript
+• Developed SharePoint workflows using SharePoint Designer and Nintex
+• Created custom forms and lists for business requirements
+• Performed SharePoint administration and configuration tasks
+• Developed InfoPath forms and document management solutions
+• Implemented search solutions and content types
+
+Junior SharePoint Developer | TechFlow Solutions | 2016-2017
+• Assisted in SharePoint site collection creation and management
+• Developed simple workflows and custom lists
+• Performed basic SharePoint administration tasks
+• Created custom pages using SharePoint Designer
+
+SKILLS
+• SharePoint: SharePoint Online, SharePoint Server 2019/2016, SharePoint 2013
+• Development: SPFx, React, TypeScript, JavaScript, HTML5, CSS3
+• Backend: C#, .NET Framework, .NET Core, ASP.NET, Web API
+• Power Platform: Power Apps, Power Automate, Power BI
+• Microsoft 365: Teams, OneDrive, Exchange Online, Azure AD
+• Databases: SQL Server, Azure SQL Database
+• Tools: Visual Studio, VS Code, SharePoint Designer, PowerShell
+• Version Control: Git, Azure DevOps, TFS
+• Web Technologies: REST APIs, JSON, XML, jQuery
+• Workflows: SharePoint Designer, Nintex, Microsoft Flow
+• Search: SharePoint Search, Azure Cognitive Search
+• Authentication: Azure AD, ADFS, OAuth
+
+EDUCATION
+Bachelor of Science in Computer Science | University of Texas | 2016
+
+CERTIFICATIONS
+• Microsoft 365 Certified: Developer Associate
+• Microsoft Certified: SharePoint Developer
+• Microsoft Certified: Azure Developer Associate
+• Power Platform Developer Associate

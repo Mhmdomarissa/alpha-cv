@@ -1,0 +1,51 @@
+Cloud Engineer Resume
+
+Name: David Thompson
+Email: david.thompson@email.com
+Phone: (555) 456-7890
+
+PROFESSIONAL SUMMARY
+Senior Cloud Engineer with 6 years of experience in cloud infrastructure, DevOps, and automation. Expert in AWS, Azure, Kubernetes, and Infrastructure as Code.
+
+EXPERIENCE
+
+Senior Cloud Engineer | CloudTech Solutions | 2021-Present
+• Designed and implemented scalable cloud architectures on AWS and Azure
+• Managed Kubernetes clusters and container orchestration
+• Developed Infrastructure as Code using Terraform and CloudFormation
+• Implemented CI/CD pipelines using Jenkins, Azure DevOps, and GitHub Actions
+• Automated deployment processes and configuration management
+• Monitored cloud infrastructure using CloudWatch, Azure Monitor, and Prometheus
+
+Cloud Engineer | InfraCore Ltd | 2019-2021
+• Migrated on-premises applications to cloud platforms
+• Implemented auto-scaling and load balancing solutions
+• Managed cloud security and compliance requirements
+• Developed automation scripts using Python and PowerShell
+• Optimized cloud costs and resource utilization
+
+Junior Cloud Engineer | TechStart Inc | 2018-2019
+• Assisted in cloud migration projects
+• Performed basic cloud administration tasks
+• Learned cloud best practices and security fundamentals
+
+SKILLS
+• Cloud Platforms: AWS, Microsoft Azure, Google Cloud Platform
+• Containers: Docker, Kubernetes, OpenShift, Container Registry
+• Infrastructure as Code: Terraform, CloudFormation, ARM Templates
+• CI/CD: Jenkins, Azure DevOps, GitHub Actions, GitLab CI
+• Monitoring: CloudWatch, Azure Monitor, Prometheus, Grafana
+• Scripting: Python, PowerShell, Bash, YAML
+• Security: IAM, Security Groups, Network Security, Compliance
+• Networking: VPC, Subnets, Load Balancers, DNS
+• Databases: RDS, Azure SQL, DynamoDB, CosmosDB
+• DevOps: Git, Ansible, Chef, Puppet
+
+EDUCATION
+Bachelor of Science in Information Technology | University of Washington | 2018
+
+CERTIFICATIONS
+• AWS Certified Solutions Architect - Professional
+• Microsoft Certified: Azure Solutions Architect Expert
+• Certified Kubernetes Administrator (CKA)
+• HashiCorp Certified: Terraform Associate

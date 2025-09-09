@@ -47,9 +47,9 @@ export default function LoginForm() {
     if (result.success && result.role) {
       // Redirect based on role
       if (result.role === 'admin') {
-        router.push('/admin/users');
+        router.push('/admin/users'); // Admin users go to admin panel
       } else {
-        router.push('/'); // Redirect to main app (dashboard with tabs)
+        router.push('/'); // HR/regular users go to main app (with careers tab)
       }
     }
     // Error handling is done by the store
