@@ -16,7 +16,7 @@ from typing import Optional, List
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.requests import Request
-
+import os
 from app.schemas.careers import (
     JobPostingCreate,
     JobPostingResponse, 
@@ -81,11 +81,12 @@ async def get_public_job(public_token: str) -> PublicJobView:
         logger.info(f"📄 Public job request for token: {public_token[:8]}...")
         
         qdrant = get_qdrant_utils()
-        job_data = qdrant.get_job_posting_by_token(public_token)
+        # Update this to include inactive jobs
+        job_data = qdrant.get_job_posting_by_token(public_token, include_inactive=True)
         
         if not job_data:
             logger.warning(f"❌ Job posting not found for token: {public_token[:8]}...")
-            raise HTTPException(status_code=404, detail="Job posting not found or no longer active")
+            raise HTTPException(status_code=404, detail="Job posting not found")
         
         # Get structured data if available
         client = qdrant.client
@@ -122,7 +123,7 @@ async def get_public_job(public_token: str) -> PublicJobView:
             requirements=requirements[:10],  # Limit to top 10 for display
             responsibilities=responsibilities[:10],  # Limit to top 10 for display
             experience_required=str(experience_required),
-            is_active=job_data.get("is_active", True)
+            is_active=job_data.get("is_active", True)  # This will now show the actual status
         )
         
         logger.info(f"✅ Returning public job: {job_title}")
@@ -152,7 +153,8 @@ async def apply_to_job(
     3. Process CV through existing pipeline (parsing → LLM → embeddings)
     4. Link application to specific job
     5. Store in applications_* collections
-    6. Return confirmation
+    6. Also store in cv_* collections for main database view
+    7. Return confirmation
     """
     try:
         logger.info(f"📋 Application received for job token: {public_token[:8]}... from {applicant_name}")
@@ -174,6 +176,7 @@ async def apply_to_job(
             raise HTTPException(status_code=400, detail="Please provide a valid email address")
         
         application_id = str(uuid.uuid4())
+        cv_id = str(uuid.uuid4())  # Create a separate ID for the CV collection
         
         # 3. Process CV through existing pipeline
         logger.info(f"🔄 Processing CV for application {application_id}")
@@ -200,6 +203,8 @@ async def apply_to_job(
             parsed = parsing_service.process_document(tmp_path, "cv")
             extracted_text = parsed["clean_text"]
             raw_content = parsed["raw_text"]
+            # Get PII extracted from CV
+            extracted_pii = parsed.get("extracted_pii", {"email": [], "phone": []})
         finally:
             # Clean up temporary file
             os.unlink(tmp_path)
@@ -210,6 +215,22 @@ async def apply_to_job(
         # Process with LLM service
         llm_service = get_llm_service()
         llm_result = llm_service.standardize_cv(extracted_text, cv_file.filename)
+        
+        # Update contact_info with application form data (prioritize form data over extracted PII)
+        if "contact_info" not in llm_result:
+            llm_result["contact_info"] = {}
+        
+        # Always use the application form data for contact information
+        llm_result["contact_info"]["name"] = applicant_name
+        llm_result["contact_info"]["email"] = applicant_email
+        if applicant_phone:
+            llm_result["contact_info"]["phone"] = applicant_phone
+        
+        # Also update the name field if it exists
+        if "name" in llm_result:
+            llm_result["name"] = applicant_name
+            
+        logger.info(f"✅ Updated contact info with application data: {applicant_name}, {applicant_email}")
         
         # Generate embeddings
         embedding_service = get_embedding_service()
@@ -226,10 +247,10 @@ async def apply_to_job(
             "company_name": job_data.get("company_name", "Our Company")
         }
         
-        # Store in applications collections following the 3-collection pattern
+        # 5. Store in applications collections following the 3-collection pattern
         success_steps = []
         
-        # Step 1: Store raw CV document
+        # Step 1: Store raw CV document in applications collection
         success_steps.append(
             qdrant.store_document(
                 application_id, "applications", cv_file.filename, 
@@ -239,9 +260,9 @@ async def apply_to_job(
             )
         )
         
-        # Step 2: Store structured data
+        # Step 2: Store structured data in applications collection
         structured_payload = {
-            **llm_result,  # Include all LLM processed data
+            **llm_result,  # Include all LLM processed data (with updated contact info)
             **application_data,  # Include application metadata
             "application_id": application_id,
             "document_type": "application"
@@ -250,7 +271,7 @@ async def apply_to_job(
             qdrant.store_structured_data(application_id, "applications", structured_payload)
         )
         
-        # Step 3: Store embeddings (exactly 32 vectors)
+        # Step 3: Store embeddings in applications collection (exactly 32 vectors)
         success_steps.append(
             qdrant.store_embeddings_exact(application_id, "applications", embeddings_data)
         )
@@ -261,6 +282,46 @@ async def apply_to_job(
                 application_id, job_data["id"], application_data, 
                 cv_file.filename, _now_iso()
             )
+        )
+        
+        # 6. Also store in main CV collections for database view
+        # Store raw document in CV collection
+        success_steps.append(
+            qdrant.store_document(
+                cv_id, "cv", cv_file.filename,
+                cv_file.content_type or "application/octet-stream",
+                extracted_text, _now_iso()
+            )
+        )
+        
+        # Store structured data in CV collection (with updated contact info)
+        cv_structured_payload = {
+            **llm_result,  # Include all LLM processed data (with updated contact info)
+            "document_id": cv_id,
+            "document_type": "cv"
+        }
+        
+        # Ensure contact_info exists and includes application form data
+        if "contact_info" not in cv_structured_payload:
+            cv_structured_payload["contact_info"] = {}
+        
+        # Prioritize application form data over extracted PII
+        cv_structured_payload["contact_info"]["name"] = applicant_name
+        cv_structured_payload["contact_info"]["email"] = applicant_email
+        if applicant_phone:
+            cv_structured_payload["contact_info"]["phone"] = applicant_phone
+        
+        # Also update the name field if it exists
+        if "name" in cv_structured_payload:
+            cv_structured_payload["name"] = applicant_name
+            
+        success_steps.append(
+            qdrant.store_structured_data(cv_id, "cv", cv_structured_payload)
+        )
+        
+        # Store embeddings in CV collection
+        success_steps.append(
+            qdrant.store_embeddings_exact(cv_id, "cv", embeddings_data)
         )
         
         # Verify all steps succeeded
@@ -301,7 +362,8 @@ async def post_job(
     3. Process with LLM service (extract title, requirements, etc.)
     4. Generate public access token
     5. Store in job_postings_* collections
-    6. Return public link
+    6. Also store in jd_* collections for main database view
+    7. Return public link
     """
     try:
         logger.info(f"💼 HR job posting upload: {file.filename}")
@@ -310,6 +372,7 @@ async def post_job(
         validate_file_upload(file)
         
         job_id = str(uuid.uuid4())
+        jd_id = str(uuid.uuid4())  # Create a separate ID for the JD collection
         public_token = generate_public_token()
         
         # 2. Extract text from file
@@ -384,20 +447,46 @@ async def post_job(
             qdrant.store_embeddings_exact(job_id, "job_postings", embeddings_data)
         )
         
+        # 6. Also store in main JD collections for database view
+        # Store raw document in JD collection
+        success_steps.append(
+            qdrant.store_document(
+                jd_id, "jd", file.filename,
+                file.content_type or "application/octet-stream",
+                extracted_text, _now_iso()
+            )
+        )
+        
+        # Store structured data in JD collection
+        jd_structured_payload = {
+            **llm_result,
+            "document_id": jd_id,
+            "document_type": "jd"
+        }
+        success_steps.append(
+            qdrant.store_structured_data(jd_id, "jd", jd_structured_payload)
+        )
+        
+        # Store embeddings in JD collection
+        success_steps.append(
+            qdrant.store_embeddings_exact(jd_id, "jd", embeddings_data)
+        )
+        
         if not all(success_steps):
             logger.error(f"❌ Failed to store job posting {job_id} - some steps failed: {success_steps}")
             raise HTTPException(status_code=500, detail="Failed to create job posting. Please try again.")
         
-        # 6. Build public link
+        # 7. Build public link
         # In production, use proper domain from config
-        base_url = "http://localhost:8000"  # TODO: Get from config/environment
-        public_link = f"{base_url}/api/careers/jobs/{public_token}"
+        base_url = os.getenv("FRONTEND_URL", "http://alphacv.alphadatarecruitment.ae")
+        public_link = f"{base_url}/careers/jobs/{public_token}"
         
         logger.info(f"✅ Job posting created: {job_id} with public link")
         
         return JobPostingResponse(
             job_id=job_id,
             public_link=public_link,
+            public_token=public_token,
             job_title=job_title,
             upload_date=_now_iso(),
             filename=file.filename,
@@ -410,7 +499,6 @@ async def post_job(
     except Exception as e:
         logger.error(f"❌ Failed to post job: {e}")
         raise HTTPException(status_code=500, detail="Failed to create job posting. Please try again later.")
-
 @router.get("/admin/jobs", response_model=List[JobPostingSummary])
 async def list_job_postings(
     include_inactive: bool = False

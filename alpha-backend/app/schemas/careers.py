@@ -21,12 +21,12 @@ class JobPostingResponse(BaseModel):
     """Response model after successful job posting creation"""
     job_id: str = Field(..., description="Unique identifier for the job posting")
     public_link: str = Field(..., description="Public URL where candidates can view and apply")
+    public_token: str = Field(..., description="Public token for the job posting")  # Add this line
     job_title: Optional[str] = Field(None, description="Extracted job title from the job description")
     upload_date: str = Field(..., description="ISO timestamp when job was posted")
     filename: str = Field(..., description="Original filename of uploaded job description")
     is_active: bool = Field(True, description="Whether the job posting is currently accepting applications")
     company_name: Optional[str] = Field(None, description="Company name associated with posting")
-
 
 class PublicJobView(BaseModel):
     """Public-facing model for job postings (no sensitive data)"""
@@ -79,8 +79,7 @@ class JobPostingSummary(BaseModel):
     filename: str = Field(..., description="Original filename")
     is_active: bool = Field(..., description="Whether job is active")
     application_count: int = Field(0, description="Number of applications received")
-    public_token: str = Field(..., description="Public access token for the job")
-
+    public_token: str = Field(..., description="Public access token for the job")  # Add this line
 
 class JobStatusUpdate(BaseModel):
     """Request model for updating job posting status"""

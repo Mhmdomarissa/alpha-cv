@@ -1,6 +1,5 @@
 'use client';
-
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   User, 
   Mail, 
@@ -40,6 +39,9 @@ export default function JobApplicationForm({
   const [dragActive, setDragActive] = useState(false);
   const [success, setSuccess] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  
+  // Create a ref for the file input
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
@@ -108,6 +110,13 @@ export default function JobApplicationForm({
     }
   };
 
+  // Function to handle file input click
+  const handleFileInputClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -159,7 +168,7 @@ export default function JobApplicationForm({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-
+      
       {/* Personal Information */}
       <div className="space-y-4">
         <h3 className="font-semibold text-neutral-900">Personal Information</h3>
@@ -179,7 +188,7 @@ export default function JobApplicationForm({
             <p className="text-sm text-red-600 mt-1">{formErrors.name}</p>
           )}
         </div>
-
+        
         <div>
           <div className="relative">
             <Mail className="absolute left-3 top-3 h-4 w-4 text-neutral-500" />
@@ -195,7 +204,7 @@ export default function JobApplicationForm({
             <p className="text-sm text-red-600 mt-1">{formErrors.email}</p>
           )}
         </div>
-
+        
         <div>
           <div className="relative">
             <Phone className="absolute left-3 top-3 h-4 w-4 text-neutral-500" />
@@ -209,7 +218,7 @@ export default function JobApplicationForm({
           </div>
         </div>
       </div>
-
+      
       {/* CV Upload */}
       <div className="space-y-4">
         <h3 className="font-semibold text-neutral-900">Upload CV/Resume</h3>
@@ -278,12 +287,16 @@ export default function JobApplicationForm({
                 }}
                 className="hidden"
                 id="cv-upload"
+                ref={fileInputRef}
               />
-              <label htmlFor="cv-upload">
-                <Button type="button" variant="outline" className="cursor-pointer">
-                  Select File
-                </Button>
-              </label>
+              <Button 
+                type="button" 
+                variant="outline" 
+                className="cursor-pointer"
+                onClick={handleFileInputClick}
+              >
+                Select File
+              </Button>
             </div>
           )}
         </div>
@@ -292,7 +305,7 @@ export default function JobApplicationForm({
           <p className="text-sm text-red-600">{formErrors.file}</p>
         )}
       </div>
-
+      
       {/* Submit Buttons */}
       <div className="flex space-x-3">
         <Button

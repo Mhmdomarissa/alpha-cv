@@ -13,9 +13,9 @@ export default function LoginPage() {
     // If user is already logged in, redirect to appropriate page
     if (user && !loading) {
       if (user.role === 'admin') {
-        router.push('/admin/users');
+        router.push('/admin/users'); // Admin users go to admin panel
       } else {
-        router.push('/'); // Redirect to main app
+        router.push('/'); // HR/regular users go to main app (with careers tab)
       }
     }
   }, [user, loading, router]);

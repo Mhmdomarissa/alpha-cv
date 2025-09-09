@@ -1,5 +1,4 @@
 'use client';
-
 import React, { useEffect, useState } from 'react';
 import { 
   Plus, 
@@ -9,7 +8,9 @@ import {
   Check,
   AlertCircle,
   Briefcase,
-  ExternalLink
+  ExternalLink,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -29,12 +30,14 @@ export default function CareersPage() {
     selectedJob,
     applications,
     isLoading,
+    isUpdatingStatus,
     error,
     loadJobPostings,
     selectJob,
+    updateJobStatus,
     clearError
   } = useCareersStore();
-
+  
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
@@ -50,6 +53,10 @@ export default function CareersPage() {
     } catch (error) {
       console.error('Failed to copy link:', error);
     }
+  };
+
+  const handleStatusChange = async (jobId: string, isActive: boolean) => {
+    await updateJobStatus(jobId, isActive);
   };
 
   const formatDate = (dateString: string) => {
@@ -132,23 +139,23 @@ export default function CareersPage() {
             </div>
           </CardContent>
         </Card>
-
+        
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                <Users className="w-6 h-6 text-green-600" />
+              <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
+                <ToggleLeft className="w-6 h-6 text-yellow-600" />
               </div>
               <div>
-                <p className="text-sm text-neutral-600">Total Applications</p>
+                <p className="text-sm text-neutral-600">Inactive Jobs</p>
                 <p className="text-2xl font-bold text-neutral-900">
-                  {applications.length}
+                  {jobPostings.filter(j => !j.is_active).length}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
-
+        
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center space-x-3">
@@ -174,6 +181,9 @@ export default function CareersPage() {
             <CardTitle className="flex items-center space-x-2">
               <Briefcase className="w-5 h-5" />
               <span>Job Postings</span>
+              <Badge variant="outline" className="ml-auto">
+                {jobPostings.length} total
+              </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -193,15 +203,24 @@ export default function CareersPage() {
                     className={`p-4 border rounded-lg cursor-pointer transition-all ${
                       selectedJob?.job_id === job.job_id
                         ? 'border-primary-300 bg-primary-50'
-                        : 'border-neutral-200 hover:border-neutral-300'
+                        : job.is_active
+                        ? 'border-neutral-200 hover:border-neutral-300'
+                        : 'border-gray-300 bg-gray-50 opacity-75 hover:opacity-100'
                     }`}
                     onClick={() => selectJob(job)}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <h3 className="font-semibold text-neutral-900">
-                          {job.job_title || 'Untitled Position'}
-                        </h3>
+                        <div className="flex items-center space-x-2">
+                          <h3 className={`font-semibold ${job.is_active ? 'text-neutral-900' : 'text-gray-600'}`}>
+                            {job.job_title || 'Untitled Position'}
+                          </h3>
+                          {!job.is_active && (
+                            <Badge variant="secondary" className="text-xs">
+                              Inactive
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-sm text-neutral-600 mt-1">
                           {job.filename}
                         </p>
@@ -212,6 +231,19 @@ export default function CareersPage() {
                           <span className="text-xs text-neutral-500">
                             {formatDate(job.upload_date)}
                           </span>
+                          <select
+                            value={job.is_active ? 'active' : 'inactive'}
+                            onChange={(e) => {
+                              const isActive = e.target.value === 'active';
+                              handleStatusChange(job.job_id, isActive);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-xs border rounded px-2 py-1 bg-white"
+                            disabled={isUpdatingStatus}
+                          >
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                          </select>
                         </div>
                       </div>
                       
@@ -221,7 +253,7 @@ export default function CareersPage() {
                           size="sm"
                           onClick={(e) => {
                             e.stopPropagation();
-                            const publicLink = `http://localhost:8000/api/careers/jobs/${job.public_token}`;
+                            const publicLink = `${window.location.origin}/careers/jobs/${job.public_token}`;
                             handleCopyLink(publicLink, job.job_id);
                           }}
                         >
@@ -237,7 +269,7 @@ export default function CareersPage() {
                           size="sm"
                           onClick={(e) => {
                             e.stopPropagation();
-                            const publicLink = `http://localhost:8000/api/careers/jobs/${job.public_token}`;
+                            const publicLink = `${window.location.origin}/careers/jobs/${job.public_token}`;
                             window.open(publicLink, '_blank');
                           }}
                         >
@@ -251,7 +283,7 @@ export default function CareersPage() {
             )}
           </CardContent>
         </Card>
-
+        
         {/* Applications for Selected Job */}
         <Card>
           <CardHeader>

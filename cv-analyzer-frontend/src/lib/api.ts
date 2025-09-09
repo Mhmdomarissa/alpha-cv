@@ -299,22 +299,39 @@ async downloadCV(cvId: string): Promise<Blob> {
     return response.data;
   }
 
-  async listJobPostings(): Promise<JobPostingListItem[]> {
-    const response = await this.client.get<JobPostingListItem[]>(
-      '/api/careers/admin/jobs',
-      {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-        }
+  async listJobPostings(includeInactive: boolean = false): Promise<JobPostingListItem[]> {
+  const response = await this.client.get<JobPostingListItem[]>(
+    '/api/careers/admin/jobs',
+    {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+      },
+      params: {
+        include_inactive: includeInactive
       }
-    );
-    return response.data;
-  }
+    }
+  );
+  return response.data;
+}
 
-  async getPublicJob(token: string): Promise<PublicJobView> {
+// lib/api.ts
+
+async getPublicJob(token: string): Promise<PublicJobView> {
+  try {
     const response = await this.client.get<PublicJobView>(`/api/careers/jobs/${token}`);
     return response.data;
+  } catch (error: any) {
+    logger.error('Failed to get public job:', error);
+    
+    // If it's a 404 error, throw a more specific error
+    if (error.response?.status === 404) {
+      throw new Error('Job not found or no longer available');
+    }
+    
+    // Re-throw the original error
+    throw error;
   }
+}
 
   async submitJobApplication(
     token: string, 
@@ -352,6 +369,18 @@ async downloadCV(cvId: string): Promise<Blob> {
     );
     return response.data;
   }
+  async updateJobStatus(jobId: string, status: { is_active: boolean }): Promise<{ success: boolean; message: string }> {
+  const response = await this.client.patch<{ success: boolean; message: string }>(
+    `/api/careers/admin/jobs/${jobId}/status`,
+    status,
+    {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+      }
+    }
+  );
+  return response.data;
+}
 }
 
 
@@ -404,13 +433,16 @@ export const api = {
 
   // Careers API
   createJobPosting: (file: File) => RequestRetryHandler.withRetry(() => apiClient.createJobPosting(file)),
-  listJobPostings: () => RequestRetryHandler.withRetry(() => apiClient.listJobPostings()),
+  listJobPostings: (includeInactive: boolean = false) => 
+  RequestRetryHandler.withRetry(() => apiClient.listJobPostings(includeInactive)),
   getPublicJob: (token: string) => RequestRetryHandler.withRetry(() => apiClient.getPublicJob(token)),
   submitJobApplication: (token: string, name: string, email: string, phone: string | undefined, cvFile: File) => 
     RequestRetryHandler.withRetry(() => apiClient.submitJobApplication(token, name, email, phone, cvFile)),
   getJobApplications: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobApplications(jobId)),
+
+  updateJobStatus: (jobId: string, status: { is_active: boolean }) => 
+  RequestRetryHandler.withRetry(() => apiClient.updateJobStatus(jobId, status)),
 };
 
 // Re-export types for convenience
 export type { AdminUser, CreateUserRequest, UpdateUserRequest, LoginResponse, UserProfile } from './types';
-
