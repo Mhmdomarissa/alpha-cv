@@ -1,14 +1,14 @@
 'use client';
 
 import React, { Suspense } from 'react';
-import { PublicJobPage } from '@/components/careers';
+import { ProfessionalJobPage } from '@/components/careers';
 import { LoadingPage } from '@/components/ui/loading';
 
 function CareersPageContent() {
   const searchParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
   const token = searchParams.get('token') || '';
 
-  return <PublicJobPage token={token} />;
+  return <ProfessionalJobPage token={token} />;
 }
 
 export default function PublicCareersPage() {

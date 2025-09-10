@@ -95,17 +95,49 @@ app = FastAPI(
 # --------------------
 # CORS
 # --------------------
-# Allow a specific origin if provided, otherwise allow all (dev)
-frontend_origin = os.getenv("FRONTEND_ORIGIN")
-allow_origins = [frontend_origin] if frontend_origin else ["*"]
+# Environment-specific origins
+dev_origins = ["http://localhost:3000", "http://localhost:8000", "http://localhost"]
+prod_origins = ["https://alphacv.alphadatarecruitment.ae"]
+
+# Check if in development mode
+is_development = os.getenv("NODE_ENV") == "development" or os.getenv("ENVIRONMENT") == "development"
+
+# Set origins based on environment
+if is_development:
+    # Development: allow both HTTP and HTTPS origins
+    allow_origins = dev_origins + prod_origins
+else:
+    # Production: only HTTPS origins
+    frontend_origin = os.getenv("FRONTEND_ORIGIN")
+    if frontend_origin:
+        allow_origins = [frontend_origin]
+    else:
+        allow_origins = prod_origins
+
+logger.info(f"🔒 CORS origins configured: {allow_origins}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Security headers middleware
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    
+    # Only add security headers for production HTTPS
+    if not is_development and request.url.scheme == "https":
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    
+    return response
 
 # --------------------
 # Routes

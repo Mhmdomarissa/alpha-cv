@@ -338,3 +338,224 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--gray-400);
 }
+
+/* ===========================================
+   JOB POSTING & PROFESSIONAL DISPLAY STYLES
+   =========================================== */
+
+/* Enhanced Animations for Job Features */
+@keyframes slideInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.animate-slide-in-up { animation: slideInUp 0.4s ease-out; }
+.animate-scale-in { animation: scaleIn 0.3s ease-out; }
+
+/* Job Form Container Enhancements */
+.job-form-container {
+  background: var(--gradient-card);
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.job-form-container:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Auto-fill Badge */
+.auto-fill-badge {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  animation: scaleIn 0.3s ease-out;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+}
+
+/* Professional Job Page Layout */
+.professional-job-layout {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  min-height: 100vh;
+}
+
+.job-section-card {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.job-section-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+/* AlphaData Logo Enhancement */
+.alphadata-logo {
+  background: var(--gradient-primary);
+  background-size: 150% 150%;
+  animation: gradientShift 3s ease infinite;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+}
+
+/* Professional Button Styles */
+.btn-professional {
+  background: var(--gradient-primary);
+  color: white;
+  font-weight: 600;
+  padding: 0.75rem 2rem;
+  border-radius: 8px;
+  border: none;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-professional:hover {
+  background: var(--gradient-hover);
+  box-shadow: 0 6px 20px rgba(14, 165, 233, 0.4);
+  transform: translateY(-2px);
+}
+
+.btn-professional:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.3);
+}
+
+/* Form Field Enhancements */
+.enhanced-input, .enhanced-textarea {
+  border: 2px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  transition: all 0.3s ease;
+  background: white;
+}
+
+.enhanced-input:focus, .enhanced-textarea:focus {
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+  outline: none;
+}
+
+.enhanced-input:hover, .enhanced-textarea:hover {
+  border-color: var(--gray-300);
+}
+
+/* Upload Area Enhancements */
+.upload-area {
+  border: 2px dashed var(--gray-300);
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+  transition: all 0.3s ease;
+  background: var(--gray-50);
+}
+
+.upload-area.drag-active {
+  border-color: var(--primary-500);
+  background: var(--primary-50);
+  transform: scale(1.02);
+}
+
+.upload-area.file-selected {
+  border-color: var(--green-500);
+  background: var(--green-50);
+}
+
+/* Responsive Design Enhancements */
+@media (max-width: 768px) {
+  .job-form-container {
+    margin: 0 1rem;
+    border-radius: 8px;
+  }
+  
+  .professional-job-layout {
+    padding: 0;
+  }
+  
+  .job-section-card {
+    margin: 0.5rem;
+    border-radius: 8px;
+  }
+  
+  .job-title-mobile {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+  }
+  
+  .btn-professional {
+    width: 100%;
+    margin: 0.5rem 0;
+  }
+  
+  .enhanced-input, .enhanced-textarea {
+    font-size: 1rem; /* Slightly larger on mobile for better accessibility */
+  }
+}
+
+@media (max-width: 480px) {
+  .upload-area {
+    padding: 1.5rem;
+  }
+  
+  .job-section-card {
+    margin: 0.25rem;
+  }
+  
+  .job-title-mobile {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+}
+
+/* Accessibility Enhancements */
+@media (prefers-reduced-motion: reduce) {
+  .job-form-container,
+  .job-section-card,
+  .btn-professional,
+  .enhanced-input,
+  .enhanced-textarea,
+  .upload-area {
+    transition: none;
+    animation: none;
+  }
+  
+  .alphadata-logo {
+    animation: none;
+  }
+}
+
+/* High Contrast Mode Support */
+@media (prefers-contrast: high) {
+  .job-section-card {
+    border: 2px solid var(--gray-600);
+  }
+  
+  .enhanced-input, .enhanced-textarea {
+    border: 2px solid var(--gray-600);
+  }
+  
+  .upload-area {
+    border: 3px dashed var(--gray-600);
+  }
+}

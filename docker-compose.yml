@@ -43,7 +43,7 @@ services:
       - ./.env
     environment:
       # Expose the backend URL to the browser (through nginx proxy)
-      NEXT_PUBLIC_API_URL: ""
+      NEXT_PUBLIC_API_URL: "https://alphacv.alphadatarecruitment.ae"
       BACKEND_URL: "http://backend:8000"
     restart: unless-stopped
     depends_on:
@@ -100,6 +100,8 @@ services:
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -108,6 +110,25 @@ services:
     restart: unless-stopped
     networks:
       - cv-network
+    environment:
+      - DOMAIN=alphacv.alphadatarecruitment.ae
+
+  # =======================
+  # Certbot for Let's Encrypt
+  # =======================
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - ./certbot/www:/var/www/certbot:rw
+      - ./certbot/conf:/etc/letsencrypt:rw
+    depends_on:
+      - nginx
+    command: >-
+      sh -c "trap exit TERM;
+      while :; do
+        certbot renew --webroot --webroot-path=/var/www/certbot --quiet --no-self-upgrade;
+        sleep 12h & wait $${!};
+      done;"
 
 volumes:
   postgres_data:
