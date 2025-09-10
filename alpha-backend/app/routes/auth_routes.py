@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
+import os
 from app.db.auth_db import get_session
 from app.models.user import User
 from app.schemas.auth import LoginRequest, TokenResponse, UserRead
@@ -10,6 +11,20 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, session: Session = Depends(get_session)):
+    # Local development authentication check
+    if (os.getenv("NODE_ENV") == "development" or 
+        os.getenv("LOCAL_AUTH", "").lower() == "true"):
+        if data.username == "syed" and data.password == "Faizan123":
+            # Create a real token for the local development user
+            token = create_access_token(sub="syed", role="admin")
+            return TokenResponse(
+                access_token=token, 
+                token_type="bearer", 
+                username="syed", 
+                role="admin"
+            )
+    
+    # Continue with existing server-side authentication flow
     user = session.exec(select(User).where(User.username == data.username)).first()
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
