@@ -108,3 +108,7 @@ build/
 *.db
 *.sqlite
 *.sqlite3
+
+# LLM Cache
+.llm_cache/
+alpha-backend/.llm_cache/
