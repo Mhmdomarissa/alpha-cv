@@ -28,7 +28,7 @@ A modern React application for AI-powered CV-JD matching with explainable result
 Create a `.env.local` file in the root directory:
 
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=https://alphacv.alphadatarecruitment.ae
 ```
 
 ## Getting Started
@@ -76,7 +76,7 @@ docker build -t cv-analyzer-frontend .
 
 # Run the container
 docker run -p 3000:3000 \
-  -e NEXT_PUBLIC_API_URL=http://your-backend-url:8000 \
+  -e NEXT_PUBLIC_API_URL=https://your-domain.com \
   cv-analyzer-frontend
 ```
 

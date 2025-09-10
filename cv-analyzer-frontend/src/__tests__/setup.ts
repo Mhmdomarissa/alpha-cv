@@ -12,4 +12,4 @@ global.ResizeObserver = vi.fn().mockImplementation(() => ({
 }));
 
 // Mock environment variables
-process.env.NEXT_PUBLIC_API_URL = 'http://localhost:8000';
+process.env.NEXT_PUBLIC_API_URL = 'https://alphacv.alphadatarecruitment.ae';

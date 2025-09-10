@@ -256,6 +256,7 @@ export default function CareersPage() {
                             const publicLink = `${window.location.origin}/careers/jobs/${job.public_token}`;
                             handleCopyLink(publicLink, job.job_id);
                           }}
+                          title="Copy Job Posting Link"
                         >
                           {copiedLink === job.job_id ? (
                             <Check className="w-4 h-4 text-green-600" />
@@ -272,6 +273,7 @@ export default function CareersPage() {
                             const publicLink = `${window.location.origin}/careers/jobs/${job.public_token}`;
                             window.open(publicLink, '_blank');
                           }}
+                          title="View Job Posting"
                         >
                           <ExternalLink className="w-4 h-4" />
                         </Button>
