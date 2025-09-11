@@ -358,6 +358,7 @@ export interface JobPostingResponse {
 export interface PublicJobView {
   job_id: string;
   job_title?: string;
+  job_location?: string;
   company_name?: string;
   job_description: string;
   upload_date: string;
@@ -377,6 +378,10 @@ export interface JobApplicationResponse {
 export interface JobPostingListItem {
   job_id: string;
   job_title?: string;
+  job_location?: string;
+  job_summary?: string;
+  key_responsibilities?: string;
+  qualifications?: string;
   filename: string;
   upload_date: string;
   is_active: boolean;

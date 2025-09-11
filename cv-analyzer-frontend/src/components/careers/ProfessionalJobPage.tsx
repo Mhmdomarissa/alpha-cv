@@ -7,7 +7,8 @@ import {
   CheckCircle,
   Users,
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  Building
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { Button } from '@/components/ui/button-enhanced';
@@ -130,8 +131,14 @@ export default function ProfessionalJobPage({ token }: ProfessionalJobPageProps)
               {publicJob.job_title || 'Open Position'}
             </h1>
             <div className="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-6 text-gray-600">
+              {publicJob.job_location && (
+                <div className="flex items-center space-x-2">
+                  <MapPin className="w-5 h-5" />
+                  <span>{publicJob.job_location}</span>
+                </div>
+              )}
               <div className="flex items-center space-x-2">
-                <MapPin className="w-5 h-5" />
+                <Building className="w-5 h-5" />
                 <span>{publicJob.company_name || 'AlphaData Recruitment'}</span>
               </div>
               <div className="flex items-center space-x-2">

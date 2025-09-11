@@ -24,6 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAppStore } from '@/stores/appStore';
+import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 
 interface ServiceStatus {
@@ -44,6 +45,8 @@ export default function SystemPanel() {
     loadSystemStats, 
     loadDatabaseView 
   } = useAppStore();
+  
+  const { user } = useAuthStore();
   
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
@@ -144,7 +147,11 @@ export default function SystemPanel() {
   const handleClearDatabase = async () => {
     setIsClearing(true);
     try {
-      await api.clearDatabase(true);
+      const { token } = useAuthStore.getState();
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      await api.clearDatabase(token, true);
       // Refresh data
       await loadSystemStats();
       await loadDatabaseView();
@@ -155,6 +162,9 @@ export default function SystemPanel() {
       setIsClearing(false);
     }
   };
+  
+  // Check if user is admin
+  const isAdmin = user?.role === 'admin';
   
   // Service health status
   const services: ServiceStatus[] = [
@@ -422,66 +432,68 @@ export default function SystemPanel() {
         </CardContent>
       </Card>
       
-      {/* Database Management */}
-      <Card className="border-red-200 bg-red-50/30">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-r from-red-500 to-orange-500 rounded-xl shadow-md">
-              <Database className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold">Database Management</h3>
-              <p className="text-sm text-neutral-500 font-normal">Clear all stored documents</p>
-            </div>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <Alert>
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                This will permanently delete all CVs and job descriptions from the database. This action cannot be undone.
-              </AlertDescription>
-            </Alert>
-            
-            <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
-              <DialogTrigger asChild>
-                <Button
-                  variant="error"
-                  className="w-full"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Clear All Data
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-red-500" />
-                    Confirm Database Clear
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <p>Are you sure you want to permanently delete all CVs and job descriptions?</p>
-                  <p className="text-sm text-gray-500">This action cannot be undone.</p>
-                  <div className="flex justify-end space-x-2">
-                    <Button variant="outline" onClick={() => setShowClearDialog(false)}>
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="error"
-                      onClick={handleClearDatabase}
-                      disabled={isClearing}
-                    >
-                      {isClearing ? 'Clearing...' : 'Clear All Data'}
-                    </Button>
+      {/* Database Management - Admin Only */}
+      {isAdmin && (
+        <Card className="border-red-200 bg-red-50/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <div className="p-2 bg-gradient-to-r from-red-500 to-orange-500 rounded-xl shadow-md">
+                <Database className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">Database Management</h3>
+                <p className="text-sm text-neutral-500 font-normal">Clear all stored documents</p>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  This will permanently delete all CVs and job descriptions from the database. This action cannot be undone.
+                </AlertDescription>
+              </Alert>
+              
+              <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="error"
+                    className="w-full"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Clear All Data
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <AlertTriangle className="h-5 w-5 text-red-500" />
+                      Confirm Database Clear
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <p>Are you sure you want to permanently delete all CVs and job descriptions?</p>
+                    <p className="text-sm text-gray-500">This action cannot be undone.</p>
+                    <div className="flex justify-end space-x-2">
+                      <Button variant="outline" onClick={() => setShowClearDialog(false)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="error"
+                        onClick={handleClearDatabase}
+                        disabled={isClearing}
+                      >
+                        {isClearing ? 'Clearing...' : 'Clear All Data'}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </CardContent>
-      </Card>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

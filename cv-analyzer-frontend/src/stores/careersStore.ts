@@ -33,6 +33,8 @@ interface CareersState {
 interface CareersActions {
   // Job posting management
   createJobPosting: (file: File) => Promise<JobPostingResponse | null>;
+  createJobPostingWithFormData: (file: File | null, formData: any) => Promise<JobPostingResponse | null>;
+  createManualJobPosting: (formData: any) => Promise<JobPostingResponse | null>;
   loadJobPostings: () => Promise<void>;
   selectJob: (job: JobPostingListItem) => void;
   updateJobStatus: (jobId: string, isActive: boolean) => Promise<boolean>;
@@ -88,6 +90,63 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
       return result;
     } catch (error: any) {
       logger.error('Failed to create job posting:', error);
+      set({ 
+        isCreatingJob: false, 
+        error: error.message || 'Failed to create job posting' 
+      });
+      return null;
+    }
+  },
+
+  createJobPostingWithFormData: async (file: File | null, formData: any) => {
+    set({ isCreatingJob: true, error: null });
+    try {
+      logger.info('Creating job posting with form data', { 
+        hasFile: !!file,
+        jobTitle: formData.jobTitle 
+      });
+      const result = await api.createJobPostingWithFormData(file, formData);
+      
+      logger.info('Job posting created successfully', { 
+        jobId: result.job_id,
+        publicLink: result.public_link 
+      });
+      
+      // Reload job postings to include the new one
+      get().loadJobPostings();
+      
+      set({ isCreatingJob: false });
+      return result;
+    } catch (error: any) {
+      logger.error('Failed to create job posting with form data:', error);
+      set({ 
+        isCreatingJob: false, 
+        error: error.message || 'Failed to create job posting' 
+      });
+      return null;
+    }
+  },
+
+  createManualJobPosting: async (formData: any) => {
+    set({ isCreatingJob: true, error: null });
+    try {
+      logger.info('Creating manual job posting', { 
+        jobTitle: formData.jobTitle 
+      });
+      const result = await api.createManualJobPosting(formData);
+      
+      logger.info('Manual job posting created successfully', { 
+        jobId: result.job_id,
+        publicLink: result.public_link 
+      });
+      
+      // Reload job postings to include the new one
+      get().loadJobPostings();
+      
+      set({ isCreatingJob: false });
+      return result;
+    } catch (error: any) {
+      logger.error('Failed to create manual job posting:', error);
       set({ 
         isCreatingJob: false, 
         error: error.message || 'Failed to create job posting' 

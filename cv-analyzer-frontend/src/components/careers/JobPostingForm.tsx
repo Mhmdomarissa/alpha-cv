@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, AlertCircle, Check, ExternalLink, Copy, Wand2, Edit3, Briefcase } from 'lucide-react';
+import { Upload, FileText, AlertCircle, Check, ExternalLink, Copy, Wand2, Edit3, Briefcase, Save } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { Button } from '@/components/ui/button-enhanced';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -8,23 +8,34 @@ import { api } from '@/lib/api';
 
 interface JobPostingFormProps {
   onSuccess: () => void;
+  jobId?: string; // For editing existing jobs
+  publicToken?: string; // For preserving the public token when editing
+  initialData?: {
+    jobTitle: string;
+    jobLocation: string;
+    jobSummary: string;
+    keyResponsibilities: string;
+    qualifications: string;
+  };
 }
 
-export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
-  const { createJobPosting, isCreatingJob, error, clearError } = useCareersStore();
+export default function JobPostingForm({ onSuccess, jobId, publicToken, initialData }: JobPostingFormProps) {
+  const { createJobPosting, createJobPostingWithFormData, createManualJobPosting, isCreatingJob, error, clearError } = useCareersStore();
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [success, setSuccess] = useState<{link: string, token: string} | null>(null);
+  const [success, setSuccess] = useState<{link: string, token: string, jobId: string} | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   
   // Form data state
   const [formData, setFormData] = useState({
-    jobTitle: '',
-    jobLocation: '',
-    jobSummary: '',
-    keyResponsibilities: '',
-    qualifications: ''
+    jobTitle: initialData?.jobTitle || '',
+    jobLocation: initialData?.jobLocation || '',
+    jobSummary: initialData?.jobSummary || '',
+    keyResponsibilities: initialData?.keyResponsibilities || '',
+    qualifications: initialData?.qualifications || ''
   });
   
   // Processing states
@@ -47,6 +58,27 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
     
     return () => clearTimeout(timer);
   }, []);
+
+  // Initialize success state for editing mode
+  useEffect(() => {
+    if (jobId && initialData) {
+      if (publicToken) {
+        // Job has a valid token, preserve it
+        setSuccess({
+          link: `${window.location.origin}/careers/jobs/${publicToken}`,
+          token: publicToken,
+          jobId: jobId
+        });
+      } else {
+        // Job doesn't have a valid token, show a message
+        setSuccess({
+          link: 'Token will be generated after update',
+          token: 'Will be generated',
+          jobId: jobId
+        });
+      }
+    }
+  }, [jobId, initialData, publicToken]);
   
   const handleFileSelect = (file: File) => {
     const allowedTypes = [
@@ -156,64 +188,73 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
     }
   };
   
+  const handleSave = async () => {
+    const currentJobId = jobId || success?.jobId;
+    if (!currentJobId) {
+      console.error('No job ID available for saving');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      const updateData = {
+        job_title: formData.jobTitle || undefined,
+        job_location: formData.jobLocation || undefined,
+        job_summary: formData.jobSummary || undefined,
+        key_responsibilities: formData.keyResponsibilities || undefined,
+        qualifications: formData.qualifications || undefined,
+      };
+
+      const result = await api.updateJobPosting(currentJobId, updateData);
+
+      if (result.success) {
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+        // Call onSuccess to close dialog and refresh data
+        setTimeout(() => onSuccess(), 2000);
+      }
+    } catch (error) {
+      console.error('Failed to save job posting updates:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!selectedFile && Object.values(formData).every(v => !v.trim())) {
       return; // No file and no form data
     }
     
-    // If we have form data, create a job posting with form data
-    if (showForm && Object.values(formData).some(v => v.trim())) {
-      try {
-        // Create job posting with form data - you can integrate this with your backend
-        const jobPostingData = {
-          ...formData,
-          originalFile: selectedFile
-        };
-        
-        // For now, still use the existing method but we could enhance the backend later
-        if (selectedFile) {
-          const result = await createJobPosting(selectedFile);
-          if (result) {
-            setSuccess({ 
-              link: result.public_link, 
-              token: result.public_token 
-            });
-            setSelectedFile(null);
-            setFormData({
-              jobTitle: '',
-              jobLocation: '',
-              jobSummary: '',
-              keyResponsibilities: '',
-              qualifications: ''
-            });
-            setShowForm(false);
-            
-            // Close form after delay
-            setTimeout(() => {
-              onSuccess();
-            }, 5000);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to create job posting:', error);
-      }
-    } else {
-      // Original flow for file-only submissions
+    try {
+      let result;
+      
       if (selectedFile) {
-        const result = await createJobPosting(selectedFile);
-        if (result) {
-          setSuccess({ 
-            link: result.public_link, 
-            token: result.public_token 
-          });
-          setSelectedFile(null);
-          
-          // Close form after delay
-          setTimeout(() => {
-            onSuccess();
-          }, 5000);
-        }
+        // If there's a file, use the file upload method
+        result = await createJobPostingWithFormData(selectedFile, formData);
+      } else {
+        // If no file but has form data, use manual job posting
+        result = await createManualJobPosting(formData);
       }
+      
+      if (result) {
+        setSuccess({ 
+          link: result.public_link, 
+          token: result.public_token,
+          jobId: result.job_id
+        });
+        setSelectedFile(null);
+        // Keep form data for editing
+        setShowForm(true);
+        
+        // Close form after delay
+        setTimeout(() => {
+          onSuccess();
+        }, 5000);
+      }
+    } catch (error) {
+      console.error('Failed to create job posting:', error);
     }
   };
   
@@ -274,14 +315,14 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
     <div id="job-posting-form" className="space-y-6 scroll-mt-20">
       {/* Error Display */}
       {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+        <Alert variant="destructive" className="border-red-200 bg-red-50">
+          <AlertCircle className="h-4 w-4 text-red-600" />
+          <AlertDescription className="text-red-800">{error}</AlertDescription>
         </Alert>
       )}
       
       {/* Success Display */}
-      {success && (
+      {success && !jobId && (
         <Alert className="border-green-200 bg-green-50">
           <Check className="h-4 w-4 text-green-600" />
           <AlertDescription className="text-green-800">
@@ -319,27 +360,50 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
               <p className="text-xs">
                 {copied ? 'Link copied to clipboard!' : 'Share this professional job posting link with candidates.'}
               </p>
+              {success && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800 font-medium">
+                    💡 You can now edit the job details below and click "Save Changes" to update the job posting.
+                  </p>
+                </div>
+              )}
             </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Save Success Display */}
+      {saveSuccess && (
+        <Alert className="border-blue-200 bg-blue-50">
+          <Check className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-blue-800">
+            <p className="font-semibold">Job posting updated successfully!</p>
+            <p className="text-xs">Your changes have been saved to the job posting.</p>
           </AlertDescription>
         </Alert>
       )}
       
       {/* File Upload Area */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Upload className="w-5 h-5 text-blue-600" />
-            <span>Job Description Upload</span>
+      <Card className="border-gray-200 shadow-sm">
+        <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100">
+          <CardTitle className="flex items-center space-x-3 text-gray-800">
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+              <Upload className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <span className="text-lg font-semibold">Job Description Upload</span>
+              <p className="text-sm text-gray-600 font-normal">Upload your job description for automatic processing</p>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6">
           <div
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+            className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
               dragActive
-                ? 'border-blue-500 bg-blue-100'  // Enhanced drag active state
+                ? 'border-blue-500 bg-blue-50 shadow-lg scale-[1.02]'  // Enhanced drag active state
                 : selectedFile
-                ? 'border-green-500 bg-green-100'  // Enhanced selected file state
-                : 'border-gray-300 bg-gray-50 hover:border-blue-400 hover:bg-blue-50'  // Enhanced default state
+                ? 'border-green-500 bg-green-50 shadow-md'  // Enhanced selected file state
+                : 'border-gray-300 bg-gray-50 hover:border-blue-400 hover:bg-blue-50 hover:shadow-md'  // Enhanced default state
             }`}
             onDragEnter={(e) => {
               e.preventDefault();
@@ -393,20 +457,25 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
                 </div>
               </div>
             ) : (
-              <div className="space-y-4">
-                <div className="w-16 h-16 bg-blue-100 rounded-full mx-auto flex items-center justify-center">
-                  <Upload className="w-8 h-8 text-blue-600" />
+              <div className="space-y-6">
+                <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full mx-auto flex items-center justify-center shadow-lg">
+                  <Upload className="w-10 h-10 text-blue-600" />
                 </div>
-                <div>
-                  <p className="text-lg font-semibold text-gray-900">
+                <div className="space-y-3">
+                  <h3 className="text-xl font-bold text-gray-900">
                     Upload Job Description
-                  </p>
-                  <p className="text-gray-600">
+                  </h3>
+                  <p className="text-gray-600 text-lg">
                     Drag & drop or click to select a file for auto-fill
                   </p>
-                  <p className="text-sm text-gray-500 mt-2">
-                    Supports PDF, DOC, DOCX, TXT (max 10MB)
-                  </p>
+                  <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
+                    <span className="bg-gray-100 px-2 py-1 rounded">PDF</span>
+                    <span className="bg-gray-100 px-2 py-1 rounded">DOC</span>
+                    <span className="bg-gray-100 px-2 py-1 rounded">DOCX</span>
+                    <span className="bg-gray-100 px-2 py-1 rounded">TXT</span>
+                    <span className="text-gray-400">•</span>
+                    <span>Max 10MB</span>
+                  </div>
                 </div>
                 <input
                   type="file"
@@ -421,8 +490,9 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
                 <Button
                   variant="outline"
                   onClick={handleFileInputClick}
-                  className="cursor-pointer bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100"
+                  className="cursor-pointer bg-blue-600 border-blue-600 text-white hover:bg-blue-700 hover:border-blue-700 px-8 py-3 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-200"
                 >
+                  <Upload className="w-5 h-5 mr-2" />
                   Select File
                 </Button>
               </div>
@@ -432,23 +502,36 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
       </Card>
 
       {/* Enhanced Job Posting Form */}
-      {showForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Edit3 className="w-5 h-5 text-green-600" />
-              <span>Job Details Form</span>
-              {autoFillData && (
-                <span className="auto-fill-badge">
-                  Auto-filled from JD
+      {(showForm || success || jobId) && (
+        <Card className="border-gray-200 shadow-sm">
+          <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-gray-100">
+            <CardTitle className="flex items-center space-x-3 text-gray-800">
+              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                <Edit3 className="w-5 h-5 text-green-600" />
+              </div>
+              <div className="flex-1">
+                <span className="text-lg font-semibold">
+                  {success || jobId ? 'Edit Job Details' : 'Job Details Form'}
                 </span>
-              )}
+                <div className="flex items-center space-x-2 mt-1">
+                  {autoFillData && (
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+                      ✨ Auto-filled from JD
+                    </span>
+                  )}
+                  {(success || jobId) && (
+                    <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                      ✏️ Editable
+                    </span>
+                  )}
+                </div>
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-6 space-y-6">
             {/* Job Title */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-800">
                 Job Title *
               </label>
               <input
@@ -456,13 +539,13 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
                 value={formData.jobTitle}
                 onChange={(e) => handleInputChange('jobTitle', e.target.value)}
                 placeholder="e.g., Senior Software Engineer"
-                className="enhanced-input w-full"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 placeholder-gray-500"
               />
             </div>
 
             {/* Job Location */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-800">
                 Job Location
               </label>
               <input
@@ -470,13 +553,13 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
                 value={formData.jobLocation}
                 onChange={(e) => handleInputChange('jobLocation', e.target.value)}
                 placeholder="e.g., Remote, Dubai, UAE"
-                className="enhanced-input w-full"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 placeholder-gray-500"
               />
             </div>
 
             {/* Job Summary */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-800">
                 Job Summary
               </label>
               <textarea
@@ -484,13 +567,13 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
                 onChange={(e) => handleInputChange('jobSummary', e.target.value)}
                 placeholder="Brief overview of the role and company..."
                 rows={4}
-                className="enhanced-textarea w-full resize-vertical"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 placeholder-gray-500 resize-none"
               />
             </div>
 
             {/* Key Responsibilities */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-800">
                 Key Responsibilities
               </label>
               <textarea
@@ -498,13 +581,13 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
                 onChange={(e) => handleInputChange('keyResponsibilities', e.target.value)}
                 placeholder="• Develop and maintain software applications&#10;• Collaborate with cross-functional teams&#10;• Participate in code reviews..."
                 rows={6}
-                className="enhanced-textarea w-full resize-vertical"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 placeholder-gray-500 resize-none"
               />
             </div>
 
             {/* Qualifications */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-800">
                 Qualifications & Requirements
               </label>
               <textarea
@@ -512,25 +595,48 @@ export default function JobPostingForm({ onSuccess }: JobPostingFormProps) {
                 onChange={(e) => handleInputChange('qualifications', e.target.value)}
                 placeholder="• Bachelor's degree in Computer Science&#10;• 3+ years of experience&#10;• Proficiency in React, Node.js..."
                 rows={6}
-                className="enhanced-textarea w-full resize-vertical"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 placeholder-gray-500 resize-none"
               />
             </div>
           </CardContent>
         </Card>
       )}
       
-      {/* Submit Button */}
-      <div className="flex justify-end space-x-3">
-        <Button variant="outline" onClick={onSuccess}>
-          Cancel
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          disabled={(!selectedFile && !showForm) || (showForm && !formData.jobTitle.trim()) || isCreatingJob || isProcessing}
-          className="bg-blue-600 hover:bg-blue-700"
-        >
-          {isCreatingJob ? 'Creating...' : isProcessing ? 'Processing...' : 'Post Job'}
-        </Button>
+      {/* Submit Buttons */}
+      <div className="bg-white border-t border-gray-200 pt-6 mt-8">
+        <div className="flex justify-end space-x-4">
+          <Button 
+            variant="outline" 
+            onClick={onSuccess}
+            className="px-6 py-3 border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all duration-200"
+          >
+            Cancel
+          </Button>
+          
+          {/* Save button - only show after job is created or when editing */}
+          {(success || jobId) && (
+            <Button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Save className="w-5 h-5 mr-2" />
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          )}
+          
+          {/* Post Job button - only show if no job created yet and not editing */}
+          {!success && !jobId && (
+            <Button
+              onClick={handleSubmit}
+              disabled={(!selectedFile && !showForm) || (showForm && !formData.jobTitle.trim()) || isCreatingJob || isProcessing}
+              className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Briefcase className="w-5 h-5 mr-2" />
+              {isCreatingJob ? 'Creating...' : isProcessing ? 'Processing...' : 'Post Job'}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

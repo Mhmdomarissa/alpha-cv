@@ -32,6 +32,7 @@ class PublicJobView(BaseModel):
     """Public-facing model for job postings (no sensitive data)"""
     job_id: str = Field(..., description="Unique identifier for the job posting")
     job_title: Optional[str] = Field("Position Available", description="Job title or position name")
+    job_location: Optional[str] = Field(None, description="Job location (city, country, remote, etc.)")
     company_name: Optional[str] = Field("Our Company", description="Company name for branding")
     job_description: str = Field(..., description="Full job description text")
     upload_date: str = Field(..., description="When this job was posted")
@@ -74,12 +75,27 @@ class JobPostingSummary(BaseModel):
     """Summary model for job postings (for HR dashboard)"""
     job_id: str = Field(..., description="Unique job identifier")
     job_title: Optional[str] = Field(None, description="Job title")
+    job_location: Optional[str] = Field(None, description="Job location")
+    job_summary: Optional[str] = Field(None, description="Job summary")
+    key_responsibilities: Optional[str] = Field(None, description="Key responsibilities")
+    qualifications: Optional[str] = Field(None, description="Qualifications and requirements")
     company_name: Optional[str] = Field(None, description="Company name")
     upload_date: str = Field(..., description="When job was posted")
     filename: str = Field(..., description="Original filename")
     is_active: bool = Field(..., description="Whether job is active")
     application_count: int = Field(0, description="Number of applications received")
-    public_token: str = Field(..., description="Public access token for the job")  # Add this line
+    public_token: str = Field(..., description="Public access token for the job")
+
+class JobPostingUpdate(BaseModel):
+    """Request model for updating job posting details"""
+    job_title: Optional[str] = Field(None, max_length=200, description="Updated job title")
+    job_location: Optional[str] = Field(None, max_length=200, description="Updated job location")
+    job_summary: Optional[str] = Field(None, max_length=2000, description="Updated job summary")
+    key_responsibilities: Optional[str] = Field(None, max_length=5000, description="Updated key responsibilities")
+    qualifications: Optional[str] = Field(None, max_length=5000, description="Updated qualifications and requirements")
+    company_name: Optional[str] = Field(None, max_length=200, description="Updated company name")
+    additional_info: Optional[str] = Field(None, max_length=1000, description="Updated additional information")
+
 
 class JobStatusUpdate(BaseModel):
     """Request model for updating job posting status"""

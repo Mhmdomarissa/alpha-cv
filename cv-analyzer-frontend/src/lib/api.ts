@@ -194,6 +194,7 @@ class ApiClient {
     return response.data;
   }
 
+
   // System endpoints
   async getSystemStats(): Promise<SystemStatsResponse> {
     const response = await this.client.get<SystemStatsResponse>('/api/system-stats');
@@ -211,9 +212,12 @@ class ApiClient {
   }
 
   // Clear database
-async clearDatabase(confirm: boolean): Promise<{ status: string; message: string }> {
+async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; message: string }> {
   const response = await this.client.post<{ status: string; message: string }>('/api/clear-database', null, {
-    params: { confirm }
+    params: { confirm },
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
   });
   return response.data;
 }
@@ -299,6 +303,58 @@ async downloadCV(cvId: string): Promise<Blob> {
     return response.data;
   }
 
+  async createJobPostingWithFormData(file: File | null, formData: any): Promise<JobPostingResponse> {
+    const formDataToSend = new FormData();
+    
+    if (file) {
+      formDataToSend.append('file', file);
+    }
+    
+    // Add form data fields
+    if (formData.jobTitle) formDataToSend.append('job_title', formData.jobTitle);
+    if (formData.jobLocation) formDataToSend.append('job_location', formData.jobLocation);
+    if (formData.jobSummary) formDataToSend.append('job_summary', formData.jobSummary);
+    if (formData.keyResponsibilities) formDataToSend.append('key_responsibilities', formData.keyResponsibilities);
+    if (formData.qualifications) formDataToSend.append('qualifications', formData.qualifications);
+    
+    const response = await this.client.post<JobPostingResponse>(
+      '/api/careers/admin/jobs/post', 
+      formDataToSend,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+      }
+    );
+    return response.data;
+  }
+
+  async createManualJobPosting(formData: any): Promise<JobPostingResponse> {
+    const formDataToSend = new FormData();
+    
+    // Add required and optional form data fields
+    formDataToSend.append('job_title', formData.jobTitle);
+    if (formData.jobLocation) formDataToSend.append('job_location', formData.jobLocation);
+    if (formData.jobSummary) formDataToSend.append('job_summary', formData.jobSummary);
+    if (formData.keyResponsibilities) formDataToSend.append('key_responsibilities', formData.keyResponsibilities);
+    if (formData.qualifications) formDataToSend.append('qualifications', formData.qualifications);
+    if (formData.companyName) formDataToSend.append('company_name', formData.companyName);
+    if (formData.additionalInfo) formDataToSend.append('additional_info', formData.additionalInfo);
+    
+    const response = await this.client.post<JobPostingResponse>(
+      '/api/careers/admin/jobs/post-manual', 
+      formDataToSend,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+      }
+    );
+    return response.data;
+  }
+
   async listJobPostings(includeInactive: boolean = false): Promise<JobPostingListItem[]> {
   const response = await this.client.get<JobPostingListItem[]>(
     '/api/careers/admin/jobs',
@@ -369,6 +425,50 @@ async getPublicJob(token: string): Promise<PublicJobView> {
     );
     return response.data;
   }
+  async updateJobPosting(jobId: string, updateData: {
+    job_title?: string;
+    job_location?: string;
+    job_summary?: string;
+    key_responsibilities?: string;
+    qualifications?: string;
+    company_name?: string;
+    additional_info?: string;
+  }): Promise<{ success: boolean; message: string; updated_fields: string[] }> {
+    const response = await this.client.patch<{ success: boolean; message: string; updated_fields: string[] }>(
+      `/api/careers/admin/jobs/${jobId}/update`,
+      updateData,
+      {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      }
+    );
+    return response.data;
+  }
+
+  async getJobForEdit(jobId: string): Promise<{
+    job_title: string;
+    job_location: string;
+    job_summary: string;
+    key_responsibilities: string;
+    qualifications: string;
+    company_name: string;
+  }> {
+    const response = await this.client.get<{
+      job_title: string;
+      job_location: string;
+      job_summary: string;
+      key_responsibilities: string;
+      qualifications: string;
+      company_name: string;
+    }>(`/api/careers/admin/jobs/${jobId}/edit-data`, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+      }
+    });
+    return response.data;
+  }
+
   async updateJobStatus(jobId: string, status: { is_active: boolean }): Promise<{ success: boolean; message: string }> {
   const response = await this.client.patch<{ success: boolean; message: string }>(
     `/api/careers/admin/jobs/${jobId}/status`,
@@ -418,7 +518,7 @@ export const api = {
   getSystemStats: () => RequestRetryHandler.withRetry(() => apiClient.getSystemStats()),
   getDatabaseStatus: () => RequestRetryHandler.withRetry(() => apiClient.getDatabaseStatus()),
   getDatabaseView: () => RequestRetryHandler.withRetry(() => apiClient.getDatabaseView()),
-  clearDatabase: (confirm: boolean) => RequestRetryHandler.withRetry(() => apiClient.clearDatabase(confirm)),
+  clearDatabase: (token: string, confirm: boolean) => RequestRetryHandler.withRetry(() => apiClient.clearDatabase(token, confirm)),
   downloadCV: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.downloadCV(cvId)),
 
   // Auth
@@ -433,6 +533,10 @@ export const api = {
 
   // Careers API
   createJobPosting: (file: File) => RequestRetryHandler.withRetry(() => apiClient.createJobPosting(file)),
+  createJobPostingWithFormData: (file: File | null, formData: any) => 
+    RequestRetryHandler.withRetry(() => apiClient.createJobPostingWithFormData(file, formData)),
+  createManualJobPosting: (formData: any) => 
+    RequestRetryHandler.withRetry(() => apiClient.createManualJobPosting(formData)),
   listJobPostings: (includeInactive: boolean = false) => 
   RequestRetryHandler.withRetry(() => apiClient.listJobPostings(includeInactive)),
   getPublicJob: (token: string) => RequestRetryHandler.withRetry(() => apiClient.getPublicJob(token)),
@@ -440,6 +544,17 @@ export const api = {
     RequestRetryHandler.withRetry(() => apiClient.submitJobApplication(token, name, email, phone, cvFile)),
   getJobApplications: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobApplications(jobId)),
 
+  updateJobPosting: (jobId: string, updateData: {
+    job_title?: string;
+    job_location?: string;
+    job_summary?: string;
+    key_responsibilities?: string;
+    qualifications?: string;
+    company_name?: string;
+    additional_info?: string;
+  }) => RequestRetryHandler.withRetry(() => apiClient.updateJobPosting(jobId, updateData)),
+  
+  getJobForEdit: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobForEdit(jobId)),
   updateJobStatus: (jobId: string, status: { is_active: boolean }) => 
   RequestRetryHandler.withRetry(() => apiClient.updateJobStatus(jobId, status)),
 };

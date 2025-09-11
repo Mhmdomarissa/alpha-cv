@@ -46,14 +46,96 @@ export default function JobApplicationForm({
   const validateForm = () => {
     const errors: Record<string, string> = {};
     
+    // Name validation
     if (!formData.name.trim()) {
       errors.name = 'Name is required';
+    } else if (formData.name.trim().length < 2) {
+      errors.name = 'Name must be at least 2 characters long';
+    } else if (!/^[a-zA-Z\s\-'\.]+$/.test(formData.name.trim())) {
+      errors.name = 'Name can only contain letters, spaces, hyphens, apostrophes, and periods';
+    } else if (formData.name.trim().split(' ').length < 2) {
+      errors.name = 'Please enter your full name (first and last name)';
     }
     
+    // Email validation
     if (!formData.email.trim()) {
       errors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      errors.email = 'Invalid email format';
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.email)) {
+        errors.email = 'Invalid email format';
+      } else {
+        // Check for fake email patterns
+        const fakeEmailPatterns = [
+          /^test@/i,
+          /^fake@/i,
+          /^dummy@/i,
+          /^example@/i,
+          /^sample@/i,
+          /@test\./i,
+          /@fake\./i,
+          /@dummy\./i,
+          /@example\./i,
+          /@sample\./i,
+          /123@/,
+          /abc@/i,
+          /xyz@/i,
+          /@123\./,
+          /@abc\./i,
+          /@xyz\./i
+        ];
+        
+        if (fakeEmailPatterns.some(pattern => pattern.test(formData.email))) {
+          errors.email = 'Please enter a valid business email address';
+        }
+        
+        // Check for common disposable email domains
+        const disposableDomains = [
+          '10minutemail.com', 'tempmail.org', 'guerrillamail.com', 'mailinator.com',
+          'yopmail.com', 'temp-mail.org', 'throwaway.email', 'getnada.com'
+        ];
+        
+        const emailDomain = formData.email.split('@')[1]?.toLowerCase();
+        if (disposableDomains.includes(emailDomain)) {
+          errors.email = 'Please use a permanent email address, not a temporary one';
+        }
+      }
+    }
+    
+    // Phone validation
+    if (!formData.phone.trim()) {
+      errors.phone = 'Phone number is required';
+    } else {
+      // Remove all non-digit characters for validation
+      const phoneDigits = formData.phone.replace(/\D/g, '');
+      
+      // Check for fake phone patterns
+      const fakePhonePatterns = [
+        /^12345+$/,           // 12345, 123456, etc.
+        /^00000+$/,           // 00000, 000000, etc.
+        /^11111+$/,           // 11111, 111111, etc.
+        /^22222+$/,           // 22222, 222222, etc.
+        /^33333+$/,           // 33333, 333333, etc.
+        /^44444+$/,           // 44444, 444444, etc.
+        /^55555+$/,           // 55555, 555555, etc.
+        /^66666+$/,           // 66666, 666666, etc.
+        /^77777+$/,           // 77777, 777777, etc.
+        /^88888+$/,           // 88888, 888888, etc.
+        /^99999+$/,           // 99999, 999999, etc.
+        /^1234567890$/,       // 1234567890
+        /^0987654321$/,       // 0987654321
+        /^0123456789$/        // 0123456789
+      ];
+      
+      if (fakePhonePatterns.some(pattern => pattern.test(phoneDigits))) {
+        errors.phone = 'Please enter a valid phone number';
+      } else if (phoneDigits.length < 7) {
+        errors.phone = 'Phone number must be at least 7 digits long';
+      } else if (phoneDigits.length > 15) {
+        errors.phone = 'Phone number cannot be longer than 15 digits';
+      } else if (!/^[+]?[\d\s\-\(\)]+$/.test(formData.phone)) {
+        errors.phone = 'Phone number can only contain digits, spaces, hyphens, parentheses, and + sign';
+      }
     }
     
     if (!selectedFile) {
@@ -126,7 +208,7 @@ export default function JobApplicationForm({
       jobToken,
       formData.name,
       formData.email,
-      formData.phone || undefined,
+      formData.phone,
       selectedFile!
     );
     
@@ -210,12 +292,15 @@ export default function JobApplicationForm({
             <Phone className="absolute left-3 top-3 h-4 w-4 text-neutral-500" />
             <Input
               type="tel"
-              placeholder="Phone Number (Optional)"
+              placeholder="Phone Number"
               value={formData.phone}
               onChange={(e) => handleInputChange('phone', e.target.value)}
-              className="pl-10"
+              className={`pl-10 ${formErrors.phone ? 'border-red-500' : ''}`}
             />
           </div>
+          {formErrors.phone && (
+            <p className="text-sm text-red-600 mt-1">{formErrors.phone}</p>
+          )}
         </div>
       </div>
       

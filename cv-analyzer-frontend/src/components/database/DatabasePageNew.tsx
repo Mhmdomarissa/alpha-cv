@@ -19,6 +19,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import { useAuthStore } from '@/stores/authStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-enhanced';
 import { Button } from '@/components/ui/button-enhanced';
 import { Badge } from '@/components/ui/badge';
@@ -173,6 +174,8 @@ export default function DatabasePageNew() {
     runMatch,
   } = useAppStore();
   
+  const { user } = useAuthStore();
+  
   const [selectedCVForDetails, setSelectedCVForDetails] = useState<string | null>(null);
   const [selectedJDForDetails, setSelectedJDForDetails] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -261,7 +264,11 @@ export default function DatabasePageNew() {
   const handleClearDatabase = async () => {
     setIsClearing(true);
     try {
-      await api.clearDatabase(true);
+      const { token } = useAuthStore.getState();
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      await api.clearDatabase(token, true);
       await loadCVs();
       await loadJDs();
       setShowClearDialog(false);
@@ -271,6 +278,9 @@ export default function DatabasePageNew() {
       setIsClearing(false);
     }
   };
+  
+  // Check if user is admin
+  const isAdmin = user?.role === 'admin';
   
   return (
     <div className="space-y-6">
@@ -283,49 +293,51 @@ export default function DatabasePageNew() {
           </p>
         </div>
         <div className="flex items-center space-x-3">
-          <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
-            <DialogTrigger asChild>
-              <Button
-                variant="outline"
-                className="text-red-600 border-red-300 hover:bg-red-50"
-                aria-label="Clear all data from database"
+          {isAdmin && (
+            <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="text-red-600 border-red-300 hover:bg-red-50"
+                  aria-label="Clear all data from database"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clear Database
+                </Button>
+              </DialogTrigger>
+              <DialogContent
+                className="bg-rose-50 border border-rose-300 shadow-xl rounded-lg p-6 data-[state=open]:animate-in 
+                           data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 
+                           data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
               >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Clear Database
-              </Button>
-            </DialogTrigger>
-            <DialogContent
-              className="bg-rose-50 border border-rose-300 shadow-xl rounded-lg p-6 data-[state=open]:animate-in 
-                         data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 
-                         data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
-            >
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2 text-rose-700">
-                  <AlertTriangle className="h-5 w-5 text-rose-500" />
-                  Confirm Database Clear
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <p className="text-gray-800">
-                  Are you sure you want to permanently delete all CVs and job descriptions?
-                </p>
-                <p className="text-sm text-rose-600 font-medium">This action cannot be undone.</p>
-                <div className="flex justify-end space-x-2">
-                  <Button variant="outline" onClick={() => setShowClearDialog(false)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="error"
-                    onClick={handleClearDatabase}
-                    disabled={isClearing}
-                    className="bg-rose-600 hover:bg-rose-700"
-                  >
-                    {isClearing ? 'Clearing...' : 'Clear All Data'}
-                  </Button>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-rose-700">
+                    <AlertTriangle className="h-5 w-5 text-rose-500" />
+                    Confirm Database Clear
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <p className="text-gray-800">
+                    Are you sure you want to permanently delete all CVs and job descriptions?
+                  </p>
+                  <p className="text-sm text-rose-600 font-medium">This action cannot be undone.</p>
+                  <div className="flex justify-end space-x-2">
+                    <Button variant="outline" onClick={() => setShowClearDialog(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="error"
+                      onClick={handleClearDatabase}
+                      disabled={isClearing}
+                      className="bg-rose-600 hover:bg-rose-700"
+                    >
+                      {isClearing ? 'Clearing...' : 'Clear All Data'}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
+          )}
           <Button
             variant="outline"
             onClick={() => {

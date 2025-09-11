@@ -12,6 +12,7 @@ import {
 } from '@/lib/types';
 import { api } from '@/lib/api';
 import { logger } from '@/lib/logger';
+import { useAuthStore } from './authStore';
 
 interface LoadingState {
   isLoading: boolean;
@@ -417,7 +418,11 @@ export const useAppStore = create<AppState>()(
         
         try {
           logger.info('Clearing database');
-          await api.clearDatabase(true);
+          const { token } = useAuthStore.getState();
+          if (!token) {
+            throw new Error('No authentication token found');
+          }
+          await api.clearDatabase(token, true);
           
           // Reload data
           const state = get();
