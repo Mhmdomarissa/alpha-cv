@@ -12,6 +12,9 @@ import secrets
 import uuid
 from datetime import datetime
 from typing import Optional, List
+import tempfile
+import shutil
+import mimetypes
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -36,6 +39,10 @@ from app.services.parsing_service import get_parsing_service
 from app.services.llm_service import get_llm_service  
 from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils
+
+# Storage directory for job application CVs
+STORAGE_DIR = os.getenv("CV_UPLOAD_DIR", "/data/uploads/cv")
+os.makedirs(STORAGE_DIR, exist_ok=True)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -117,7 +124,7 @@ async def get_public_job(public_token: str) -> PublicJobView:
             job_id=job_data["id"],
             job_title=job_title,
             job_location=job_location,
-            company_name=job_data.get("company_name", "Our Company"),
+            company_name=job_data.get("company_name", "Alpha Data Recruitment"),
             job_description=job_summary,  # Use updated summary or fall back to original
             upload_date=job_data.get("created_date", job_data.get("upload_date", _now_iso())),
             requirements=requirements[:10],  # Limit to top 10 for display
@@ -198,6 +205,27 @@ async def apply_to_job(
             tmp.write(file_content)
             tmp_path = tmp.name
         
+        # Persist the original file to disk for proper download functionality
+        persisted_path = None
+        try:
+            if cv_file.filename:
+                # Get file extension
+                file_ext = os.path.splitext(cv_file.filename)[1].lower()
+                if not file_ext:
+                    file_ext = '.pdf'  # Default to PDF if no extension
+                
+                # Create filename using application_id to avoid collisions
+                dest_filename = f"{application_id}{file_ext}"
+                dest_path = os.path.join(STORAGE_DIR, dest_filename)
+                
+                # Copy the temporary file to the storage directory
+                shutil.copyfile(tmp_path, dest_path)
+                persisted_path = dest_path
+                logger.info(f"✅ Stored job application CV file: {dest_path}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to persist job application CV file: {e}")
+            persisted_path = None
+        
         try:
             parsing_service = get_parsing_service()
             parsed = parsing_service.process_document(tmp_path, "cv")
@@ -207,7 +235,10 @@ async def apply_to_job(
             extracted_pii = parsed.get("extracted_pii", {"email": [], "phone": []})
         finally:
             # Clean up temporary file
-            os.unlink(tmp_path)
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
         
         if not extracted_text or len(extracted_text.strip()) < 50:
             raise HTTPException(status_code=400, detail="Could not extract sufficient text from CV. Please check the file format.")
@@ -244,7 +275,7 @@ async def apply_to_job(
             "cover_letter": cover_letter,
             "public_token": public_token,
             "job_title": job_data.get("job_title", "Position"),
-            "company_name": job_data.get("company_name", "Our Company")
+            "company_name": job_data.get("company_name", "Alpha Data Recruitment")
         }
         
         # 5. Store in existing CV collections (reuse existing infrastructure)
@@ -255,7 +286,9 @@ async def apply_to_job(
             qdrant.store_document(
                 application_id, "cv", cv_file.filename,
                 cv_file.content_type or "application/octet-stream",
-                extracted_text, _now_iso()
+                extracted_text, _now_iso(),
+                file_path=persisted_path,  # Now we store the file path for proper downloads
+                mime_type=cv_file.content_type
             )
         )
         
@@ -1008,7 +1041,7 @@ async def get_job_info(public_token: str) -> dict:
         return {
             "job_id": job_data["id"],
             "is_active": job_data.get("is_active", True),
-            "company_name": job_data.get("company_name", "Our Company"),
+            "company_name": job_data.get("company_name", "Alpha Data Recruitment"),
             "upload_date": job_data.get("created_date", job_data.get("upload_date", _now_iso()))
         }
         
@@ -1068,3 +1101,45 @@ async def update_job_posting(
     except Exception as e:
         logger.error(f"❌ Failed to update job posting: {e}")
         raise HTTPException(status_code=500, detail="Failed to update job posting. Please try again later.")
+
+
+@router.delete("/admin/jobs/delete-all")
+async def delete_all_job_postings() -> JSONResponse:
+    """
+    Delete all job postings and related JD data while preserving CVs.
+    
+    This endpoint will:
+    1. Delete all job posting metadata from job_postings_structured collection
+    2. Delete all JD data from jd_* collections (jd_documents, jd_structured, jd_embeddings)
+    3. Preserve all CV data (including job application CVs)
+    
+    This is useful for cleaning up job postings while keeping the CV database intact.
+    """
+    try:
+        logger.info("🗑️ Starting deletion of all job postings...")
+        
+        qdrant = get_qdrant_utils()
+        results = qdrant.delete_all_job_postings()
+        
+        if results["success"]:
+            logger.info(f"✅ Successfully deleted all job postings: {results}")
+            return JSONResponse({
+                "success": True,
+                "message": "All job postings deleted successfully",
+                "details": results
+            })
+        else:
+            logger.error(f"❌ Failed to delete job postings: {results}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to delete job postings: {results.get('error', 'Unknown error')}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during job postings deletion: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="An unexpected error occurred while deleting job postings. Please try again later."
+        )

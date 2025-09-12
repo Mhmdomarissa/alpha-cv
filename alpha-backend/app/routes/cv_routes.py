@@ -286,21 +286,46 @@ async def list_cvs() -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"Failed to list CVs: {e}")
 
 
-@router.get("/cv/{cv_id}")
+@router.get("/test")
+async def test_cv_endpoint() -> JSONResponse:
+    """Test endpoint to verify CV routes are working."""
+    return JSONResponse({"status": "success", "message": "CV routes are working"})
+
+@router.get("/test/{test_id}") 
+async def test_cv_pattern(test_id: str) -> JSONResponse:
+    """Test endpoint to verify CV route pattern is working."""
+    return JSONResponse({"status": "success", "message": f"CV route pattern works with ID: {test_id}"})
+
+@router.get("/{cv_id}")
 async def get_cv_details(cv_id: str) -> JSONResponse:
     """
     Get details for a specific CV.
     Combines cv_structured + cv_documents + cv_embeddings stats.
+    Also handles job application CVs (stored with application_id as document_id).
     """
     try:
+        logger.info(f"🔍 Starting get_cv_details for CV: {cv_id}")
         qdrant = get_qdrant_utils()
 
         # Structured data
         s = qdrant.client.retrieve("cv_structured", ids=[cv_id], with_payload=True, with_vectors=False)
         if not s:
+            logger.error(f"❌ CV not found in cv_structured collection: {cv_id}")
             raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
         structured_payload = s[0].payload or {}
-        structured = structured_payload.get("structured_info", structured_payload)
+        logger.info(f"✅ Found CV in cv_structured: {cv_id}, payload keys: {list(structured_payload.keys())}")
+        
+        # Check if this is a job application CV (has is_job_application flag)
+        is_job_application = structured_payload.get("is_job_application", False)
+        logger.info(f"🔍 CV {cv_id} is_job_application: {is_job_application}")
+        
+        if is_job_application:
+            # For job applications, the structured data is still nested under structured_info
+            # but we also have application-specific fields in the main payload
+            structured = structured_payload.get("structured_info", structured_payload)
+        else:
+            # For regular CVs, structured data is nested under structured_info
+            structured = structured_payload.get("structured_info", structured_payload)
 
         # Doc meta
         d = qdrant.client.retrieve("cv_documents", ids=[cv_id], with_payload=True, with_vectors=False)
@@ -327,34 +352,48 @@ async def get_cv_details(cv_id: str) -> JSONResponse:
         responsibilities = structured.get("responsibilities", structured.get("responsibility_sentences", []))
 
         response = {
-    "id": cv_id,
-    "filename": doc_meta.get("filename", "Unknown"),
-    "upload_date": doc_meta.get("upload_date", "Unknown"),
-    "document_type": "cv",
-    "candidate": {
-        "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
-        "job_title": structured.get("job_title", "Not specified"),
-        "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
-        "skills": structured.get("skills", []),
-        "responsibilities": responsibilities,
-        "skills_count": len(structured.get("skills", [])),
-        "responsibilities_count": len(responsibilities),
-        "contact_info": structured.get("contact_info", {})  # Add this line
-    },
-    "text_info": {
-        "extracted_text_length": len(doc_meta.get("raw_content", "")),
-        "extracted_text_preview": (doc_meta.get("raw_content", "")[:500] + "...") if len(doc_meta.get("raw_content", "")) > 500 else doc_meta.get("raw_content", "")
-    },
-    "embeddings_info": {
-        "skills_embeddings": skills_count,
-        "responsibilities_embeddings": resp_count,
-        "has_title_embedding": has_title,
-        "has_experience_embedding": has_exp,
-        "embedding_dimension": dim,
-    },
-    "structured_info": structured,
-    "processing_metadata": structured.get("processing_metadata", {})
-}
+            "id": cv_id,
+            "filename": doc_meta.get("filename", "Unknown"),
+            "upload_date": doc_meta.get("upload_date", "Unknown"),
+            "document_type": "cv",
+            "is_job_application": is_job_application,
+            "candidate": {
+                "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
+                "job_title": structured.get("job_title", "Not specified"),
+                "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
+                "skills": structured.get("skills", []),
+                "responsibilities": responsibilities,
+                "skills_count": len(structured.get("skills", [])),
+                "responsibilities_count": len(responsibilities),
+                "contact_info": structured.get("contact_info", {})
+            },
+            "text_info": {
+                "extracted_text_length": len(doc_meta.get("raw_content", "")),
+                "extracted_text_preview": (doc_meta.get("raw_content", "")[:500] + "...") if len(doc_meta.get("raw_content", "")) > 500 else doc_meta.get("raw_content", "")
+            },
+            "embeddings_info": {
+                "skills_embeddings": skills_count,
+                "responsibilities_embeddings": resp_count,
+                "has_title_embedding": has_title,
+                "has_experience_embedding": has_exp,
+                "embedding_dimension": dim,
+            },
+            "structured_info": structured,
+            "processing_metadata": structured.get("processing_metadata", {})
+        }
+
+        # Add job application specific data if this is a job application
+        if is_job_application:
+            response["job_application"] = {
+                "job_id": structured_payload.get("job_id"),
+                "applicant_name": structured_payload.get("applicant_name"),
+                "applicant_email": structured_payload.get("applicant_email"),
+                "applicant_phone": structured_payload.get("applicant_phone"),
+                "application_date": structured_payload.get("application_date"),
+                "application_status": structured_payload.get("application_status"),
+                "cover_letter": structured_payload.get("cover_letter"),
+                "cv_filename": structured_payload.get("cv_filename")
+            }
 
         return JSONResponse({"status": "success", "cv": response})
 
@@ -365,7 +404,7 @@ async def get_cv_details(cv_id: str) -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"Failed to get CV details: {e}")
 
 
-@router.delete("/cv/{cv_id}")
+@router.delete("/{cv_id}")
 async def delete_cv(cv_id: str) -> JSONResponse:
     """
     Delete a CV and all associated data across:
@@ -411,7 +450,7 @@ async def delete_cv(cv_id: str) -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"Failed to delete CV: {e}")
 
 
-@router.post("/cv/{cv_id}/reprocess")
+@router.post("/{cv_id}/reprocess")
 async def reprocess_cv(cv_id: str) -> JSONResponse:
     """
     Reprocess an existing CV with updated prompts/embeddings.
@@ -476,7 +515,7 @@ async def reprocess_cv(cv_id: str) -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"CV reprocessing failed: {e}")
 
 
-@router.get("/cv/{cv_id}/embeddings")
+@router.get("/{cv_id}/embeddings")
 async def get_cv_embeddings_info(cv_id: str) -> JSONResponse:
     """
     Get detailed embeddings information for a CV from cv_embeddings.
@@ -592,11 +631,12 @@ async def standardize_cv_text(request: StandardizeCVRequest) -> JSONResponse:
     except Exception as e:
         logger.error(f"❌ CV text standardization failed: {e}")
         raise HTTPException(status_code=500, detail=f"CV standardization failed: {e}")
-@router.get("/cv/{cv_id}/download")
+@router.get("/{cv_id}/download")
 async def download_cv(cv_id: str):
     """
     Download the original uploaded CV file.
     Falls back to a .txt export of raw_content if the file_path is missing.
+    Also handles job application CVs (stored with application_id as document_id).
     """
     q = get_qdrant_utils().client
     res = q.retrieve("cv_documents", ids=[cv_id], with_payload=True, with_vectors=False)
@@ -606,6 +646,17 @@ async def download_cv(cv_id: str):
     payload = res[0].payload or {}
     filepath = payload.get("file_path") or payload.get("filepath")
     filename = payload.get("filename", f"{cv_id}.dat")
+    
+    # For job applications, use a more descriptive filename if available
+    if not filepath and not payload.get("raw_content"):
+        # Check if this is a job application by looking at structured data
+        structured_res = q.retrieve("cv_structured", ids=[cv_id], with_payload=True, with_vectors=False)
+        if structured_res and structured_res[0].payload:
+            structured_payload = structured_res[0].payload
+            if structured_payload.get("is_job_application"):
+                applicant_name = structured_payload.get("applicant_name", "Applicant")
+                cv_filename = structured_payload.get("cv_filename", "cv.pdf")
+                filename = f"{applicant_name}_{cv_filename}"
 
     # Serve the persisted file if we have it
     if filepath and os.path.exists(filepath):

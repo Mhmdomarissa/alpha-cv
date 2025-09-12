@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button-enhanced';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-enhanced';
+import { useToast, ToastContainer } from '@/components/ui/toast';
 
 interface ManualJobPostingFormProps {
   onSuccess: () => void;
@@ -21,8 +22,9 @@ interface ManualJobPostingFormProps {
   };
 }
 
-export default function ManualJobPostingForm({ onSuccess, jobId, publicToken, initialData }: ManualJobPostingFormProps) {
+function ManualJobPostingForm({ onSuccess, jobId, publicToken, initialData }: ManualJobPostingFormProps) {
   const { createManualJobPosting, isCreatingJob, error, clearError } = useCareersStore();
+  const { toasts, showSuccess, showError, removeToast } = useToast();
   
   const [success, setSuccess] = useState<{link: string, token: string, jobId: string} | null>(null);
   const [copied, setCopied] = useState(false);
@@ -110,30 +112,48 @@ export default function ManualJobPostingForm({ onSuccess, jobId, publicToken, in
 
       if (result.success) {
         setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
-        // Call onSuccess to close dialog and refresh data
-        setTimeout(() => onSuccess(), 2000);
+        console.log('About to show success toast for save');
+        showSuccess('Changes Saved Successfully!', 'Your job posting has been updated.');
+        console.log('Success toast called for save');
+        // Call onSuccess to close dialog and refresh data after toast is visible
+        setTimeout(() => onSuccess(), 5000);
       }
     } catch (error) {
       console.error('Failed to save job posting updates:', error);
+      showError('Failed to Save Changes', 'Please try again or contact support if the issue persists.');
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleSubmit = async () => {
+    console.log('🔄 ManualJobPostingForm handleSubmit called - checking for duplicates...');
+    
     if (!formData.jobTitle.trim()) {
       return; // Job title is required
     }
     
+    // Check if already processing
+    if (isCreatingJob) {
+      console.log('⚠️ Already creating job, preventing duplicate submission');
+      return;
+    }
+    
+    console.log('✅ Starting manual job creation process...');
+    
     try {
       const result = await createManualJobPosting(formData);
+      
       if (result) {
         setSuccess({ 
           link: result.public_link, 
           token: result.public_token,
           jobId: result.job_id
         });
+        
+        console.log('About to show success toast for job posting');
+        showSuccess('Job Posted Successfully!', 'Your job posting is now live and ready to receive applications.');
+        console.log('Success toast called for job posting');
         
         // Close form after delay
         setTimeout(() => {
@@ -142,6 +162,7 @@ export default function ManualJobPostingForm({ onSuccess, jobId, publicToken, in
       }
     } catch (error) {
       console.error('Failed to create manual job posting:', error);
+      showError('Failed to Post Job', 'Please try again or contact support if the issue persists.');
     }
   };
   
@@ -189,9 +210,13 @@ export default function ManualJobPostingForm({ onSuccess, jobId, publicToken, in
       }
     }
   };
+
+  
   
   return (
-    <div id="manual-job-posting-form" className="space-y-6 scroll-mt-20">
+    <>
+      <ToastContainer toasts={toasts} onClose={removeToast} />
+      <div id="manual-job-posting-form" className="space-y-6 scroll-mt-20">
       {/* Error Display */}
       {error && (
         <Alert variant="destructive" className="border-red-200 bg-red-50">
@@ -421,6 +446,9 @@ export default function ManualJobPostingForm({ onSuccess, jobId, publicToken, in
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
+
+export default ManualJobPostingForm;

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button-enhanced';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-enhanced';
 import { api } from '@/lib/api';
+import { useToast, ToastContainer } from '@/components/ui/toast';
 
 interface JobPostingFormProps {
   onSuccess: () => void;
@@ -21,6 +22,7 @@ interface JobPostingFormProps {
 
 export default function JobPostingForm({ onSuccess, jobId, publicToken, initialData }: JobPostingFormProps) {
   const { createJobPosting, createJobPostingWithFormData, createManualJobPosting, isCreatingJob, error, clearError } = useCareersStore();
+  const { toasts, showSuccess, showError, removeToast } = useToast();
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -211,30 +213,45 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
 
       if (result.success) {
         setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
-        // Call onSuccess to close dialog and refresh data
-        setTimeout(() => onSuccess(), 2000);
+        console.log('About to show success toast for save (JobPostingForm)');
+        showSuccess('Changes Saved Successfully!', 'Your job posting has been updated.');
+        console.log('Success toast called for save (JobPostingForm)');
+        // Call onSuccess to close dialog and refresh data after toast is visible
+        setTimeout(() => onSuccess(), 5000);
       }
     } catch (error) {
       console.error('Failed to save job posting updates:', error);
+      showError('Failed to Save Changes', 'Please try again or contact support if the issue persists.');
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleSubmit = async () => {
+    console.log('🔄 handleSubmit called - checking for duplicates...');
+    
     if (!selectedFile && Object.values(formData).every(v => !v.trim())) {
       return; // No file and no form data
     }
+    
+    // Check if already processing
+    if (isCreatingJob || isProcessing) {
+      console.log('⚠️ Already creating job, preventing duplicate submission');
+      return;
+    }
+    
+    console.log('✅ Starting job creation process...');
     
     try {
       let result;
       
       if (selectedFile) {
         // If there's a file, use the file upload method
+        console.log('Using createJobPostingWithFormData for file upload');
         result = await createJobPostingWithFormData(selectedFile, formData);
       } else {
         // If no file but has form data, use manual job posting
+        console.log('Using createManualJobPosting for manual posting');
         result = await createManualJobPosting(formData);
       }
       
@@ -248,6 +265,10 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
         // Keep form data for editing
         setShowForm(true);
         
+        console.log('About to show success toast for job posting (JobPostingForm)');
+        showSuccess('Job Posted Successfully!', 'Your job posting is now live and ready to receive applications.');
+        console.log('Success toast called for job posting (JobPostingForm)');
+        
         // Close form after delay
         setTimeout(() => {
           onSuccess();
@@ -255,6 +276,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
       }
     } catch (error) {
       console.error('Failed to create job posting:', error);
+      showError('Failed to Post Job', 'Please try again or contact support if the issue persists.');
     }
   };
   
@@ -310,9 +332,12 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
       fileInput.click();
     }
   };
+
   
   return (
-    <div id="job-posting-form" className="space-y-6 scroll-mt-20">
+    <>
+      <ToastContainer toasts={toasts} onClose={removeToast} />
+      <div id="job-posting-form" className="space-y-6 scroll-mt-20">
       {/* Error Display */}
       {error && (
         <Alert variant="destructive" className="border-red-200 bg-red-50">
@@ -638,6 +663,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

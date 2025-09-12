@@ -108,6 +108,10 @@ export default function MatchingPageNew() {
     matchWeights,
     setMatchWeights,
     cvs, // used to resolve names and meta
+    selectedJD,
+    selectedCVs,
+    runMatch,
+    loadingStates
   } = useAppStore();
   
   const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
@@ -128,6 +132,14 @@ export default function MatchingPageNew() {
       setMatchWeights?.({ ...DEFAULT_WEIGHTS });
     }
   }, [matchWeights, setMatchWeights]);
+
+  // Auto-run matching when we have careers data but no match results
+  useEffect(() => {
+    if (selectedJD && selectedCVs && selectedCVs.length > 0 && !matchResult && !loadingStates.matching.isLoading) {
+      console.log('Auto-running matching for careers data:', { selectedJD, selectedCVs });
+      runMatch();
+    }
+  }, [selectedJD, selectedCVs, matchResult, loadingStates.matching.isLoading, runMatch]);
   
   const normWeights = useMemo(() => normalizeWeights(matchWeights ?? DEFAULT_WEIGHTS), [matchWeights]);
   
@@ -142,6 +154,11 @@ export default function MatchingPageNew() {
   }, [cvs]);
   
   const candidates: any[] = matchResult?.candidates ?? [];
+  
+  // Debug logging
+  console.log('MatchingPageNew - matchResult:', matchResult);
+  console.log('MatchingPageNew - candidates:', candidates);
+  console.log('MatchingPageNew - candidates length:', candidates.length);
   
   // Compute display scores using current (normalized) weights
   const candidatesWithComputed = useMemo(() => {
@@ -206,14 +223,14 @@ export default function MatchingPageNew() {
   const totalFiltered = candidatesWithComputed.filter((c) => (c.computed_overall ?? 0) >= filterThreshold).length;
   
   // Download CV handler
-  const handleDownloadCV = async (cvId: string, filename: string) => {
+  const handleDownloadCV = async (cvId: string) => {
     setDownloadingCV(cvId);
     try {
-      const blob = await api.downloadCV(cvId);
+      const { blob, filename } = await api.downloadCV(cvId);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename;
+      a.download = filename; // Use the filename from server response
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -701,9 +718,9 @@ export default function MatchingPageNew() {
         variant="outline"
         size="sm"
         onClick={(e) => {
-  e.stopPropagation();
-  handleDownloadCV(candidate.cv_id, filename);
-}}
+          e.stopPropagation();
+          handleDownloadCV(candidate.cv_id);
+        }}
 
         disabled={downloadingCV === candidate.cv_id}
         className="flex items-center gap-1"

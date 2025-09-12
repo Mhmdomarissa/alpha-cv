@@ -11,7 +11,9 @@ import {
   ExternalLink,
   ToggleLeft,
   ToggleRight,
-  Edit3
+  Edit3,
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -45,6 +47,9 @@ export default function CareersPage() {
   const [editingJobData, setEditingJobData] = useState<any>(null);
   const [isLoadingEditData, setIsLoadingEditData] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     loadJobPostings();
@@ -56,6 +61,26 @@ export default function CareersPage() {
 
   const handleSelectJob = (job: JobPostingListItem) => {
     selectJob(job);
+  };
+
+  const handleDeleteAllJobPostings = async () => {
+    setIsDeletingAll(true);
+    try {
+      const response = await api.deleteAllJobPostings();
+      if (response.success) {
+        // Reload job postings to reflect the changes
+        await loadJobPostings();
+        alert(`Successfully deleted all job postings!\n\nDetails:\n- Job postings deleted: ${response.details.job_postings_deleted}\n- JD documents deleted: ${response.details.jd_documents_deleted}\n- JD structured data deleted: ${response.details.jd_structured_deleted}\n- JD embeddings deleted: ${response.details.jd_embeddings_deleted}\n- CVs preserved: ${response.details.cvs_preserved}`);
+      } else {
+        alert('Failed to delete job postings. Please try again.');
+      }
+    } catch (error) {
+      console.error('Failed to delete all job postings:', error);
+      alert('Failed to delete job postings. Please try again.');
+    } finally {
+      setIsDeletingAll(false);
+      setShowDeleteConfirm(false);
+    }
   };
 
   const handleEditJob = async (job: JobPostingListItem) => {
@@ -71,6 +96,17 @@ export default function CareersPage() {
       console.error('Failed to load job data for editing:', error);
     } finally {
       setIsLoadingEditData(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await loadJobPostings();
+    } catch (error) {
+      console.error('Failed to refresh job postings:', error);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -123,19 +159,56 @@ export default function CareersPage() {
         </div>
         <div className="flex space-x-3">
           <Button
+            onClick={handleRefresh}
+            className="bg-white hover:bg-gray-50 text-black border border-gray-300"
+            disabled={isRefreshing}
+          >
+            {isRefreshing ? (
+              <>
+                <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin mr-2" />
+                Refreshing...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh
+              </>
+            )}
+          </Button>
+          <Button
             onClick={() => setShowCreateForm(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            className="bg-white hover:bg-gray-50 text-black border border-gray-300"
           >
             <FileText className="w-4 h-4 mr-2" />
             Post JD as File
           </Button>
           <Button
             onClick={() => setShowManualForm(true)}
-            className="bg-green-600 hover:bg-green-700 text-white"
+            className="bg-white hover:bg-gray-50 text-black border border-gray-300"
           >
             <Edit3 className="w-4 h-4 mr-2" />
             Post JD in Text Manually
           </Button>
+          {jobPostings.length > 0 && (
+            <Button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="bg-red-600 hover:bg-red-700 text-white border border-red-600"
+              style={{ color: 'white' }}
+              disabled={isDeletingAll}
+            >
+              {isDeletingAll ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete All Jobs
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -150,14 +223,14 @@ export default function CareersPage() {
               <div className="flex justify-center space-x-3">
                 <Button
                   onClick={() => setShowCreateForm(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  className="bg-white hover:bg-gray-50 text-black border border-gray-300"
                 >
                   <FileText className="w-4 h-4 mr-2" />
                   Post JD as File
                 </Button>
                 <Button
                   onClick={() => setShowManualForm(true)}
-                  className="bg-green-600 hover:bg-green-700 text-white"
+                  className="bg-white hover:bg-gray-50 text-black border border-gray-300"
                 >
                   <Edit3 className="w-4 h-4 mr-2" />
                   Post JD in Text Manually
@@ -320,6 +393,50 @@ export default function CareersPage() {
             loadJobPostings();
           }}
         />
+      )}
+
+      {/* Delete All Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center mb-4">
+              <AlertCircle className="w-6 h-6 text-red-600 mr-3" />
+              <h3 className="text-lg font-semibold text-gray-900">Delete All Job Postings</h3>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete all job postings? This action cannot be undone.
+              <br /><br />
+              <strong>Note:</strong> All CVs (including job applications) will be preserved.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <Button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="bg-gray-300 hover:bg-gray-400 text-gray-700"
+                disabled={isDeletingAll}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleDeleteAllJobPostings}
+                className="bg-red-600 hover:bg-red-700 text-white"
+                style={{ color: 'white' }}
+                disabled={isDeletingAll}
+              >
+                {isDeletingAll ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete All
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -51,6 +51,8 @@ interface AppState {
   
   // Actions
   setCurrentTab: (tab: AppState['currentTab']) => void;
+  setCareersMatchResult: (matchResult: MatchResponse) => void;
+  setCareersMatchData: (data: { jobId: string; jobTitle: string; cvIds: string[] }) => void;
   
   // CV actions
   loadCVs: () => Promise<void>;
@@ -132,6 +134,19 @@ export const useAppStore = create<AppState>()(
           state.loadSystemStats();
           state.loadDatabaseView();
         }
+      },
+
+      setCareersMatchResult: (matchResult) => {
+        set({ matchResult });
+      },
+      
+      setCareersMatchData: (data) => {
+        set({ 
+          selectedJD: data.jobId,
+          selectedCVs: data.cvIds,
+          // Clear any existing match results
+          matchResult: null
+        });
       },
       
       // CV actions

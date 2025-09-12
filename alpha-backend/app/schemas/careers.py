@@ -33,7 +33,7 @@ class PublicJobView(BaseModel):
     job_id: str = Field(..., description="Unique identifier for the job posting")
     job_title: Optional[str] = Field("Position Available", description="Job title or position name")
     job_location: Optional[str] = Field(None, description="Job location (city, country, remote, etc.)")
-    company_name: Optional[str] = Field("Our Company", description="Company name for branding")
+    company_name: Optional[str] = Field("Alpha Data Recruitment", description="Company name for branding")
     job_description: str = Field(..., description="Full job description text")
     upload_date: str = Field(..., description="When this job was posted")
     requirements: Optional[List[str]] = Field([], description="List of required skills and qualifications")

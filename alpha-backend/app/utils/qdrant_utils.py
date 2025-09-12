@@ -980,6 +980,134 @@ class QdrantUtils:
                 "error": str(e)
             }
 
+    def delete_all_job_postings(self) -> Dict[str, Any]:
+        """
+        Delete all job postings and related JD data while preserving CVs.
+        This will:
+        1. Delete all job posting metadata from job_postings_structured
+        2. Delete all JD data from jd_* collections
+        3. Preserve all CV data (including job application CVs)
+        """
+        try:
+            results = {
+                "job_postings_deleted": 0,
+                "jd_documents_deleted": 0,
+                "jd_structured_deleted": 0,
+                "jd_embeddings_deleted": 0,
+                "cvs_preserved": 0,
+                "success": True,
+                "error": None
+            }
+            
+            # 1. Delete all job posting metadata
+            try:
+                job_postings = self.client.scroll(
+                    collection_name="job_postings_structured",
+                    limit=1000,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                if job_postings[0]:
+                    job_ids = [point.id for point in job_postings[0]]
+                    # Delete by point IDs
+                    self.client.delete(
+                        collection_name="job_postings_structured",
+                        points_selector=job_ids
+                    )
+                    results["job_postings_deleted"] = len(job_ids)
+                    logger.info(f"✅ Deleted {len(job_ids)} job postings from job_postings_structured")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to delete job postings: {e}")
+            
+            # 2. Delete all JD documents
+            try:
+                jd_docs = self.client.scroll(
+                    collection_name="jd_documents",
+                    limit=1000,
+                    with_payload=False,
+                    with_vectors=False
+                )
+                if jd_docs[0]:
+                    jd_ids = [point.id for point in jd_docs[0]]
+                    # Delete by point IDs
+                    self.client.delete(
+                        collection_name="jd_documents",
+                        points_selector=jd_ids
+                    )
+                    results["jd_documents_deleted"] = len(jd_ids)
+                    logger.info(f"✅ Deleted {len(jd_ids)} JD documents")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to delete JD documents: {e}")
+            
+            # 3. Delete all JD structured data
+            try:
+                jd_structured = self.client.scroll(
+                    collection_name="jd_structured",
+                    limit=1000,
+                    with_payload=False,
+                    with_vectors=False
+                )
+                if jd_structured[0]:
+                    jd_ids = [point.id for point in jd_structured[0]]
+                    # Delete by point IDs
+                    self.client.delete(
+                        collection_name="jd_structured",
+                        points_selector=jd_ids
+                    )
+                    results["jd_structured_deleted"] = len(jd_ids)
+                    logger.info(f"✅ Deleted {len(jd_ids)} JD structured data")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to delete JD structured data: {e}")
+            
+            # 4. Delete all JD embeddings
+            try:
+                jd_embeddings = self.client.scroll(
+                    collection_name="jd_embeddings",
+                    limit=1000,
+                    with_payload=False,
+                    with_vectors=False
+                )
+                if jd_embeddings[0]:
+                    jd_ids = [point.id for point in jd_embeddings[0]]
+                    # Delete by point IDs
+                    self.client.delete(
+                        collection_name="jd_embeddings",
+                        points_selector=jd_ids
+                    )
+                    results["jd_embeddings_deleted"] = len(jd_ids)
+                    logger.info(f"✅ Deleted {len(jd_ids)} JD embeddings")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to delete JD embeddings: {e}")
+            
+            # 5. Count preserved CVs
+            try:
+                cv_count = self.client.scroll(
+                    collection_name="cv_structured",
+                    limit=1000,
+                    with_payload=False,
+                    with_vectors=False
+                )
+                if cv_count[0]:
+                    results["cvs_preserved"] = len(cv_count[0])
+                    logger.info(f"✅ Preserved {len(cv_count[0])} CVs (including job applications)")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to count CVs: {e}")
+            
+            logger.info(f"✅ Job postings deletion completed: {results}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to delete job postings: {e}")
+            return {
+                "job_postings_deleted": 0,
+                "jd_documents_deleted": 0,
+                "jd_structured_deleted": 0,
+                "jd_embeddings_deleted": 0,
+                "cvs_preserved": 0,
+                "success": False,
+                "error": str(e)
+            }
+
 
 # Global singleton
 _qdrant_utils: Optional[QdrantUtils] = None

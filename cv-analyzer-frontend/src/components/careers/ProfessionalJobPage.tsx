@@ -87,11 +87,11 @@ export default function ProfessionalJobPage({ token }: ProfessionalJobPageProps)
           <div className="flex items-center justify-between">
             {/* AlphaData Logo */}
             <div className="flex items-center space-x-3">
-              <div className="w-16 h-12 flex items-center justify-center">
+              <div className="w-20 h-16 flex items-center justify-center">
                 <img 
                   src="https://www.alphadatarecruitment.ae/wp-content/uploads/2020/07/130-60.svg"
                   alt="AlphaData Recruitment"
-                  className="h-10 w-auto object-contain"
+                  className="h-14 w-auto object-contain"
                   onError={(e) => {
                     // Fallback to briefcase icon if image fails to load
                     e.currentTarget.style.display = 'none';
@@ -99,8 +99,8 @@ export default function ProfessionalJobPage({ token }: ProfessionalJobPageProps)
                     if (fallback) fallback.style.display = 'flex';
                   }}
                 />
-                <div className="alphadata-logo w-12 h-12 rounded-lg items-center justify-center hidden">
-                  <Briefcase className="w-6 h-6 text-white" />
+                <div className="alphadata-logo w-16 h-16 rounded-lg items-center justify-center hidden">
+                  <Briefcase className="w-8 h-8 text-white" />
                 </div>
               </div>
               <div>

@@ -102,22 +102,22 @@ class ApiClient {
   }
 
   async getCVDetails(cvId: string): Promise<CVDataResponse> {
-    const response = await this.client.get<CVDataResponse>(`/api/cv/cv/${cvId}`);
+    const response = await this.client.get<CVDataResponse>(`/api/cv/${cvId}`);
     return response.data;
   }
 
   async deleteCV(cvId: string): Promise<{ success: boolean; message: string }> {
-    const response = await this.client.delete<{ success: boolean; message: string }>(`/api/cv/cv/${cvId}`);
+    const response = await this.client.delete<{ success: boolean; message: string }>(`/api/cv/${cvId}`);
     return response.data;
   }
 
   async reprocessCV(cvId: string): Promise<UploadResponse> {
-    const response = await this.client.post<UploadResponse>(`/api/cv/cv/${cvId}/reprocess`);
+    const response = await this.client.post<UploadResponse>(`/api/cv/${cvId}/reprocess`);
     return response.data;
   }
 
   async getCVEmbeddings(cvId: string): Promise<EmbeddingsInfoResponse> {
-    const response = await this.client.get<EmbeddingsInfoResponse>(`/api/cv/cv/${cvId}/embeddings`);
+    const response = await this.client.get<EmbeddingsInfoResponse>(`/api/cv/${cvId}/embeddings`);
     return response.data;
   }
 
@@ -224,12 +224,40 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
 
 
 // Download CV by ID
-async downloadCV(cvId: string): Promise<Blob> {
-  const response = await this.client.get(`/api/cv/cv/${cvId}/download`, {
-    responseType: 'blob',
-  });
-  return response.data;
-}
+  async downloadCV(cvId: string): Promise<{ blob: Blob; filename: string }> {
+    const response = await this.client.get(`/api/cv/${cvId}/download`, {
+      responseType: 'blob',
+    });
+    
+    // Extract filename from Content-Disposition header
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = `cv_${cvId}.pdf`; // fallback filename
+    
+    if (contentDisposition) {
+      // Try different patterns for filename extraction
+      const patterns = [
+        /filename\*?=['"]?([^'";\r\n]+)['"]?/i,
+        /filename=([^;]+)/i,
+        /filename\*?=UTF-8''([^;]+)/i
+      ];
+      
+      for (const pattern of patterns) {
+        const match = contentDisposition.match(pattern);
+        if (match && match[1]) {
+          filename = decodeURIComponent(match[1].trim());
+          break;
+        }
+      }
+    }
+    
+    // If we still have a generic filename, try to get it from the CV metadata
+    if (filename.startsWith('cv_') && filename.includes(cvId)) {
+      // We could potentially fetch CV metadata here, but for now use a better fallback
+      filename = `CV_${cvId}.pdf`;
+    }
+    
+    return { blob: response.data, filename };
+  }
 
   // Auth methods
   async login(username: string, password: string): Promise<LoginResponse> {
@@ -481,6 +509,37 @@ async getPublicJob(token: string): Promise<PublicJobView> {
   );
   return response.data;
 }
+
+  async matchJobCandidates(jobId: string, request: { min_score?: number; include_inactive?: boolean }): Promise<any> {
+    const requestBody = {
+      job_id: jobId,
+      min_score: request.min_score,
+      include_inactive: request.include_inactive
+    };
+    
+    const response = await this.client.post(
+      `/api/careers/admin/jobs/${jobId}/match-candidates`,
+      requestBody,
+      {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      }
+    );
+    return response.data;
+  }
+
+  async deleteAllJobPostings(): Promise<{ success: boolean; message: string; details: any }> {
+    const response = await this.client.delete(
+      `/api/careers/admin/jobs/delete-all`,
+      {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      }
+    );
+    return response.data;
+  }
 }
 
 
@@ -557,6 +616,9 @@ export const api = {
   getJobForEdit: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobForEdit(jobId)),
   updateJobStatus: (jobId: string, status: { is_active: boolean }) => 
   RequestRetryHandler.withRetry(() => apiClient.updateJobStatus(jobId, status)),
+  matchJobCandidates: (jobId: string, request: { min_score?: number; include_inactive?: boolean }) => 
+  RequestRetryHandler.withRetry(() => apiClient.matchJobCandidates(jobId, request)),
+  deleteAllJobPostings: () => RequestRetryHandler.withRetry(() => apiClient.deleteAllJobPostings()),
 };
 
 // Re-export types for convenience
