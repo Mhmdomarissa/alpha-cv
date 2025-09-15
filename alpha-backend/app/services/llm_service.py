@@ -81,8 +81,18 @@ DEFAULT_JD_PROMPT = """You are an information-extraction engine. You will receiv
 Your job is to output STRICT JSON with the following schema, extracting:
 Exactly 20 SKILL PHRASES (prefer SKILLS, REQUIREMENTS, QUALIFICATIONS, TECHNOLOGY STACK sections; read the full document. If fewer than 20 exist, leave remaining slots as "").
 Exactly 10 RESPONSIBILITY PHRASES (from RESPONSIBILITIES, DUTIES, WHAT YOU'LL DO sections; if fewer than 10 exist, leave remaining slots as "").
-The JOB TITLE of the role.
-YEARS OF EXPERIENCE (minimum required, if explicitly stated; if a range is given, use the minimum).
+The JOB TITLE of the role. IMPORTANT: Look for explicit job titles in the document first. If no explicit title is found, intelligently infer based on the primary technologies and skills:
+  - SharePoint + .NET/C# skills → "SharePoint Developer" or "SharePoint/.NET Developer"
+  - React/Angular + Node.js/ASP.NET → "Full Stack Developer"
+  - Python + Data analysis → "Data Analyst" or "Python Developer"
+  - Azure + DevOps → "DevOps Engineer"
+  - If multiple senior technologies → Add "Senior" prefix
+  - NEVER return null - always provide a reasonable job title.
+YEARS OF EXPERIENCE (minimum required). Look for explicit mentions like "5+ years", "minimum 3 years". If not found, infer:
+  - Junior/Entry skills → 1-2 years
+  - Multiple frameworks + integration → 3-5 years  
+  - Architecture/DevOps/Leadership indicators → 5+ years
+  - NEVER return null - always provide a number.
 JOB CATEGORY: Classify the role as one of (Technical/Management/Sales/Finance/HR/Marketing/Operations/Specialized).
 SENIORITY LEVEL: Determine the seniority as one of (Entry/Junior/Mid/Senior/Lead/Manager/Director/VP/C-Level).
 ROLE FAMILY: Identify the role family such as (Engineering/Management/Sales/Finance/HR/Marketing/Operations/Healthcare/Education/etc).
@@ -587,6 +597,138 @@ class LLMService:
         else:
             logger.info(f"Error message: {response.error_message}")
         logger.info("-----------------------------------------------")
+
+    def extract_jd_for_ui_display(self, content: str, filename: str) -> Optional[Dict[str, Any]]:
+        """
+        Extract human-readable, candidate-facing information from JD content.
+        This is separate from the matching pipeline and focuses on clear, professional presentation.
+        """
+        try:
+            # New prompt specifically for UI display
+            ui_extraction_prompt = f"""
+You are a professional HR assistant. Extract information from this job description to create a clean, professional job posting for candidates.
+
+Extract the following information in a human-readable, professional format:
+
+1. **Job Title**: The exact position title (e.g., "Senior Software Engineer", "Marketing Manager")
+
+2. **Job Location**: Location information (e.g., "Remote", "New York, NY", "Dubai, UAE", "Hybrid - London")
+
+3. **Job Summary**: A clear, engaging 2-3 sentence summary that describes the role and company. This should attract candidates and give them a quick overview of what they'll be doing.
+
+4. **Key Responsibilities**: List the main duties and responsibilities as bullet points. Write them as complete, clear sentences that candidates can easily understand. Focus on what the person will actually be doing day-to-day.
+
+5. **Qualifications**: List the required skills, experience, and qualifications as bullet points. Write them as clear requirements that candidates can easily assess themselves against.
+
+Guidelines:
+- Use professional, engaging language that appeals to job seekers
+- Make everything easy to read and understand
+- Avoid internal jargon or overly technical language
+- Write complete sentences, not fragments
+- Be specific but concise
+- Focus on what matters most to candidates
+
+Job Description Content:
+{content}
+
+Return your response in this exact JSON format:
+{{
+    "job_title": "extracted job title",
+    "job_location": "location information",
+    "job_summary": "professional summary paragraph",
+    "key_responsibilities": "• Responsibility 1\\n• Responsibility 2\\n• Responsibility 3",
+    "qualifications": "• Qualification 1\\n• Qualification 2\\n• Qualification 3"
+}}
+"""
+
+            messages = [
+                {"role": "system", "content": "You are a professional HR assistant specializing in creating clear, candidate-friendly job postings."},
+                {"role": "user", "content": ui_extraction_prompt}
+            ]
+            
+            response = self._call_openai_api(
+                messages=messages,
+                max_tokens=2000
+            )
+            
+            if not response.success:
+                logger.error(f"❌ Failed to extract UI data: {response.error_message}")
+                return None
+            
+            ui_data = response.data
+            
+            # Validate required fields
+            required_fields = ["job_title", "job_location", "job_summary", "key_responsibilities", "qualifications"]
+            for field in required_fields:
+                if field not in ui_data:
+                    ui_data[field] = ""
+            
+            logger.info(f"✅ UI data extracted successfully for {filename}")
+            return ui_data
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to extract UI data: {e}")
+            return None
+
+    def _infer_job_title_from_skills(self, skills: list) -> str:
+        """Infer job title from skills when not explicitly provided"""
+        if not skills:
+            return "Software Developer"
+        
+        skills_text = " ".join(skills).lower()
+        
+        # SharePoint-focused roles
+        if "sharepoint" in skills_text and ("asp.net" in skills_text or ".net" in skills_text):
+            return "SharePoint/.NET Developer"
+        elif "sharepoint" in skills_text:
+            return "SharePoint Developer"
+        
+        # .NET focused roles
+        elif "asp.net" in skills_text or (".net" in skills_text and "core" in skills_text):
+            return ".NET Developer"
+        
+        # Full stack indicators
+        elif ("react" in skills_text or "angular" in skills_text) and ("node" in skills_text or "asp.net" in skills_text or ".net" in skills_text):
+            return "Full Stack Developer"
+        
+        # Frontend roles
+        elif "react" in skills_text or "angular" in skills_text or "vue" in skills_text:
+            return "Frontend Developer"
+        
+        # Backend roles
+        elif "api" in skills_text and ("c#" in skills_text or "python" in skills_text or "java" in skills_text):
+            return "Backend Developer"
+        
+        # Data roles
+        elif "python" in skills_text and ("data" in skills_text or "analytics" in skills_text):
+            return "Data Analyst"
+        
+        # DevOps roles
+        elif "azure" in skills_text and ("devops" in skills_text or "ci/cd" in skills_text):
+            return "DevOps Engineer"
+        
+        # Default fallback
+        return "Software Developer"
+    
+    def _infer_experience_from_skills(self, skills: list) -> int:
+        """Infer years of experience from skill complexity"""
+        if not skills:
+            return 3
+        
+        skills_text = " ".join(skills).lower()
+        
+        # Senior indicators (5+ years)
+        senior_indicators = ["architecture", "design patterns", "leadership", "mentoring", "azure devops", "microservices"]
+        if any(indicator in skills_text for indicator in senior_indicators):
+            return 5
+        
+        # Mid-level indicators (3-5 years)
+        mid_indicators = ["framework", "integration", "oauth", "authentication", "deployment", "sql server"]
+        if any(indicator in skills_text for indicator in mid_indicators):
+            return 3
+        
+        # Entry level default (1-2 years)
+        return 2
 
 
 # ============================

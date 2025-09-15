@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, AlertCircle, Check, ExternalLink, Copy, Wand2, Edit3, Briefcase, Save } from 'lucide-react';
+import { Upload, FileText, AlertCircle, Check, ExternalLink, Copy, Wand2, Edit3, Briefcase, Save, CheckCircle } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { Button } from '@/components/ui/button-enhanced';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -21,7 +21,7 @@ interface JobPostingFormProps {
 }
 
 export default function JobPostingForm({ onSuccess, jobId, publicToken, initialData }: JobPostingFormProps) {
-  const { createJobPosting, createJobPostingWithFormData, createManualJobPosting, isCreatingJob, error, clearError } = useCareersStore();
+  const { createJobPosting, createJobPostingWithFormData, isCreatingJob, error, clearError } = useCareersStore();
   const { toasts, showSuccess, showError, removeToast } = useToast();
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -40,10 +40,12 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
     qualifications: initialData?.qualifications || ''
   });
   
-  // Processing states
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [autoFillData, setAutoFillData] = useState<any>(null);
-  const [showForm, setShowForm] = useState(true); // Show form immediately
+  // Two-phase upload states
+  const [uploadPhase, setUploadPhase] = useState<'idle' | 'uploaded' | 'autofilled'>('idle');
+  const [jdId, setJdId] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isAutoFilling, setIsAutoFilling] = useState(false);
+  const [showForm, setShowForm] = useState(false); // Only show after auto-fill
   
   // Auto-scroll to form when component mounts
   useEffect(() => {
@@ -103,54 +105,70 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
     clearError();
   };
   
-  // Auto-fill function that processes JD through existing pipeline
-  const handleJDUpload = async () => {
+  // Phase 1: Upload JD for matching (existing pipeline)
+  const handleUploadJD = async () => {
     if (!selectedFile) return;
     
-    setIsProcessing(true);
+    setIsUploading(true);
     try {
-      // Upload JD through existing pipeline
+      // Use existing upload endpoint that processes for matching
       const response = await api.uploadJD(selectedFile);
       
-      if (response.status === 'success') {
-        const jdId = response.jd_id;
-        const standardizedData = response.standardized_data;
+      if (response.status === 'success' && response.jd_id) {
+        setJdId(response.jd_id);
+        setUploadPhase('uploaded');
         
-        // If we have the standardized data already, use it directly
-        if (standardizedData) {
-          const processedData = {
-            job_requirements: standardizedData,
-            structured_info: standardizedData
-          };
-          setAutoFillData(processedData);
-          
-          // Auto-fill form fields
-          handleAutoFill(processedData);
-          setShowForm(true);
-        } else if (jdId) {
-          // Fallback: Query the database to get processed data
-          try {
-            const detailsResponse = await api.getJDDetails(jdId);
-            const processedData = detailsResponse;
-            setAutoFillData(processedData);
-            
-            // Auto-fill form fields
-            handleAutoFill(processedData);
-            setShowForm(true);
-          } catch (detailError) {
-            console.warn('Failed to get JD details, but showing form anyway');
-            setShowForm(true);
-          }
-        } else {
-          setShowForm(true);
-        }
+        // Show success popup
+        showSuccess(
+          'JD Successfully Processed!', 
+          'Your job description has been sent to LLM and saved to database for candidate matching.'
+        );
+      } else {
+        showError('Upload Failed', 'Please try again or contact support.');
       }
     } catch (error) {
       console.error('Failed to process JD:', error);
-      // Keep form available for manual input
+      showError('Upload Failed', 'Please try again or contact support.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Phase 2: Auto-fill form for UI display (new pipeline)
+  const handleAutoFillForm = async () => {
+    if (!jdId) return;
+    
+    setIsAutoFilling(true);
+    try {
+      // Call new endpoint for UI-focused extraction
+      const uiData = await api.extractJDForUI(jdId);
+      
+      if (uiData.success) {
+        // Fill form with human-readable data
+        setFormData({
+          jobTitle: uiData.job_title || '',
+          jobLocation: uiData.job_location || '',
+          jobSummary: uiData.job_summary || '',
+          keyResponsibilities: uiData.key_responsibilities || '',
+          qualifications: uiData.qualifications || ''
+        });
+        
+        // Keep the JD ID for the final job posting step
+        setJdId(uiData.jd_id || jdId);
+        setUploadPhase('autofilled');
+        setShowForm(true);
+      } else {
+        showError('Auto-fill Failed', 'Please try again or fill the form manually.');
+        // Show form anyway for manual input
+        setShowForm(true);
+      }
+    } catch (error) {
+      console.error('Failed to auto-fill form:', error);
+      showError('Auto-fill Failed', 'Please try again or fill the form manually.');
+      // Show form anyway for manual input
       setShowForm(true);
     } finally {
-      setIsProcessing(false);
+      setIsAutoFilling(false);
     }
   };
   
@@ -235,7 +253,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
     }
     
     // Check if already processing
-    if (isCreatingJob || isProcessing) {
+    if (isCreatingJob || isUploading || isAutoFilling) {
       console.log('⚠️ Already creating job, preventing duplicate submission');
       return;
     }
@@ -245,14 +263,25 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
     try {
       let result;
       
-      if (selectedFile) {
-        // If there's a file, use the file upload method
+      console.log('Debug job posting: uploadPhase =', uploadPhase, 'jdId =', jdId, 'hasFormData =', Object.values(formData).some(v => v.trim()));
+      
+      if (uploadPhase === 'autofilled' && jdId) {
+        // If we have auto-filled data from the two-phase system, use the new endpoint
+        // This will create a job posting with the edited/auto-filled human-readable content
+        console.log('Using new two-phase system with auto-filled data');
+        result = await api.createJobPostingFromUIData(jdId, formData);
+      } else if (jdId && Object.values(formData).some(v => v.trim())) {
+        // If we have a JD ID and form data (even if not in autofilled phase), use the new system
+        console.log('Using new two-phase system with manual edits, jdId:', jdId);
+        result = await api.createJobPostingFromUIData(jdId, formData);
+      } else if (selectedFile) {
+        // If there's a file but no auto-fill yet, use the old method
         console.log('Using createJobPostingWithFormData for file upload');
         result = await createJobPostingWithFormData(selectedFile, formData);
       } else {
         // If no file but has form data, use manual job posting
-        console.log('Using createManualJobPosting for manual posting');
-        result = await createManualJobPosting(formData);
+        console.log('Using createJobPostingWithFormData for manual posting');
+        result = await createJobPostingWithFormData(null, formData);
       }
       
       if (result) {
@@ -408,16 +437,30 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
         </Alert>
       )}
       
-      {/* File Upload Area */}
+      {/* Two-Phase Upload Area */}
       <Card className="border-gray-200 shadow-sm">
         <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100">
           <CardTitle className="flex items-center space-x-3 text-gray-800">
             <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Upload className="w-5 h-5 text-blue-600" />
+              {uploadPhase === 'idle' ? (
+                <Upload className="w-5 h-5 text-blue-600" />
+              ) : uploadPhase === 'uploaded' ? (
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              ) : (
+                <Wand2 className="w-5 h-5 text-purple-600" />
+              )}
             </div>
             <div>
-              <span className="text-lg font-semibold">Job Description Upload</span>
-              <p className="text-sm text-gray-600 font-normal">Upload your job description for automatic processing</p>
+              <span className="text-lg font-semibold">
+                {uploadPhase === 'idle' ? 'Job Description Upload' :
+                 uploadPhase === 'uploaded' ? 'JD Processed Successfully' : 
+                 'Auto-fill Complete'}
+              </span>
+              <p className="text-sm text-gray-600 font-normal">
+                {uploadPhase === 'idle' ? 'Upload your job description for automatic processing' :
+                 uploadPhase === 'uploaded' ? 'Ready for form auto-fill' : 
+                 'Form data extracted and ready to edit'}
+              </p>
             </div>
           </CardTitle>
         </CardHeader>
@@ -454,12 +497,12 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
                 </div>
                 <div className="flex space-x-2 justify-center">
                   <Button
-                    onClick={handleJDUpload}
-                    disabled={isProcessing}
+                    onClick={handleUploadJD}
+                    disabled={isUploading}
                     className="bg-blue-600 hover:bg-blue-700"
                   >
-                    <Wand2 className="w-4 h-4 mr-2" />
-                    {isProcessing ? 'Processing...' : 'Upload JD & Auto-Fill'}
+                    <Upload className="w-4 h-4 mr-2" />
+                    {isUploading ? 'Processing...' : 'Upload JD'}
                   </Button>
                   <Button
                     variant="ghost"
@@ -526,6 +569,56 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
         </CardContent>
       </Card>
 
+      {/* Phase 2: Auto-fill Section */}
+      {uploadPhase === 'uploaded' && (
+        <Card className="border-green-200 shadow-sm">
+          <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-100">
+            <CardTitle className="flex items-center space-x-3 text-gray-800">
+              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              </div>
+              <div>
+                <span className="text-lg font-semibold text-green-900">JD Successfully Processed</span>
+                <p className="text-sm text-green-700 font-normal">Ready for form auto-fill</p>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="text-center space-y-6">
+              <div className="w-20 h-20 bg-gradient-to-br from-green-100 to-emerald-100 rounded-full mx-auto flex items-center justify-center shadow-lg">
+                <CheckCircle className="w-10 h-10 text-green-600" />
+              </div>
+              <div className="space-y-3">
+                <h3 className="text-xl font-bold text-green-900">
+                  JD Successfully Processed
+                </h3>
+                <p className="text-gray-600 text-lg">
+                  Your job description has been processed and is ready for form auto-fill
+                </p>
+              </div>
+              
+              <Button 
+                onClick={handleAutoFillForm}
+                disabled={isAutoFilling}
+                className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-200"
+              >
+                {isAutoFilling ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" />
+                    Auto-filling...
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="w-5 h-5 mr-2" />
+                    Auto-fill Form
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Enhanced Job Posting Form */}
       {(showForm || success || jobId) && (
         <Card className="border-gray-200 shadow-sm">
@@ -539,7 +632,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
                   {success || jobId ? 'Edit Job Details' : 'Job Details Form'}
                 </span>
                 <div className="flex items-center space-x-2 mt-1">
-                  {autoFillData && (
+                  {uploadPhase === 'autofilled' && (
                     <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
                       ✨ Auto-filled from JD
                     </span>
@@ -654,11 +747,11 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
           {!success && !jobId && (
             <Button
               onClick={handleSubmit}
-              disabled={(!selectedFile && !showForm) || (showForm && !formData.jobTitle.trim()) || isCreatingJob || isProcessing}
+              disabled={(!selectedFile && !showForm) || (showForm && !formData.jobTitle.trim()) || isCreatingJob || isUploading || isAutoFilling}
               className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Briefcase className="w-5 h-5 mr-2" />
-              {isCreatingJob ? 'Creating...' : isProcessing ? 'Processing...' : 'Post Job'}
+              {isCreatingJob ? 'Creating...' : isUploading ? 'Uploading...' : isAutoFilling ? 'Auto-filling...' : 'Post Job'}
             </Button>
           )}
         </div>
