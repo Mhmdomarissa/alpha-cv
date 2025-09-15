@@ -1,33 +1,109 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   User, 
   Mail, 
   Phone, 
   FileText, 
-  Star,
-  Download
+  Download,
+  Target,
+  X,
+  Loader2
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
+import { useAppStore } from '@/stores/appStore';
+import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card-enhanced';
 import { Button } from '@/components/ui/button-enhanced';
 import { Badge } from '@/components/ui/badge';
 import { LoadingCard } from '@/components/ui/loading';
 
 export default function ApplicationsList() {
-  const { applications, isLoading } = useCareersStore();
+  const { applications, isLoading, selectedJob, viewingCVData, setViewingCVData } = useCareersStore();
+  const { setCurrentTab, setCareersMatchData } = useAppStore();
+  const [downloadingCV, setDownloadingCV] = useState<string | null>(null);
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString();
   };
 
-  const getScoreColor = (score?: number) => {
-    if (!score) return 'neutral';
-    if (score >= 0.8) return 'green';
-    if (score >= 0.6) return 'yellow';
-    return 'red';
+  const handleDownloadCV = async (cvId: string) => {
+    setDownloadingCV(cvId);
+    try {
+      const { blob, filename } = await api.downloadCV(cvId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename; // Use the filename from server response
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download CV:', error);
+    } finally {
+      setDownloadingCV(null);
+    }
   };
+
+  const [loadingCVData, setLoadingCVData] = useState(false);
+
+  const handleViewDetails = async (cvId: string, filename: string) => {
+    setLoadingCVData(true);
+    try {
+      // Get CV data from the database (similar to how the eye button works in DB view)
+      const response = await api.getCVDetails(cvId);
+      
+      // Extract structured data from the nested structure
+      const cvData = (response as any).cv;
+      const structuredData = cvData?.structured_info;
+      const candidate = cvData?.candidate;
+      const textInfo = cvData?.text_info;
+      
+      // Create formatted content with structured data
+      const content = {
+        candidate: candidate,
+        structured: structuredData,
+        textInfo: textInfo,
+        uploadDate: cvData?.upload_date
+      };
+      
+      setViewingCVData({ cvId, filename, content: JSON.stringify(content, null, 2) });
+    } catch (error) {
+      console.error('Failed to load CV data:', error);
+      setViewingCVData({ cvId, filename, content: 'Failed to load CV content' });
+    } finally {
+      setLoadingCVData(false);
+    }
+  };
+
+
+  const handleMatchAllCandidates = () => {
+    if (!selectedJob) return;
+    
+    // Get current applications to extract CV IDs
+    const currentApplications = applications;
+    const cvIds = currentApplications.map(app => app.application_id);
+    
+    if (cvIds.length === 0) {
+      console.error('No applications found to match');
+      return;
+    }
+    
+    // Set the job and CV IDs in the app store for matching
+    setCareersMatchData({
+      jobId: selectedJob.job_id,
+      jobTitle: selectedJob.job_title || 'Position',
+      cvIds: cvIds
+    });
+    
+    // Navigate to matching page
+    setCurrentTab('match');
+  };
+
+  // No need to sort since we're not showing match scores
+  const sortedApplications = applications;
 
   if (isLoading) {
     return <LoadingCard count={3} />;
@@ -47,7 +123,18 @@ export default function ApplicationsList() {
 
   return (
     <div className="space-y-4">
-      {applications.map((application) => (
+      {/* Match All Candidates Button */}
+      <div className="flex justify-center mb-6">
+        <Button 
+          onClick={handleMatchAllCandidates}
+          className="bg-primary-600 hover:bg-primary-700 text-white px-6 py-2"
+        >
+          <Target className="w-4 h-4 mr-2" />
+          Match All Candidates ({applications.length} candidates)
+        </Button>
+      </div>
+      
+      {sortedApplications.map((application) => (
         <Card key={application.application_id} className="hover:shadow-md transition-shadow">
           <CardContent className="p-4">
             <div className="flex items-start justify-between">
@@ -64,19 +151,6 @@ export default function ApplicationsList() {
                       Applied {formatDate(application.application_date)}
                     </p>
                   </div>
-                  {application.match_score && (
-                    <Badge 
-                      variant="secondary"
-                      className={`ml-auto ${
-                        getScoreColor(application.match_score) === 'green' ? 'bg-green-100 text-green-800' :
-                        getScoreColor(application.match_score) === 'yellow' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }`}
-                    >
-                      <Star className="w-3 h-3 mr-1" />
-                      {Math.round(application.match_score * 100)}%
-                    </Badge>
-                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -100,11 +174,29 @@ export default function ApplicationsList() {
               </div>
               
               <div className="flex flex-col space-y-2 ml-4">
-                <Button variant="outline" size="sm">
-                  <Download className="w-4 h-4 mr-1" />
-                  Download CV
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => handleDownloadCV(application.application_id)}
+                  disabled={downloadingCV === application.application_id}
+                >
+                  {downloadingCV === application.application_id ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-1" />
+                      Downloading...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4 mr-1" />
+                      Download CV
+                    </>
+                  )}
                 </Button>
-                <Button size="sm" className="bg-primary-600 hover:bg-primary-700">
+                <Button 
+                  size="sm" 
+                  className="bg-primary-600 hover:bg-primary-700"
+                  onClick={() => handleViewDetails(application.application_id, application.cv_filename)}
+                >
                   View Details
                 </Button>
               </div>
@@ -112,6 +204,146 @@ export default function ApplicationsList() {
           </CardContent>
         </Card>
       ))}
+      
+      {/* CV Data Modal */}
+      {viewingCVData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">CV Details</h3>
+                <p className="text-sm text-gray-500">{viewingCVData.filename}</p>
+              </div>
+              <button
+                onClick={() => setViewingCVData(null)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div className="flex-1 overflow-auto p-6">
+              {loadingCVData ? (
+                <div className="flex items-center justify-center h-32">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                  <span className="ml-2 text-gray-600">Loading CV content...</span>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {(() => {
+                    try {
+                      const data = JSON.parse(viewingCVData.content);
+                      const candidate = data.candidate;
+                      const structured = data.structured;
+                      const textInfo = data.textInfo;
+                      const uploadDate = data.uploadDate;
+                      
+                      return (
+                        <>
+                          {/* Candidate Information */}
+                          <div className="bg-white border rounded-lg p-4">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Candidate Information</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-sm font-medium text-gray-500">Full Name</label>
+                                <p className="text-gray-900">{candidate?.full_name || 'N/A'}</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-500">Job Title</label>
+                                <p className="text-gray-900">{candidate?.job_title || 'N/A'}</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-500">Experience</label>
+                                <p className="text-gray-900">{candidate?.years_of_experience || 'N/A'} years</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-500">Upload Date</label>
+                                <p className="text-gray-900">{uploadDate ? new Date(uploadDate).toLocaleDateString() : 'N/A'}</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Contact Information */}
+                          <div className="bg-white border rounded-lg p-4">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-sm font-medium text-gray-500">Email</label>
+                                <p className="text-gray-900">{candidate?.contact_info?.email || 'N/A'}</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-500">Phone</label>
+                                <p className="text-gray-900">{candidate?.contact_info?.phone || 'N/A'}</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Skills */}
+                          <div className="bg-white border rounded-lg p-4">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                              Skills ({candidate?.skills_count || 0})
+                            </h3>
+                            <div className="space-y-2">
+                              {candidate?.skills?.map((skill: string, index: number) => (
+                                <div key={index} className="text-gray-800">{skill}</div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Responsibilities */}
+                          <div className="bg-white border rounded-lg p-4">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                              Responsibilities ({candidate?.responsibilities_count || 0})
+                            </h3>
+                            <div className="space-y-2">
+                              {candidate?.responsibilities?.map((responsibility: string, index: number) => (
+                                <div key={index} className="text-gray-800">• {responsibility}</div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Text Preview */}
+                          <div className="bg-white border rounded-lg p-4">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Text Preview</h3>
+                            <div className="bg-gray-50 rounded p-3">
+                              <p className="text-gray-800 text-sm whitespace-pre-wrap">
+                                {textInfo?.extracted_text_preview || 'No preview available'}
+                              </p>
+                            </div>
+                            <p className="text-sm text-gray-500 mt-2">
+                              Text length: {textInfo?.extracted_text_length || 0} characters
+                            </p>
+                          </div>
+                        </>
+                      );
+                    } catch (error) {
+                      return (
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono max-h-96 overflow-auto">
+                            {viewingCVData.content}
+                          </pre>
+                        </div>
+                      );
+                    }
+                  })()}
+                </div>
+              )}
+            </div>
+            
+            {/* Footer */}
+            <div className="flex justify-end gap-3 p-6 border-t">
+              <Button
+                variant="outline"
+                onClick={() => setViewingCVData(null)}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -67,22 +67,19 @@ async def lifespan(app: FastAPI):
         init_auth_db()
         logger.info("✅ Auth database ready")
 
+        logger.info("🔄 Starting enterprise job queue...")
+        from app.services.enhanced_job_queue import get_enterprise_job_queue
+        await get_enterprise_job_queue()  # This will start the workers
+        logger.info("✅ Enterprise job queue ready")
+
         logger.info("🎉 Startup complete")
+        yield
+        # Graceful shutdown
+        logger.info("🛑 Shutting down CV Analyzer API...")
+        logger.info("✅ Shutdown complete")
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}")
         raise
-
-    # Hand over control to FastAPI
-    yield
-
-    # Shutdown
-    try:
-        logger.info("🛑 Shutting down...")
-        get_cache_service().cleanup_expired()
-        logger.info("🧹 Cache cleaned")
-        logger.info("✅ Shutdown complete")
-    except Exception as e:
-        logger.error(f"❌ Shutdown error: {e}")
 
 
 app = FastAPI(
@@ -124,18 +121,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Rate limiting middleware (MUST be first)
+from app.middleware.rate_limiter import rate_limit_middleware
+app.middleware("http")(rate_limit_middleware)
+
+# Trust proxy headers middleware (for ALB)
+@app.middleware("http")
+async def trust_proxy_headers(request, call_next):
+    # Handle X-Forwarded-Proto for HTTPS detection behind ALB
+    forwarded_proto = request.headers.get("X-Forwarded-Proto")
+    if forwarded_proto == "https":
+        # Update the request URL scheme for proper HTTPS detection
+        request.scope["scheme"] = "https"
+    
+    response = await call_next(request)
+    return response
+
 # Security headers middleware
 @app.middleware("http")
 async def add_security_headers(request, call_next):
     response = await call_next(request)
     
-    # Only add security headers for production HTTPS
-    if not is_development and request.url.scheme == "https":
+    # Check if request is HTTPS (including via ALB forwarding)
+    is_https = (request.url.scheme == "https" or 
+                request.headers.get("X-Forwarded-Proto") == "https")
+    
+    # Add security headers for HTTPS requests
+    if not is_development and is_https:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     
     return response
 

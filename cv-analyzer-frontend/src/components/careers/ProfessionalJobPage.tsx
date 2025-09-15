@@ -7,7 +7,8 @@ import {
   CheckCircle,
   Users,
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  Building
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { Button } from '@/components/ui/button-enhanced';
@@ -86,11 +87,11 @@ export default function ProfessionalJobPage({ token }: ProfessionalJobPageProps)
           <div className="flex items-center justify-between">
             {/* AlphaData Logo */}
             <div className="flex items-center space-x-3">
-              <div className="w-16 h-12 flex items-center justify-center">
+              <div className="w-20 h-16 flex items-center justify-center">
                 <img 
                   src="https://www.alphadatarecruitment.ae/wp-content/uploads/2020/07/130-60.svg"
                   alt="AlphaData Recruitment"
-                  className="h-10 w-auto object-contain"
+                  className="h-14 w-auto object-contain"
                   onError={(e) => {
                     // Fallback to briefcase icon if image fails to load
                     e.currentTarget.style.display = 'none';
@@ -98,8 +99,8 @@ export default function ProfessionalJobPage({ token }: ProfessionalJobPageProps)
                     if (fallback) fallback.style.display = 'flex';
                   }}
                 />
-                <div className="alphadata-logo w-12 h-12 rounded-lg items-center justify-center hidden">
-                  <Briefcase className="w-6 h-6 text-white" />
+                <div className="alphadata-logo w-16 h-16 rounded-lg items-center justify-center hidden">
+                  <Briefcase className="w-8 h-8 text-white" />
                 </div>
               </div>
               <div>
@@ -130,8 +131,14 @@ export default function ProfessionalJobPage({ token }: ProfessionalJobPageProps)
               {publicJob.job_title || 'Open Position'}
             </h1>
             <div className="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-6 text-gray-600">
+              {publicJob.job_location && (
+                <div className="flex items-center space-x-2">
+                  <MapPin className="w-5 h-5" />
+                  <span>{publicJob.job_location}</span>
+                </div>
+              )}
               <div className="flex items-center space-x-2">
-                <MapPin className="w-5 h-5" />
+                <Building className="w-5 h-5" />
                 <span>{publicJob.company_name || 'AlphaData Recruitment'}</span>
               </div>
               <div className="flex items-center space-x-2">

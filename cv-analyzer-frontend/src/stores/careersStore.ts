@@ -20,6 +20,9 @@ interface CareersState {
   // Public job viewing
   publicJob: PublicJobView | null;
   
+  // CV Data Viewer
+  viewingCVData: { cvId: string; filename: string; content: string } | null;
+  
   // Loading states
   isLoading: boolean;
   isCreatingJob: boolean;
@@ -33,12 +36,16 @@ interface CareersState {
 interface CareersActions {
   // Job posting management
   createJobPosting: (file: File) => Promise<JobPostingResponse | null>;
+  createJobPostingWithFormData: (file: File | null, formData: any) => Promise<JobPostingResponse | null>;
+  createManualJobPosting: (formData: any) => Promise<JobPostingResponse | null>;
   loadJobPostings: () => Promise<void>;
   selectJob: (job: JobPostingListItem) => void;
   updateJobStatus: (jobId: string, isActive: boolean) => Promise<boolean>;
   
   // Application management
   loadJobApplications: (jobId: string) => Promise<void>;
+  matchJobCandidates: (jobId: string, minScore?: number) => Promise<any>;
+  convertToMatchResponse: (matchResults: any, jobData: any) => any;
   
   // Public actions (no auth required)
   loadPublicJob: (token: string) => Promise<void>;
@@ -49,6 +56,9 @@ interface CareersActions {
     phone: string | undefined, 
     cvFile: File
   ) => Promise<JobApplicationResponse | null>;
+  
+  // CV Data Viewer
+  setViewingCVData: (data: { cvId: string; filename: string; content: string } | null) => void;
   
   // Utilities
   clearError: () => void;
@@ -63,6 +73,7 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
   selectedJob: null,
   applications: [],
   publicJob: null,
+  viewingCVData: null,
   isLoading: false,
   isCreatingJob: false,
   isSubmittingApplication: false,
@@ -88,6 +99,67 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
       return result;
     } catch (error: any) {
       logger.error('Failed to create job posting:', error);
+      set({ 
+        isCreatingJob: false, 
+        error: error.message || 'Failed to create job posting' 
+      });
+      return null;
+    }
+  },
+
+  createJobPostingWithFormData: async (file: File | null, formData: any) => {
+    console.log('🚀 createJobPostingWithFormData called in store');
+    set({ isCreatingJob: true, error: null });
+    try {
+      logger.info('Creating job posting with form data', { 
+        hasFile: !!file,
+        jobTitle: formData.jobTitle 
+      });
+      console.log('📡 Making API call to createJobPostingWithFormData');
+      const result = await api.createJobPostingWithFormData(file, formData);
+      
+      logger.info('Job posting created successfully', { 
+        jobId: result.job_id,
+        publicLink: result.public_link 
+      });
+      
+      // Reload job postings to include the new one
+      get().loadJobPostings();
+      
+      set({ isCreatingJob: false });
+      return result;
+    } catch (error: any) {
+      logger.error('Failed to create job posting with form data:', error);
+      set({ 
+        isCreatingJob: false, 
+        error: error.message || 'Failed to create job posting' 
+      });
+      return null;
+    }
+  },
+
+  createManualJobPosting: async (formData: any) => {
+    console.log('🚀 createManualJobPosting called in store');
+    set({ isCreatingJob: true, error: null });
+    try {
+      logger.info('Creating manual job posting', { 
+        jobTitle: formData.jobTitle 
+      });
+      console.log('📡 Making API call to createManualJobPosting');
+      const result = await api.createManualJobPosting(formData);
+      
+      logger.info('Manual job posting created successfully', { 
+        jobId: result.job_id,
+        publicLink: result.public_link 
+      });
+      
+      // Reload job postings to include the new one
+      get().loadJobPostings();
+      
+      set({ isCreatingJob: false });
+      return result;
+    } catch (error: any) {
+      logger.error('Failed to create manual job posting:', error);
       set({ 
         isCreatingJob: false, 
         error: error.message || 'Failed to create job posting' 
@@ -169,6 +241,96 @@ loadJobPostings: async () => {
       });
     }
   },
+
+  matchJobCandidates: async (jobId: string, minScore?: number) => {
+    set({ isLoading: true, error: null });
+    try {
+      logger.info('Matching candidates for job', { jobId, minScore });
+      
+      // Get current applications to extract CV IDs
+      const currentApplications = get().applications;
+      const cvIds = currentApplications.map(app => app.application_id);
+      
+      if (cvIds.length === 0) {
+        throw new Error('No applications found to match');
+      }
+      
+      // Use the existing /match API instead of custom careers matching
+      const matchResults = await api.matchCandidates({
+        jd_id: jobId,
+        cv_ids: cvIds
+      });
+      
+      logger.info(`Matching completed for job ${jobId}`, { 
+        totalCandidates: matchResults.candidates.length,
+        matchResults: matchResults
+      });
+      
+      // Convert match results back to application format with scores
+      const applicationsWithScores = currentApplications.map(app => {
+        const candidate = matchResults.candidates.find(c => c.cv_id === app.application_id);
+        return {
+          ...app,
+          match_score: candidate ? candidate.overall_score : undefined,
+          skills_score: candidate ? candidate.skills_score : undefined,
+          responsibilities_score: candidate ? candidate.responsibilities_score : undefined,
+          job_title_score: candidate ? candidate.job_title_score : undefined,
+          years_score: candidate ? candidate.years_score : undefined,
+          skills_assignments: candidate ? candidate.skills_assignments : [],
+          responsibilities_assignments: candidate ? candidate.responsibilities_assignments : [],
+          skills_alternatives: candidate ? candidate.skills_alternatives : [],
+          responsibilities_alternatives: candidate ? candidate.responsibilities_alternatives : []
+        };
+      });
+      
+      // Update applications with match scores
+      set((state) => ({
+        applications: applicationsWithScores,
+        isLoading: false
+      }));
+      
+      return {
+        job_id: jobId,
+        job_title: matchResults.jd_job_title,
+        total_applications: applicationsWithScores.length,
+        matched_applications: applicationsWithScores,
+        top_candidates: applicationsWithScores.slice(0, 10)
+      };
+    } catch (error: any) {
+      logger.error('Failed to match candidates:', error);
+      set({ 
+        isLoading: false, 
+        error: error.message || 'Failed to match candidates' 
+      });
+      throw error;
+    }
+  },
+
+  convertToMatchResponse: (matchResults: any, jobData: any) => {
+    // The matchResults from /match API already has the correct format
+    // Just need to ensure it has the right structure for the matching page
+    logger.info('Converting match results to MatchResponse format', {
+      matchResults,
+      jobData,
+      candidatesCount: matchResults.candidates?.length || 0
+    });
+    
+    const result = {
+      jd_id: matchResults.jd_id || jobData.job_id,
+      jd_job_title: matchResults.jd_job_title || jobData.title,
+      jd_years: matchResults.jd_years || jobData.experience_required || 0,
+      normalized_weights: matchResults.normalized_weights || {
+        skills: 80,
+        responsibilities: 15,
+        job_title: 2.5,
+        experience: 2.5
+      },
+      candidates: matchResults.candidates || []
+    };
+    
+    logger.info('Converted MatchResponse', result);
+    return result;
+  },
   
   // stores/careersStore.ts
 
@@ -219,6 +381,10 @@ loadPublicJob: async (token: string) => {
     }
   },
   
+  setViewingCVData: (data: { cvId: string; filename: string; content: string } | null) => {
+    set({ viewingCVData: data });
+  },
+  
   clearError: () => {
     set({ error: null });
   },
@@ -230,6 +396,7 @@ loadPublicJob: async (token: string) => {
       selectedJob: null,
       applications: [],
       publicJob: null,
+      viewingCVData: null,
       isLoading: false,
       isCreatingJob: false,
       isSubmittingApplication: false,

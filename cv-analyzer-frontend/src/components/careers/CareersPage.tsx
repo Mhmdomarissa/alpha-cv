@@ -10,54 +10,106 @@ import {
   Briefcase,
   ExternalLink,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  Edit3,
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAuthStore } from '@/stores/authStore';
+import { JobPostingListItem } from '@/lib/types';
+import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-enhanced';
 import { Button } from '@/components/ui/button-enhanced';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingCard } from '@/components/ui/loading';
 import JobPostingForm from './JobPostingForm';
+import ManualJobPostingForm from './ManualJobPostingForm';
 import ApplicationsList from './ApplicationsList';
 
 export default function CareersPage() {
   const { user } = useAuthStore();
   const {
     jobPostings,
-    selectedJob,
-    applications,
     isLoading,
-    isUpdatingStatus,
     error,
     loadJobPostings,
-    selectJob,
     updateJobStatus,
-    clearError
+    selectJob,
+    selectedJob
   } = useCareersStore();
   
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editingJob, setEditingJob] = useState<JobPostingListItem | null>(null);
+  const [editingJobData, setEditingJobData] = useState<any>(null);
+  const [isLoadingEditData, setIsLoadingEditData] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     loadJobPostings();
   }, [loadJobPostings]);
 
-  const handleCopyLink = async (link: string, jobId: string) => {
+  const handleToggleStatus = async (jobId: string, currentStatus: boolean) => {
+    await updateJobStatus(jobId, !currentStatus);
+  };
+
+  const handleSelectJob = (job: JobPostingListItem) => {
+    selectJob(job);
+  };
+
+  const handleDeleteAllJobPostings = async () => {
+    setIsDeletingAll(true);
     try {
-      await navigator.clipboard.writeText(link);
-      setCopiedLink(jobId);
-      setTimeout(() => setCopiedLink(null), 2000);
+      const response = await api.deleteAllJobPostings();
+      if (response.success) {
+        // Reload job postings to reflect the changes
+        await loadJobPostings();
+        alert(`Successfully deleted all job postings!\n\nDetails:\n- Job postings deleted: ${response.details.job_postings_deleted}\n- JD documents deleted: ${response.details.jd_documents_deleted}\n- JD structured data deleted: ${response.details.jd_structured_deleted}\n- JD embeddings deleted: ${response.details.jd_embeddings_deleted}\n- CVs preserved: ${response.details.cvs_preserved}`);
+      } else {
+        alert('Failed to delete job postings. Please try again.');
+      }
     } catch (error) {
-      console.error('Failed to copy link:', error);
+      console.error('Failed to delete all job postings:', error);
+      alert('Failed to delete job postings. Please try again.');
+    } finally {
+      setIsDeletingAll(false);
+      setShowDeleteConfirm(false);
     }
   };
 
-  const handleStatusChange = async (jobId: string, isActive: boolean) => {
-    await updateJobStatus(jobId, isActive);
+  const handleEditJob = async (job: JobPostingListItem) => {
+    setEditingJob(job);
+    setIsLoadingEditData(true);
+    setEditingJobData(null);
+    
+    try {
+      const jobData = await api.getJobForEdit(job.job_id);
+      setEditingJobData(jobData);
+      setShowEditForm(true);
+    } catch (error) {
+      console.error('Failed to load job data for editing:', error);
+    } finally {
+      setIsLoadingEditData(false);
+    }
   };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await loadJobPostings();
+    } catch (error) {
+      console.error('Failed to refresh job postings:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString();
@@ -69,7 +121,28 @@ export default function CareersPage() {
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Please log in to access the careers management system.
+            You need to be logged in to access the careers page.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="p-6">
+        <LoadingCard />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Error loading job postings: {error}
           </AlertDescription>
         </Alert>
       </div>
@@ -81,236 +154,290 @@ export default function CareersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-neutral-900">Careers Management</h1>
-          <p className="text-neutral-600 mt-1">Create job postings and manage applications</p>
+          <h1 className="text-3xl font-bold text-gray-900">Job Postings</h1>
+          <p className="text-gray-600 mt-1">Manage your job postings and applications</p>
         </div>
-        
-        <Dialog open={showCreateForm} onOpenChange={setShowCreateForm}>
-          <DialogTrigger asChild>
-            <Button className="bg-primary-600 hover:bg-primary-700">
-              <Plus className="w-4 h-4 mr-2" />
-              Post New Job
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>Create Job Posting</DialogTitle>
-            </DialogHeader>
-            <JobPostingForm 
-              onSuccess={() => {
-                setShowCreateForm(false);
-                loadJobPostings();
-              }}
-            />
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Error Display */}
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={clearError}
-            className="ml-auto"
+        <div className="flex space-x-3">
+          <Button
+            onClick={handleRefresh}
+            className="bg-white hover:bg-gray-50 text-black border border-gray-300"
+            disabled={isRefreshing}
           >
-            <Check className="w-4 h-4" />
+            {isRefreshing ? (
+              <>
+                <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin mr-2" />
+                Refreshing...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh
+              </>
+            )}
           </Button>
-        </Alert>
-      )}
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
-                <Briefcase className="w-6 h-6 text-primary-600" />
-              </div>
-              <div>
-                <p className="text-sm text-neutral-600">Active Jobs</p>
-                <p className="text-2xl font-bold text-neutral-900">
-                  {jobPostings.filter(j => j.is_active).length}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
-                <ToggleLeft className="w-6 h-6 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm text-neutral-600">Inactive Jobs</p>
-                <p className="text-2xl font-bold text-neutral-900">
-                  {jobPostings.filter(j => !j.is_active).length}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                <FileText className="w-6 h-6 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-neutral-600">Total Jobs</p>
-                <p className="text-2xl font-bold text-neutral-900">
-                  {jobPostings.length}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          <Button
+            onClick={() => setShowCreateForm(true)}
+            className="bg-white hover:bg-gray-50 text-black border border-gray-300"
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            Post JD as File
+          </Button>
+          <Button
+            onClick={() => setShowManualForm(true)}
+            className="bg-white hover:bg-gray-50 text-black border border-gray-300"
+          >
+            <Edit3 className="w-4 h-4 mr-2" />
+            Post JD in Text Manually
+          </Button>
+          {jobPostings.length > 0 && (
+            <Button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="bg-red-600 hover:bg-red-700 text-white border border-red-600"
+              style={{ color: 'white' }}
+              disabled={isDeletingAll}
+            >
+              {isDeletingAll ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete All Jobs
+                </>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Job Postings List */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Jobs List */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Briefcase className="w-5 h-5" />
-              <span>Job Postings</span>
-              <Badge variant="outline" className="ml-auto">
-                {jobPostings.length} total
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <LoadingCard count={3} />
-            ) : jobPostings.length === 0 ? (
-              <div className="text-center py-8">
-                <Briefcase className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
-                <p className="text-neutral-600">No job postings yet</p>
-                <p className="text-sm text-neutral-500">Create your first job posting to get started</p>
+      <div className="grid gap-6">
+        {jobPostings.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <Briefcase className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No job postings yet</h3>
+              <p className="text-gray-600 mb-6">Create your first job posting to get started.</p>
+              <div className="flex justify-center space-x-3">
+                <Button
+                  onClick={() => setShowCreateForm(true)}
+                  className="bg-white hover:bg-gray-50 text-black border border-gray-300"
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Post JD as File
+                </Button>
+                <Button
+                  onClick={() => setShowManualForm(true)}
+                  className="bg-white hover:bg-gray-50 text-black border border-gray-300"
+                >
+                  <Edit3 className="w-4 h-4 mr-2" />
+                  Post JD in Text Manually
+                </Button>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {jobPostings.map((job) => (
-                  <div
-                    key={job.job_id}
-                    className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                      selectedJob?.job_id === job.job_id
-                        ? 'border-primary-300 bg-primary-50'
-                        : job.is_active
-                        ? 'border-neutral-200 hover:border-neutral-300'
-                        : 'border-gray-300 bg-gray-50 opacity-75 hover:opacity-100'
-                    }`}
-                    onClick={() => selectJob(job)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2">
-                          <h3 className={`font-semibold ${job.is_active ? 'text-neutral-900' : 'text-gray-600'}`}>
-                            {job.job_title || 'Untitled Position'}
-                          </h3>
-                          {!job.is_active && (
-                            <Badge variant="secondary" className="text-xs">
-                              Inactive
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-neutral-600 mt-1">
-                          {job.filename}
-                        </p>
-                        <div className="flex items-center space-x-3 mt-2">
-                          <Badge variant={job.is_active ? 'default' : 'secondary'}>
-                            {job.is_active ? 'Active' : 'Inactive'}
-                          </Badge>
-                          <span className="text-xs text-neutral-500">
-                            {formatDate(job.upload_date)}
-                          </span>
-                          <select
-                            value={job.is_active ? 'active' : 'inactive'}
-                            onChange={(e) => {
-                              const isActive = e.target.value === 'active';
-                              handleStatusChange(job.job_id, isActive);
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-xs border rounded px-2 py-1 bg-white"
-                            disabled={isUpdatingStatus}
-                          >
-                            <option value="active">Active</option>
-                            <option value="inactive">Inactive</option>
-                          </select>
-                        </div>
+            </CardContent>
+          </Card>
+        ) : (
+          jobPostings.map((job) => (
+            <div key={job.job_id} className="space-y-4">
+              <Card 
+                className={`hover:shadow-md transition-shadow cursor-pointer ${
+                  selectedJob?.job_id === job.job_id ? 'ring-2 ring-blue-500 bg-blue-50' : ''
+                }`}
+                onClick={() => handleSelectJob(job)}
+              >
+              <CardHeader>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <CardTitle className="text-xl">{job.job_title}</CardTitle>
+                      <Badge variant={job.is_active ? "default" : "secondary"}>
+                        {job.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center space-x-4 text-sm text-gray-600">
+                      <div className="flex items-center space-x-1">
+                        <Users className="w-4 h-4" />
+                        <span>{job.application_count} applications</span>
                       </div>
-                      
-                      <div className="flex items-center space-x-2 ml-4">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const publicLink = `${window.location.origin}/careers/jobs/${job.public_token}`;
-                            handleCopyLink(publicLink, job.job_id);
-                          }}
-                          title="Copy Job Posting Link"
-                        >
-                          {copiedLink === job.job_id ? (
-                            <Check className="w-4 h-4 text-green-600" />
-                          ) : (
-                            <Copy className="w-4 h-4" />
-                          )}
-                        </Button>
-                        
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const publicLink = `${window.location.origin}/careers/jobs/${job.public_token}`;
-                            window.open(publicLink, '_blank');
-                          }}
-                          title="View Job Posting"
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                        </Button>
+                      <div className="flex items-center space-x-1">
+                        <FileText className="w-4 h-4" />
+                        <span>Created {formatDate(job.upload_date)}</span>
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        
-        {/* Applications for Selected Job */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Users className="w-5 h-5" />
-              <span>Applications</span>
-              {selectedJob && (
-                <span className="text-sm font-normal text-neutral-600">
-                  for {selectedJob.job_title || 'Selected Job'}
-                </span>
+                  
+                  <div className="flex items-center space-x-2 ml-4">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditJob(job);
+                      }}
+                      title="Edit Job Posting"
+                      className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                      disabled={isLoadingEditData}
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </Button>
+                    
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleStatus(job.job_id, job.is_active);
+                      }}
+                      title={job.is_active ? "Deactivate Job" : "Activate Job"}
+                      className={job.is_active 
+                        ? "text-orange-600 hover:text-orange-700 hover:bg-orange-50" 
+                        : "text-green-600 hover:text-green-700 hover:bg-green-50"
+                      }
+                    >
+                      {job.is_active ? (
+                        <ToggleLeft className="w-4 h-4" />
+                      ) : (
+                        <ToggleRight className="w-4 h-4" />
+                      )}
+                    </Button>
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const jobUrl = `${window.location.origin}/careers/jobs/${job.public_token}`;
+                        navigator.clipboard.writeText(jobUrl);
+                        setCopiedLink(job.job_id);
+                        setTimeout(() => setCopiedLink(null), 2000);
+                      }}
+                      title="Copy Job Link"
+                      className="text-gray-600 hover:text-gray-700 hover:bg-gray-50"
+                    >
+                      {copiedLink === job.job_id ? (
+                        <Check className="w-4 h-4" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
+                    </Button>
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.open(`/careers/jobs/${job.public_token}`, '_blank');
+                      }}
+                      title="View Job Posting"
+                      className="text-gray-600 hover:text-gray-700 hover:bg-gray-50"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </Button>
+                    
+                  </div>
+                </div>
+              </CardHeader>
+              
+                {selectedJob?.job_id === job.job_id && (
+                  <CardContent>
+                    <ApplicationsList />
+                  </CardContent>
+                )}
+              </Card>
+              
+              {/* Edit Job Form - Show directly below the job being edited */}
+              {showEditForm && editingJob && editingJobData && editingJob.job_id === job.job_id && (
+                <div className="mt-4">
+                  <JobPostingForm
+                    jobId={editingJob.job_id}
+                    publicToken={editingJob.public_token === "unknown" ? undefined : editingJob.public_token}
+                    initialData={{
+                      jobTitle: editingJobData.job_title || '',
+                      jobLocation: editingJobData.job_location || '',
+                      jobSummary: editingJobData.job_summary || '',
+                      keyResponsibilities: editingJobData.key_responsibilities || '',
+                      qualifications: editingJobData.qualifications || ''
+                    }}
+                    onSuccess={() => {
+                      setShowEditForm(false);
+                      setEditingJob(null);
+                      setEditingJobData(null);
+                      loadJobPostings();
+                    }}
+                  />
+                </div>
               )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {selectedJob ? (
-              <ApplicationsList />
-            ) : (
-              <div className="text-center py-8">
-                <Users className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
-                <p className="text-neutral-600">Select a job to view applications</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          ))
+        )}
       </div>
+
+      {/* Create Job Form (File Upload) */}
+      {showCreateForm && (
+        <JobPostingForm
+          onSuccess={() => {
+            setShowCreateForm(false);
+            loadJobPostings();
+          }}
+        />
+      )}
+
+      {/* Manual Job Form (Text Input) */}
+      {showManualForm && (
+        <ManualJobPostingForm
+          onSuccess={() => {
+            setShowManualForm(false);
+            loadJobPostings();
+          }}
+        />
+      )}
+
+      {/* Delete All Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center mb-4">
+              <AlertCircle className="w-6 h-6 text-red-600 mr-3" />
+              <h3 className="text-lg font-semibold text-gray-900">Delete All Job Postings</h3>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete all job postings? This action cannot be undone.
+              <br /><br />
+              <strong>Note:</strong> All CVs (including job applications) will be preserved.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <Button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="bg-gray-300 hover:bg-gray-400 text-gray-700"
+                disabled={isDeletingAll}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleDeleteAllJobPostings}
+                className="bg-red-600 hover:bg-red-700 text-white"
+                style={{ color: 'white' }}
+                disabled={isDeletingAll}
+              >
+                {isDeletingAll ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete All
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

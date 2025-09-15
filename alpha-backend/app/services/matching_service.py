@@ -262,6 +262,12 @@ class MatchingService:
         """
         COMPLETELY NEW: Universal dynamic job title similarity
         """
+        # Handle None values explicitly
+        if jd_title is None:
+            jd_title = ""
+        if cv_title is None:
+            cv_title = ""
+            
         if not jd_title or not cv_title:
             return 0.0
         
@@ -305,7 +311,7 @@ class MatchingService:
         common_domains = set(cv_domains).intersection(set(jd_domains))
         
         # Exact title match super bonus
-        if cv_title.lower().strip() == jd_title.lower().strip():
+        if cv_title and jd_title and cv_title.lower().strip() == jd_title.lower().strip():
             modifier += 0.30  # +30% for exact match
         
         # Domain expertise bonuses
@@ -415,8 +421,8 @@ class MatchingService:
                 cv_std.get("responsibilities", [])
             )
             # ---- Enhanced title similarity using semantic mappings ----
-            cv_title = cv_std.get("job_title", "")
-            jd_title = jd_std.get("job_title", "")
+            cv_title = cv_std.get("job_title", "") or ""
+            jd_title = jd_std.get("job_title", "") or ""
             title_sim = self.get_enhanced_title_similarity(jd_title, cv_title)
             
             meets, exp_score_pct = self._experience_match(
@@ -458,13 +464,150 @@ class MatchingService:
             logger.error(f"❌ Matching failed: {e}")
             raise Exception(f"CV-JD matching failed: {e}")
 
-    def match_structured_data(self, cv_structured: dict, jd_structured: dict, weights: dict = None) -> MatchResult:
+    def match_by_ids(self, cv_id: str, jd_id: str, weights: dict = None) -> MatchResult:
         """
-        Match CV against JD using structured data directly.
-        Uses the same algorithm as match_cv_against_jd but works with in-memory data.
+        Match CV against JD using stored embeddings from Qdrant (OPTIMIZED).
+        This is the preferred method as it uses pre-computed embeddings.
         """
         try:
-            logger.info("---------- MATCHING START (structured data) ----------")
+            logger.info("---------- MATCHING START (using stored embeddings) ----------")
+            logger.info(f"CV ID: {cv_id} | JD ID: {jd_id}")
+            t0 = time.time()
+            
+            # Use provided weights or default
+            if weights is None:
+                weights = self.SCORING_WEIGHTS
+            else:
+                # Normalize weights if needed
+                total = sum(weights.values())
+                if total > 0:
+                    weights = {k: v/total for k, v in weights.items()}
+                else:
+                    weights = self.SCORING_WEIGHTS
+            
+            # Retrieve stored embeddings from Qdrant
+            cv_embeddings = self.qdrant.retrieve_embeddings(cv_id, "cv")
+            jd_embeddings = self.qdrant.retrieve_embeddings(jd_id, "jd")
+            
+            # Fallback: if embeddings not found, get structured data and generate them
+            if not cv_embeddings:
+                logger.warning(f"⚠️ CV embeddings not found for {cv_id}, falling back to generation")
+                cv_structured = self.qdrant.get_structured_cv(cv_id)
+                if not cv_structured:
+                    raise ValueError(f"CV {cv_id} not found in database")
+                cv_embeddings = self._generate_embeddings_from_structured(cv_structured, "cv")
+            
+            if not jd_embeddings:
+                logger.warning(f"⚠️ JD embeddings not found for {jd_id}, falling back to generation")
+                jd_structured = self.qdrant.get_structured_jd(jd_id)
+                if not jd_structured:
+                    raise ValueError(f"JD {jd_id} not found in database")
+                jd_embeddings = self._generate_embeddings_from_structured(jd_structured, "jd")
+            
+            # Get structured data for text content (needed for similarity calculations)
+            cv_structured = self.qdrant.get_structured_cv(cv_id)
+            jd_structured = self.qdrant.get_structured_jd(jd_id)
+            
+            if not cv_structured or not jd_structured:
+                raise ValueError("Structured data not found for CV or JD")
+            
+            # Parse years properly to handle string values like "3-7"
+            jd_years = safe_parse_years(jd_structured.get("years_of_experience", 0))
+            cv_years = safe_parse_years(cv_structured.get("years_of_experience", 0))
+            
+            # Convert stored embeddings to the format expected by similarity functions
+            cv_emb = self._convert_stored_embeddings_to_format(cv_embeddings, cv_structured)
+            jd_emb = self._convert_stored_embeddings_to_format(jd_embeddings, jd_structured)
+            
+            # Calculate similarities
+            skills_analysis = self._skills_similarity(
+                jd_emb["skills"], cv_emb["skills"],
+                jd_structured.get("skills_sentences", []),
+                cv_structured.get("skills_sentences", [])
+            )
+            responsibilities_analysis = self._responsibilities_similarity(
+                jd_emb["responsibilities"], cv_emb["responsibilities"],
+                jd_structured.get("responsibility_sentences", []),
+                cv_structured.get("responsibility_sentences", [])
+            )
+            
+            # ---- Enhanced title similarity using semantic mappings ----
+            cv_title = cv_structured.get("job_title", "") or ""
+            jd_title = jd_structured.get("job_title", "") or ""
+            title_sim = self.get_enhanced_title_similarity(jd_title, cv_title)
+            
+            # Calculate experience match (use same method as legacy)
+            meets, exp_score_pct = self._experience_match(
+                str(jd_years),  # Convert to string for the experience_match method
+                str(cv_years)   # Convert to string for the experience_match method
+            )
+            
+            # ---- Calculate base scores (same as legacy method) ----
+            skills_pct = skills_analysis["skill_match_percentage"]
+            resp_pct = responsibilities_analysis["responsibility_match_percentage"]
+            title_pct = title_sim * 100.0
+            
+            # ---- Apply enhanced weighted scoring (same as legacy method) ----
+            base_score = (
+                skills_pct * weights.get("skills", self.SCORING_WEIGHTS["skills"]) +
+                resp_pct * weights.get("responsibilities", self.SCORING_WEIGHTS["responsibilities"]) +
+                title_pct * weights.get("job_title", self.SCORING_WEIGHTS["job_title"]) +
+                exp_score_pct * weights.get("experience", self.SCORING_WEIGHTS["experience"])
+            )
+            
+            # ---- Apply business rules and bonuses (same as legacy method) ----
+            business_rule_modifier = self.apply_business_rules(cv_title, jd_title, title_sim)
+            overall_score = base_score + (business_rule_modifier * 100.0)  # Convert to percentage
+            
+            # Ensure score stays within bounds
+            overall_score = max(0.0, min(100.0, overall_score))
+            
+            # Build explanation
+            explanation = self._build_explanation(
+                skills_analysis["skill_match_percentage"], skills_analysis,
+                responsibilities_analysis["responsibility_match_percentage"], responsibilities_analysis,
+                title_sim, meets  # Use the meets boolean from _experience_match
+            )
+            
+            # Build match details
+            match_details = {
+                "skills_analysis": skills_analysis,
+                "responsibilities_analysis": responsibilities_analysis,
+                "title_similarity": title_sim,
+                "experience_score": exp_score_pct,
+                "weights_used": weights,
+                "cv_years": cv_years,
+                "jd_years": jd_years
+            }
+            
+            processing_time = time.time() - t0
+            logger.info(f"✅ MATCHING COMPLETED in {processing_time:.3f}s - Overall Score: {overall_score:.3f}")
+            
+            return MatchResult(
+                cv_id=cv_id,
+                jd_id=jd_id,
+                overall_score=overall_score,
+                skills_score=skills_pct,
+                responsibilities_score=resp_pct,
+                title_score=title_pct,
+                experience_score=exp_score_pct,
+                explanation=explanation,
+                match_details=match_details,
+                processing_time=processing_time
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Matching failed: {str(e)}")
+            raise Exception(f"Matching failed: {str(e)}")
+
+    def match_structured_data(self, cv_structured: dict, jd_structured: dict, weights: dict = None) -> MatchResult:
+        """
+        Match CV against JD using structured data directly (LEGACY METHOD).
+        This method generates embeddings on-the-fly and should be used only when
+        structured data is available but embeddings are not stored.
+        """
+        try:
+            logger.info("---------- MATCHING START (structured data - legacy) ----------")
             logger.info(f"CV: {cv_structured.get('name', 'unknown')} | JD: {jd_structured.get('job_title', 'unknown')}")
             t0 = time.time()
             
@@ -487,7 +630,7 @@ class MatchingService:
             jd_structured["years_of_experience"] = jd_years
             cv_structured["years_of_experience"] = cv_years
             
-            # Generate embeddings for CV and JD
+            # Generate embeddings for CV and JD (LEGACY - should use stored embeddings when possible)
             cv_emb = self._generate_embeddings_from_structured(cv_structured, "cv")
             jd_emb = self._generate_embeddings_from_structured(jd_structured, "jd")
             
@@ -504,8 +647,8 @@ class MatchingService:
             )
             
             # ---- Enhanced title similarity using semantic mappings ----
-            cv_title = cv_structured.get("job_title", "")
-            jd_title = jd_structured.get("job_title", "")
+            cv_title = cv_structured.get("job_title", "") or ""
+            jd_title = jd_structured.get("job_title", "") or ""
             title_sim = self.get_enhanced_title_similarity(jd_title, cv_title)
             
             # Calculate experience match
@@ -689,9 +832,55 @@ class MatchingService:
         exp_vec = np.array(doc_emb["experience_vector"][0]) if doc_emb.get("experience_vector") else None
         return {"skills": skills_map, "responsibilities": resp_map, "title": title_vec, "experience": exp_vec}
 
+    def _convert_stored_embeddings_to_format(self, stored_embeddings: dict, structured_data: dict) -> dict:
+        """
+        Convert stored embeddings from Qdrant format to the format expected by similarity functions.
+        """
+        # Build skills map from stored vectors and structured data
+        skills_map = {}
+        # Use the correct field names from get_structured_cv/get_structured_jd
+        skills = structured_data.get("skills_sentences", [])[:20]  # Ensure exactly 20
+        skill_vectors = stored_embeddings.get("skill_vectors", [])
+        
+        for i, skill in enumerate(skills):
+            if i < len(skill_vectors) and skill_vectors[i] is not None:
+                skills_map[skill] = np.array(skill_vectors[i])
+            else:
+                # Fallback for missing vectors
+                skills_map[skill] = np.zeros(768)  # Default embedding dimension for all-mpnet-base-v2
+        
+        # Build responsibilities map from stored vectors and structured data
+        resp_map = {}
+        # Use the correct field names from get_structured_cv/get_structured_jd
+        responsibilities = structured_data.get("responsibility_sentences", [])[:10]  # Ensure exactly 10
+        resp_vectors = stored_embeddings.get("responsibility_vectors", [])
+        
+        for i, resp in enumerate(responsibilities):
+            if i < len(resp_vectors) and resp_vectors[i] is not None:
+                resp_map[resp] = np.array(resp_vectors[i])
+            else:
+                # Fallback for missing vectors
+                resp_map[resp] = np.zeros(768)  # Default embedding dimension for all-mpnet-base-v2
+        
+        # Get title and experience vectors
+        title_vec = None
+        if stored_embeddings.get("job_title_vector") and len(stored_embeddings["job_title_vector"]) > 0:
+            title_vec = np.array(stored_embeddings["job_title_vector"][0])
+        
+        exp_vec = None
+        if stored_embeddings.get("experience_vector") and len(stored_embeddings["experience_vector"]) > 0:
+            exp_vec = np.array(stored_embeddings["experience_vector"][0])
+        
+        return {
+            "skills": skills_map,
+            "responsibilities": resp_map,
+            "title": title_vec,
+            "experience": exp_vec
+        }
+
     def _generate_embeddings_from_structured(self, structured_data: dict, doc_type: str) -> dict:
         """
-        Generate embeddings from structured data without storing to database.
+        Generate embeddings from structured data without storing to database (LEGACY METHOD).
         """
         # Generate document embeddings using the embedding service
         doc_emb = self.embedding_service.generate_document_embeddings(structured_data)
@@ -917,8 +1106,8 @@ class MatchingService:
                 "unmatched": resp_analysis["unmatched_jd_responsibilities"],
             },
             "title_analysis": {
-                "jd_title": jd_std.get("job_title", ""),
-                "cv_title": cv_std.get("job_title", ""),
+                "jd_title": jd_std.get("job_title", "") or "",
+                "cv_title": cv_std.get("job_title", "") or "",
                 "similarity": title_sim,
                 "match_quality": self.embedding_service.get_match_quality(title_sim, "skills"),
             },

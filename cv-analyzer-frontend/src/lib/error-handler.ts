@@ -49,6 +49,10 @@ export class ApiErrorHandler {
         message = 'Validation error';
         detail = data?.detail || 'Please check your input format.';
         break;
+      case 429:
+        message = 'Too many requests';
+        detail = data?.detail || 'You are submitting applications too quickly. Please wait a moment and try again.';
+        break;
       case 500:
         message = 'Server error';
         detail = 'Something went wrong on our end. Please try again later.';

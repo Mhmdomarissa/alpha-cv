@@ -6,6 +6,7 @@ from app.models.user import User
 from app.schemas.auth import UserCreate, UserRead, UserUpdate
 from app.utils.security import hash_password
 from app.deps.auth import require_admin
+from app.middleware.rate_limiter import get_rate_limiter
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -54,3 +55,58 @@ def delete_user(user_id: str, _: User = Depends(require_admin), session: Session
     session.delete(user)
     session.commit()
     return {}
+
+@router.get("/rate-limiter/stats")
+def get_rate_limiter_stats(_: User = Depends(require_admin)):
+    """Get rate limiter statistics and health metrics"""
+    limiter = get_rate_limiter()
+    stats = limiter.get_stats()
+    
+    # Add rate limit configurations for transparency
+    rate_configs = {}
+    for endpoint, config in limiter.rate_limits.items():
+        rate_configs[endpoint] = {
+            "requests_per_hour": config.requests_per_hour,
+            "concurrent_limit": config.concurrent_limit,
+            "burst_allowance": config.burst_allowance,
+            "priority": config.priority
+        }
+    
+    return {
+        "statistics": stats,
+        "configuration": rate_configs,
+        "environment": {
+            "is_production": limiter.is_production,
+            "debug_mode": limiter.debug_mode,
+            "max_global_concurrent": limiter.max_global_concurrent
+        },
+        "circuit_breaker": {
+            "is_open": limiter._is_circuit_breaker_open(),
+            "trips": limiter.circuit_breaker_trips,
+            "last_trip": limiter.last_circuit_trip,
+            "recovery_time": limiter.circuit_recovery_time
+        }
+    }
+
+@router.post("/rate-limiter/reset")
+def reset_rate_limiter(_: User = Depends(require_admin)):
+    """Reset rate limiter state (emergency use only)"""
+    limiter = get_rate_limiter()
+    
+    # Clear all tracking data
+    limiter.ip_requests.clear()
+    limiter.ip_concurrent.clear()
+    limiter.ip_reputation.clear()
+    
+    # Reset counters
+    limiter.global_concurrent = 0
+    limiter.request_count = 0
+    limiter.rejection_count = 0
+    limiter.circuit_breaker_trips = 0
+    limiter.last_circuit_trip = 0
+    
+    return {
+        "success": True,
+        "message": "Rate limiter state has been reset",
+        "timestamp": limiter.last_cleanup
+    }
