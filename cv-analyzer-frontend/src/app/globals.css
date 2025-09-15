@@ -274,6 +274,11 @@ body {
   50% { opacity: 0.7; }
 }
 
+@keyframes shrink {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+
 .animate-fade-in { animation: fade-in 0.4s ease-out; }
 .animate-slide-in { animation: slide-in 0.3s ease-out; }
 .animate-pulse-slow { animation: pulse-slow 2s infinite; }

@@ -8,9 +8,11 @@ Uses:
 import logging
 import time
 from typing import List, Dict, Any, Optional, Tuple
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from app.deps.auth import require_admin
+from app.models.user import User
 from app.services.matching_service import (
     get_matching_service,
     years_score,
@@ -365,11 +367,22 @@ async def match_candidates(req: NewMatchRequest):
             }
             
             # Use MatchingService to get match result
-            match_result = matching_service.match_structured_data(
-                cv_structured=cv_structured,
-                jd_structured=jd_structured,
-                weights=Wn  # Pass normalized weights
-            )
+            # For stored JDs, use optimized method with stored embeddings
+            # For text JDs, fall back to legacy method
+            if jd_structured.get("id") != "text_jd":
+                # OPTIMIZED: Use stored embeddings for both CV and JD
+                match_result = matching_service.match_by_ids(
+                    cv_id=cv_id,
+                    jd_id=jd_structured.get("id"),
+                    weights=Wn
+                )
+            else:
+                # LEGACY: Generate embeddings for text JD, use stored for CV if available
+                match_result = matching_service.match_structured_data(
+                    cv_structured=cv_structured,
+                    jd_structured=jd_structured,
+                    weights=Wn
+                )
             
             # Convert MatchResult to CandidateBreakdown
             # Extract assignments from match_details
@@ -435,6 +448,64 @@ async def match_candidates(req: NewMatchRequest):
     except Exception as e:
         logger.error(f"❌ Matching failed: {e}")
         raise HTTPException(status_code=500, detail=f"Matching error: {str(e)}")
+async def match_text(request: TextMatchRequest) -> JSONResponse:
+    """
+    Match CV text against JD text using LLM standardization and embedding generation.
+    This is a legacy endpoint for text-to-text matching.
+    """
+    try:
+        logger.info("---------- TEXT MATCHING START ----------")
+        
+        # Get services
+        llm = get_llm_service()
+        matching_service = get_matching_service()
+        
+        # Standardize both CV and JD
+        cv_std = llm.standardize_cv(request.cv_text, request.cv_filename)
+        jd_std = llm.standardize_jd(request.jd_text, request.jd_filename)
+        
+        # Create structured data
+        cv_structured = {
+            "id": "text_cv",
+            "name": "Text CV",
+            "job_title": cv_std.get("job_title", ""),
+            "years_of_experience": cv_std.get("experience_years", 0),
+            "skills": cv_std.get("skills", [])[:20],
+            "responsibilities": cv_std.get("responsibilities", [])[:10]
+        }
+        
+        jd_structured = {
+            "id": "text_jd",
+            "job_title": jd_std.get("job_title", ""),
+            "years_of_experience": jd_std.get("experience_years", 0),
+            "skills": jd_std.get("skills", [])[:20],
+            "responsibilities": jd_std.get("responsibilities", [])[:10]
+        }
+        
+        # Use legacy matching method for text-to-text
+        match_result = matching_service.match_structured_data(
+            cv_structured=cv_structured,
+            jd_structured=jd_structured,
+            weights=MatchWeights().dict()
+        )
+        
+        return JSONResponse({
+            "status": "success",
+            "match_result": {
+                "overall_score": match_result.overall_score,
+                "skills_score": match_result.skills_score,
+                "responsibilities_score": match_result.responsibilities_score,
+                "title_score": match_result.title_score,
+                "experience_score": match_result.experience_score,
+                "explanation": match_result.explanation,
+                "processing_time": match_result.processing_time
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Text matching failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Text matching failed: {str(e)}")
+
 # Alias kept for FE compatibility
 @router.post("/standardize-and-match-text")
 async def standardize_and_match_text(request: TextMatchRequest) -> JSONResponse:
@@ -443,147 +514,147 @@ async def standardize_and_match_text(request: TextMatchRequest) -> JSONResponse:
 # ----------------------------
 # New deterministic matcher (schemas)
 # ----------------------------
-@router.post("/match", response_model=MatchResponse)
-async def match_candidates(req: NewMatchRequest):
-    """
-    Deterministic, explainable matching using Hungarian assignment on
-    sentence-level embeddings. Delegates to MatchingService helpers.
-    """
-    try:
-        logger.info(f"🎯 Starting matching request: JD={req.jd_id or 'text'}, CVs={len(req.cv_ids) if req.cv_ids else 'all'}")
-        qdrant = get_qdrant_utils()
-        matching_service = get_matching_service()  # Get the matching service instance
+# @router.post("/match", response_model=MatchResponse)
+# async def match_candidates(req: NewMatchRequest):
+#     """
+#     Deterministic, explainable matching using Hungarian assignment on
+#     sentence-level embeddings. Delegates to MatchingService helpers.
+#     """
+#     try:
+#         logger.info(f"🎯 Starting matching request: JD={req.jd_id or 'text'}, CVs={len(req.cv_ids) if req.cv_ids else 'all'}")
+#         qdrant = get_qdrant_utils()
+#         matching_service = get_matching_service()  # Get the matching service instance
         
-        # Resolve JD (id or text)
-        if not (req.jd_id or req.jd_text):
-            raise HTTPException(status_code=400, detail="Provide jd_id or jd_text")
+#         # Resolve JD (id or text)
+#         if not (req.jd_id or req.jd_text):
+#             raise HTTPException(status_code=400, detail="Provide jd_id or jd_text")
         
-        if req.jd_id:
-            jd = qdrant.get_structured_jd(req.jd_id)
-            if not jd:
-                raise HTTPException(status_code=404, detail="JD not found")
-        else:
-            # Use LLM to standardize JD text to the same schema as DB
-            llm = get_llm_service()
-            jd_std = llm.standardize_jd(req.jd_text, "jd_input.txt")
-            jd = {
-                "id": "text_jd",
-                "job_title": jd_std.get("job_title", ""),
-                "years_of_experience": jd_std.get("experience_years", 0),
-                "skills_sentences": jd_std.get("skills", [])[:20],
-                "responsibility_sentences": (jd_std.get("responsibilities", []) or jd_std.get("responsibility_sentences", []))[:10],
-            }
+#         if req.jd_id:
+#             jd = qdrant.get_structured_jd(req.jd_id)
+#             if not jd:
+#                 raise HTTPException(status_code=404, detail="JD not found")
+#         else:
+#             # Use LLM to standardize JD text to the same schema as DB
+#             llm = get_llm_service()
+#             jd_std = llm.standardize_jd(req.jd_text, "jd_input.txt")
+#             jd = {
+#                 "id": "text_jd",
+#                 "job_title": jd_std.get("job_title", ""),
+#                 "years_of_experience": jd_std.get("experience_years", 0),
+#                 "skills_sentences": jd_std.get("skills", [])[:20],
+#                 "responsibility_sentences": (jd_std.get("responsibilities", []) or jd_std.get("responsibility_sentences", []))[:10],
+#             }
         
-        # Candidate set
-        candidates_meta = []
-        if req.cv_ids:
-            for cid in req.cv_ids:
-                c = qdrant.get_structured_cv(cid)
-                if c:
-                    candidates_meta.append(c)
-        else:
-            for meta in qdrant.list_all_cvs():
-                c = qdrant.get_structured_cv(meta["id"])
-                if c:
-                    candidates_meta.append(c)
+#         # Candidate set
+#         candidates_meta = []
+#         if req.cv_ids:
+#             for cid in req.cv_ids:
+#                 c = qdrant.get_structured_cv(cid)
+#                 if c:
+#                     candidates_meta.append(c)
+#         else:
+#             for meta in qdrant.list_all_cvs():
+#                 c = qdrant.get_structured_cv(meta["id"])
+#                 if c:
+#                     candidates_meta.append(c)
         
-        if not candidates_meta:
-            raise HTTPException(status_code=404, detail="No CVs available for matching")
+#         if not candidates_meta:
+#             raise HTTPException(status_code=404, detail="No CVs available for matching")
         
-        # Weights
-        W = req.weights.dict() if req.weights else MatchWeights().dict()
-        Wn = normalize_weights(W)
+#         # Weights
+#         W = req.weights.dict() if req.weights else MatchWeights().dict()
+#         Wn = normalize_weights(W)
         
-        # Prepare JD structured data for MatchingService
-        jd_structured = {
-            "id": jd.get("id", "text_jd"),
-            "job_title": jd.get("job_title", ""),
-            "years_of_experience": jd.get("years_of_experience", 0),
-            "skills": jd.get("skills_sentences", []),
-            "responsibilities": jd.get("responsibility_sentences", [])
-        }
+#         # Prepare JD structured data for MatchingService
+#         jd_structured = {
+#             "id": jd.get("id", "text_jd"),
+#             "job_title": jd.get("job_title", ""),
+#             "years_of_experience": jd.get("years_of_experience", 0),
+#             "skills": jd.get("skills_sentences", []),
+#             "responsibilities": jd.get("responsibility_sentences", [])
+#         }
         
-        # Process each candidate using MatchingService
-        resp_candidates = []
-        for c in candidates_meta:
-            cv_id = c["id"]
-            cv_name = c.get("name") or cv_id
+#         # Process each candidate using MatchingService
+#         resp_candidates = []
+#         for c in candidates_meta:
+#             cv_id = c["id"]
+#             cv_name = c.get("name") or cv_id
             
-            # Prepare CV structured data for MatchingService
-            cv_structured = {
-                "id": cv_id,
-                "name": cv_name,
-                "job_title": c.get("job_title", ""),
-                "years_of_experience": c.get("years_of_experience", 0),
-                "skills": c.get("skills_sentences", []),
-                "responsibilities": c.get("responsibility_sentences", [])
-            }
+#             # Prepare CV structured data for MatchingService
+#             cv_structured = {
+#                 "id": cv_id,
+#                 "name": cv_name,
+#                 "job_title": c.get("job_title", ""),
+#                 "years_of_experience": c.get("years_of_experience", 0),
+#                 "skills": c.get("skills_sentences", []),
+#                 "responsibilities": c.get("responsibility_sentences", [])
+#             }
             
-            # Use MatchingService to get match result
-            match_result = matching_service.match_structured_data(
-                cv_structured=cv_structured,
-                jd_structured=jd_structured,
-                weights=Wn  # Pass normalized weights
-            )
+#             # Use MatchingService to get match result
+#             match_result = matching_service.match_structured_data(
+#                 cv_structured=cv_structured,
+#                 jd_structured=jd_structured,
+#                 weights=Wn  # Pass normalized weights
+#             )
             
-            # Convert MatchResult to CandidateBreakdown
-            # Extract assignments from match_details
-            skills_assignments = []
-            if "skills_analysis" in match_result.match_details and "matches" in match_result.match_details["skills_analysis"]:
-                for match in match_result.match_details["skills_analysis"]["matches"]:
-                    skills_assignments.append(AssignmentItem(
-                        type="skill",
-                        jd_index=match.get("jd_index", 0),
-                        jd_item=match.get("jd_skill", ""),
-                        cv_index=match.get("cv_index", 0),
-                        cv_item=match.get("cv_skill", ""),
-                        score=match.get("similarity", 0.0),
-                    ))
+#             # Convert MatchResult to CandidateBreakdown
+#             # Extract assignments from match_details
+#             skills_assignments = []
+#             if "skills_analysis" in match_result.match_details and "matches" in match_result.match_details["skills_analysis"]:
+#                 for match in match_result.match_details["skills_analysis"]["matches"]:
+#                     skills_assignments.append(AssignmentItem(
+#                         type="skill",
+#                         jd_index=match.get("jd_index", 0),
+#                         jd_item=match.get("jd_skill", ""),
+#                         cv_index=match.get("cv_index", 0),
+#                         cv_item=match.get("cv_skill", ""),
+#                         score=match.get("similarity", 0.0),
+#                     ))
             
-            responsibilities_assignments = []
-            if "responsibilities_analysis" in match_result.match_details and "matches" in match_result.match_details["responsibilities_analysis"]:
-                for match in match_result.match_details["responsibilities_analysis"]["matches"]:
-                    responsibilities_assignments.append(AssignmentItem(
-                        type="responsibility",
-                        jd_index=match.get("jd_index", 0),
-                        jd_item=match.get("jd_responsibility", ""),
-                        cv_index=match.get("cv_index", 0),
-                        cv_item=match.get("cv_responsibility", ""),
-                        score=match.get("similarity", 0.0),
-                    ))
+#             responsibilities_assignments = []
+#             if "responsibilities_analysis" in match_result.match_details and "matches" in match_result.match_details["responsibilities_analysis"]:
+#                 for match in match_result.match_details["responsibilities_analysis"]["matches"]:
+#                     responsibilities_assignments.append(AssignmentItem(
+#                         type="responsibility",
+#                         jd_index=match.get("jd_index", 0),
+#                         jd_item=match.get("jd_responsibility", ""),
+#                         cv_index=match.get("cv_index", 0),
+#                         cv_item=match.get("cv_responsibility", ""),
+#                         score=match.get("similarity", 0.0),
+#                     ))
             
-            # Create CandidateBreakdown
-            resp_candidates.append(CandidateBreakdown(
-                cv_id=cv_id,
-                cv_name=cv_name,
-                cv_job_title=cv_structured.get("job_title", ""),
-                cv_years=cv_structured.get("years_of_experience", 0),
-                skills_score=match_result.skills_score / 100.0,  # Convert percentage to 0-1 scale
-                responsibilities_score=match_result.responsibilities_score / 100.0,
-                job_title_score=match_result.title_score / 100.0,
-                years_score=match_result.experience_score / 100.0,
-                overall_score=match_result.overall_score / 100.0,
-                skills_assignments=skills_assignments,
-                responsibilities_assignments=responsibilities_assignments,
-                skills_alternatives=[],  # Not provided by MatchingService
-                responsibilities_alternatives=[]  # Not provided by MatchingService
-            ))
+#             # Create CandidateBreakdown
+#             resp_candidates.append(CandidateBreakdown(
+#                 cv_id=cv_id,
+#                 cv_name=cv_name,
+#                 cv_job_title=cv_structured.get("job_title", ""),
+#                 cv_years=cv_structured.get("years_of_experience", 0),
+#                 skills_score=match_result.skills_score / 100.0,  # Convert percentage to 0-1 scale
+#                 responsibilities_score=match_result.responsibilities_score / 100.0,
+#                 job_title_score=match_result.title_score / 100.0,
+#                 years_score=match_result.experience_score / 100.0,
+#                 overall_score=match_result.overall_score / 100.0,
+#                 skills_assignments=skills_assignments,
+#                 responsibilities_assignments=responsibilities_assignments,
+#                 skills_alternatives=[],  # Not provided by MatchingService
+#                 responsibilities_alternatives=[]  # Not provided by MatchingService
+#             ))
         
-        # Sort candidates by overall score
-        resp_candidates.sort(key=lambda x: x.overall_score, reverse=True)
+#         # Sort candidates by overall score
+#         resp_candidates.sort(key=lambda x: x.overall_score, reverse=True)
         
-        return MatchResponse(
-            jd_id=req.jd_id,
-            jd_job_title=jd_structured.get("job_title", ""),
-            jd_years=jd_structured.get("years_of_experience", 0),
-            normalized_weights=MatchWeights(**Wn),
-            candidates=resp_candidates
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Matching failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Matching error: {str(e)}")
+#         return MatchResponse(
+#             jd_id=req.jd_id,
+#             jd_job_title=jd_structured.get("job_title", ""),
+#             jd_years=jd_structured.get("years_of_experience", 0),
+#             normalized_weights=MatchWeights(**Wn),
+#             candidates=resp_candidates
+#         )
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"❌ Matching failed: {e}")
+#         raise HTTPException(status_code=500, detail=f"Matching error: {str(e)}")
 
 # ----------------------------
 # Health & system stats
@@ -628,9 +699,10 @@ async def health_check() -> JSONResponse:
         )
 
 @router.post("/clear-database")
-async def clear_database(confirm: bool = False) -> JSONResponse:
+async def clear_database(confirm: bool = False, _: User = Depends(require_admin)) -> JSONResponse:
     """
-    DEVELOPMENT ONLY - drops all Qdrant collections and recreates them.
+    ADMIN ONLY - drops all Qdrant collections and recreates them.
+    Requires admin role authentication.
     """
     try:
         if not confirm:

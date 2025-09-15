@@ -23,14 +23,18 @@ export function setToken(token: string | null): void {
   
   if (token) {
     localStorage.setItem(TOKEN_KEY, token);
-    // Set cookie that expires in 1 day
+    // Set secure cookie that expires in 1 day
     const expires = new Date();
     expires.setDate(expires.getDate() + 1);
-    document.cookie = `${COOKIE_NAME}=${token}; expires=${expires.toUTCString()}; path=/`;
+    const isHttps = window.location.protocol === 'https:';
+    const secureFlags = isHttps ? '; Secure; SameSite=Lax' : '; SameSite=Lax';
+    document.cookie = `${COOKIE_NAME}=${token}; expires=${expires.toUTCString()}; path=/${secureFlags}`;
   } else {
     localStorage.removeItem(TOKEN_KEY);
-    // Clear cookie
-    document.cookie = `${COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/`;
+    // Clear cookie with same security flags
+    const isHttps = window.location.protocol === 'https:';
+    const secureFlags = isHttps ? '; Secure; SameSite=Lax' : '; SameSite=Lax';
+    document.cookie = `${COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/${secureFlags}`;
   }
 }
 

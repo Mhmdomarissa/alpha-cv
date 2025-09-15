@@ -12,6 +12,7 @@ import {
 } from '@/lib/types';
 import { api } from '@/lib/api';
 import { logger } from '@/lib/logger';
+import { useAuthStore } from './authStore';
 
 interface LoadingState {
   isLoading: boolean;
@@ -50,6 +51,8 @@ interface AppState {
   
   // Actions
   setCurrentTab: (tab: AppState['currentTab']) => void;
+  setCareersMatchResult: (matchResult: MatchResponse) => void;
+  setCareersMatchData: (data: { jobId: string; jobTitle: string; cvIds: string[] }) => void;
   
   // CV actions
   loadCVs: () => Promise<void>;
@@ -131,6 +134,19 @@ export const useAppStore = create<AppState>()(
           state.loadSystemStats();
           state.loadDatabaseView();
         }
+      },
+
+      setCareersMatchResult: (matchResult) => {
+        set({ matchResult });
+      },
+      
+      setCareersMatchData: (data) => {
+        set({ 
+          selectedJD: data.jobId,
+          selectedCVs: data.cvIds,
+          // Clear any existing match results
+          matchResult: null
+        });
       },
       
       // CV actions
@@ -417,7 +433,11 @@ export const useAppStore = create<AppState>()(
         
         try {
           logger.info('Clearing database');
-          await api.clearDatabase(true);
+          const { token } = useAuthStore.getState();
+          if (!token) {
+            throw new Error('No authentication token found');
+          }
+          await api.clearDatabase(token, true);
           
           // Reload data
           const state = get();

@@ -21,3 +21,4 @@ sqlmodel==0.0.14
 SQLAlchemy>=2.0.0
 passlib[bcrypt]==1.7.4
 PyJWT==2.9.0
+psutil==5.9.5
