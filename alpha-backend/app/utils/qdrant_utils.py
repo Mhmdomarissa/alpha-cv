@@ -509,6 +509,57 @@ class QdrantUtils:
             logger.error(f"❌ Failed to store job posting metadata {job_id}: {e}")
             return False
 
+    def store_job_posting_ui_data(
+        self, 
+        job_id: str, 
+        jd_id: str, 
+        public_token: str, 
+        ui_data: Dict[str, Any]
+    ) -> bool:
+        """
+        Store UI-specific job posting data (separate from matching embeddings).
+        This data is used for candidate-facing job display only.
+        """
+        try:
+            collection_name = "job_postings_structured"
+            dummy_vector = [0.0] * 768  # Not used for matching
+            
+            payload = {
+                "id": job_id,
+                "jd_id": jd_id,  # Link to original JD for applications
+                "public_token": public_token,
+                "created_date": datetime.utcnow().isoformat(),
+                "is_active": True,
+                "data_type": "ui_display",  # Mark as UI data
+                
+                # UI-specific structured info
+                "structured_info": {
+                    "job_title": ui_data.get("job_title", ""),
+                    "job_location": ui_data.get("job_location", ""),
+                    "job_summary": ui_data.get("job_summary", ""),
+                    "key_responsibilities": ui_data.get("key_responsibilities", ""),
+                    "qualifications": ui_data.get("qualifications", "")
+                }
+            }
+            
+            point = PointStruct(
+                id=job_id,
+                vector=dummy_vector,
+                payload=payload
+            )
+            
+            operation_result = self.client.upsert(
+                collection_name=collection_name,
+                points=[point]
+            )
+            
+            logger.info(f"✅ UI data stored for job {job_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to store UI data: {e}")
+            return False
+
     def get_job_posting_by_token(self, public_token: str, include_inactive: bool = False) -> Optional[Dict]:
         """
         Retrieve job posting metadata using public token for anonymous access
@@ -552,7 +603,9 @@ class QdrantUtils:
                 job_id = job_metadata["id"]
                 
                 # Get the actual JD data from jd_structured collection (using careers-specific method)
-                jd_data = self.get_structured_jd_for_careers(job_id)
+                # Use jd_id from metadata to look up the original JD data
+                jd_id = job_metadata.get("jd_id", job_id)  # Fallback to job_id for backward compatibility
+                jd_data = self.get_structured_jd_for_careers(jd_id)
                 if jd_data:
                     # Merge JD data with metadata (metadata takes precedence for careers fields)
                     # Remove 'id' from jd_data to avoid conflicts with job_metadata

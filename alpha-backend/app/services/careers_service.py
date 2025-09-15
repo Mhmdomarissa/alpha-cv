@@ -107,8 +107,8 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
         # Step 4: Perform matching analysis
         logger.info(f"🎯 Performing CV-JD matching analysis")
         
-        # Get JD data for matching using the job posting ID
-        jd_id = job_posting.get("id")
+        # Get original JD ID for matching (not the UI display job posting ID)
+        jd_id = job_posting.get("jd_id") or job_posting.get("id")
         
         if not jd_id:
             logger.warning(f"⚠️ No JD ID found for matching, proceeding without match score")
@@ -145,7 +145,8 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
         # Store application in CV collection with job reference
         application_metadata = {
             "application_id": application_id,
-            "job_posting_id": job_posting["id"],
+            "job_posting_id": job_posting["id"],  # UI display job posting
+            "original_jd_id": jd_id,  # Original JD used for matching
             "job_token": public_token,
             "applicant_name": applicant_name,
             "applicant_email": applicant_email,

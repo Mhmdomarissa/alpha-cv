@@ -180,6 +180,30 @@ class ApiClient {
     return response.data;
   }
 
+  // Two-phase JD upload methods
+  async extractJDForUI(jdId: string): Promise<any> {
+    const response = await this.client.post(`/api/careers/admin/jobs/${jdId}/extract-ui-data`);
+    return response.data;
+  }
+
+  async createJobPostingFromUIData(jdId: string, formData: any): Promise<any> {
+    // Backend expects form data, not JSON
+    const formDataObj = new FormData();
+    formDataObj.append('jd_id', jdId);
+    formDataObj.append('job_title', formData.jobTitle || '');
+    formDataObj.append('job_location', formData.jobLocation || '');
+    formDataObj.append('job_summary', formData.jobSummary || '');
+    formDataObj.append('key_responsibilities', formData.keyResponsibilities || '');
+    formDataObj.append('qualifications', formData.qualifications || '');
+    
+    const response = await this.client.post('/api/careers/admin/jobs/create-from-ui-data', formDataObj, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
   // Matching endpoints
   async matchCandidates(request: MatchRequest): Promise<MatchResponse> {
     const response = await this.client.post<MatchResponse>('/api/match', request);
@@ -568,6 +592,8 @@ export const api = {
   reprocessJD: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.reprocessJD(jdId)),
   getJDEmbeddings: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.getJDEmbeddings(jdId)),
   standardizeJD: (jdText: string, filename?: string) => RequestRetryHandler.withRetry(() => apiClient.standardizeJD(jdText, filename)),
+  extractJDForUI: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.extractJDForUI(jdId)),
+  createJobPostingFromUIData: (jdId: string, formData: any) => RequestRetryHandler.withRetry(() => apiClient.createJobPostingFromUIData(jdId, formData)),
   
   // Matching
   matchCandidates: (request: MatchRequest) => RequestRetryHandler.withRetry(() => apiClient.matchCandidates(request)),

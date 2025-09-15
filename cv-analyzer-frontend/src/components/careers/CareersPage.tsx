@@ -25,7 +25,6 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingCard } from '@/components/ui/loading';
 import JobPostingForm from './JobPostingForm';
-import ManualJobPostingForm from './ManualJobPostingForm';
 import ApplicationsList from './ApplicationsList';
 
 export default function CareersPage() {
@@ -41,7 +40,6 @@ export default function CareersPage() {
   } = useCareersStore();
   
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [showManualForm, setShowManualForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editingJob, setEditingJob] = useState<JobPostingListItem | null>(null);
   const [editingJobData, setEditingJobData] = useState<any>(null);
@@ -182,13 +180,6 @@ export default function CareersPage() {
             <FileText className="w-4 h-4 mr-2" />
             Post JD as File
           </Button>
-          <Button
-            onClick={() => setShowManualForm(true)}
-            className="bg-white hover:bg-gray-50 text-black border border-gray-300"
-          >
-            <Edit3 className="w-4 h-4 mr-2" />
-            Post JD in Text Manually
-          </Button>
           {jobPostings.length > 0 && (
             <Button
               onClick={() => setShowDeleteConfirm(true)}
@@ -227,13 +218,6 @@ export default function CareersPage() {
                 >
                   <FileText className="w-4 h-4 mr-2" />
                   Post JD as File
-                </Button>
-                <Button
-                  onClick={() => setShowManualForm(true)}
-                  className="bg-white hover:bg-gray-50 text-black border border-gray-300"
-                >
-                  <Edit3 className="w-4 h-4 mr-2" />
-                  Post JD in Text Manually
                 </Button>
               </div>
             </CardContent>
@@ -385,15 +369,6 @@ export default function CareersPage() {
         />
       )}
 
-      {/* Manual Job Form (Text Input) */}
-      {showManualForm && (
-        <ManualJobPostingForm
-          onSuccess={() => {
-            setShowManualForm(false);
-            loadJobPostings();
-          }}
-        />
-      )}
 
       {/* Delete All Confirmation Dialog */}
       {showDeleteConfirm && (

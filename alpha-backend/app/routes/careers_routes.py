@@ -106,19 +106,52 @@ async def get_public_job(public_token: str) -> PublicJobView:
         # Use the merged data directly since it already contains the structured information
         
         # Extract data from the merged job_data
-        # Check both direct job_title and structured_info.job_title
-        job_title = job_data.get("job_title") or job_data.get("structured_info", {}).get("job_title", "Position Available")
-        job_location = job_data.get("location", "") or job_data.get("job_location", "")
-        job_summary = job_data.get("job_summary", "") or job_data.get("summary", "") or "Job description not available"
+        # Prioritize structured_info from new UI data system, fall back to legacy format
+        structured_info = job_data.get("structured_info", {})
+        
+        job_title = (
+            structured_info.get("job_title") or 
+            job_data.get("job_title") or 
+            "Position Available"
+        )
+        
+        job_location = (
+            structured_info.get("job_location") or 
+            job_data.get("location") or 
+            job_data.get("job_location") or 
+            ""
+        )
+        
+        job_summary = (
+            structured_info.get("job_summary") or 
+            job_data.get("job_summary") or 
+            job_data.get("summary") or 
+            "Job description not available"
+        )
+        
         experience_required = job_data.get("years_of_experience", "Not specified")
         
         # Convert experience to string if it's a number
         if isinstance(experience_required, (int, float)):
             experience_required = f"{experience_required} years"
         
-        # Get requirements and responsibilities from the merged data
-        requirements = job_data.get("skills_sentences", []) or job_data.get("skills", [])
-        responsibilities = job_data.get("responsibility_sentences", []) or job_data.get("responsibilities", [])
+        # Get requirements and responsibilities from structured UI data or legacy format
+        # For new UI data, convert bullet-point strings to arrays
+        if structured_info.get("qualifications"):
+            # Convert bullet-point string to array
+            qualifications_text = structured_info.get("qualifications", "")
+            requirements = [line.strip().lstrip("•").strip() for line in qualifications_text.split("\n") if line.strip()]
+        else:
+            # Legacy format
+            requirements = job_data.get("skills_sentences", []) or job_data.get("skills", [])
+        
+        if structured_info.get("key_responsibilities"):
+            # Convert bullet-point string to array
+            responsibilities_text = structured_info.get("key_responsibilities", "")
+            responsibilities = [line.strip().lstrip("•").strip() for line in responsibilities_text.split("\n") if line.strip()]
+        else:
+            # Legacy format
+            responsibilities = job_data.get("responsibility_sentences", []) or job_data.get("responsibilities", [])
         
         public_job = PublicJobView(
             job_id=job_data["id"],
@@ -1199,6 +1232,118 @@ async def update_job_posting(
     except Exception as e:
         logger.error(f"❌ Failed to update job posting: {e}")
         raise HTTPException(status_code=500, detail="Failed to update job posting. Please try again later.")
+
+
+@router.post("/admin/jobs/{jd_id}/extract-ui-data")
+async def extract_jd_for_ui(jd_id: str) -> dict:
+    """
+    Extract human-readable data from already processed JD for UI display.
+    This is separate from the matching pipeline and uses a different LLM prompt.
+    """
+    try:
+        logger.info(f"📝 Extracting UI data for JD: {jd_id}")
+        
+        qdrant = get_qdrant_utils()
+        
+        # Get the original JD document content
+        jd_doc = qdrant.retrieve_document(jd_id, "jd")
+        if not jd_doc:
+            raise HTTPException(status_code=404, detail="JD not found")
+        
+        original_content = jd_doc.get("content", "")
+        filename = jd_doc.get("filename", "job_description.pdf")
+        
+        # Use new LLM service method for UI extraction
+        llm_service = get_llm_service()
+        ui_data = llm_service.extract_jd_for_ui_display(original_content, filename)
+        
+        if not ui_data:
+            raise HTTPException(status_code=500, detail="Failed to extract UI data")
+        
+        logger.info(f"✅ UI data extracted successfully for JD: {jd_id}")
+        
+        return {
+            "success": True,
+            "jd_id": jd_id,  # Return the original JD ID for the next step
+            "job_title": ui_data.get("job_title", ""),
+            "job_location": ui_data.get("job_location", ""),
+            "job_summary": ui_data.get("job_summary", ""),
+            "key_responsibilities": ui_data.get("key_responsibilities", ""),
+            "qualifications": ui_data.get("qualifications", "")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to extract UI data: {e}")
+        raise HTTPException(status_code=500, detail="Failed to extract UI data")
+
+
+@router.post("/admin/jobs/create-from-ui-data")
+async def create_job_posting_from_ui_data(
+    jd_id: str = Form(...),
+    job_title: str = Form(...),
+    job_location: str = Form(...),
+    job_summary: str = Form(...),
+    key_responsibilities: str = Form(...),
+    qualifications: str = Form(...)
+) -> dict:
+    """
+    Create a job posting from human-readable UI data that was auto-filled and potentially edited.
+    This links the original JD (for matching) with the human-readable display data (for candidates).
+    """
+    try:
+        logger.info(f"📝 Creating job posting from UI data for JD: {jd_id}")
+        
+        qdrant = get_qdrant_utils()
+        
+        # Verify the original JD exists
+        jd_doc = qdrant.retrieve_document(jd_id, "jd")
+        if not jd_doc:
+            raise HTTPException(status_code=404, detail="Original JD not found")
+        
+        # Generate job posting metadata
+        job_id = str(uuid.uuid4())
+        public_token = generate_public_token()
+        
+        # Prepare UI data
+        ui_data = {
+            "job_title": job_title,
+            "job_location": job_location,
+            "job_summary": job_summary,
+            "key_responsibilities": key_responsibilities,
+            "qualifications": qualifications
+        }
+        
+        # Store UI data in job_postings_structured
+        success = qdrant.store_job_posting_ui_data(
+            job_id=job_id,
+            jd_id=jd_id,
+            public_token=public_token,
+            ui_data=ui_data
+        )
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to store job posting")
+        
+        logger.info(f"✅ Job posting created from UI data: {job_id}")
+        
+        # Return the same format as other job posting endpoints
+        public_link = f"https://alphacv.alphadatarecruitment.ae/careers/jobs/{public_token}"
+        
+        return {
+            "success": True,
+            "job_id": job_id,
+            "public_token": public_token,
+            "public_link": public_link,
+            "message": "Job posting created successfully with human-readable content"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to create job posting from UI data: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create job posting")
 
 
 @router.delete("/admin/jobs/delete-all")
