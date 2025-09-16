@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/stores/appStore';
+import { useCareersStore } from '@/stores/careersStore';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button-enhanced';
 import { MatchWeights } from '@/lib/types';
@@ -114,12 +115,15 @@ export default function MatchingPageNew() {
     loadingStates
   } = useAppStore();
   
+  const { applications } = useCareersStore();
+  
   const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
   const [showWeights, setShowWeights] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>('score');
   const [filterThreshold, setFilterThreshold] = useState(0);
   const [downloadingCV, setDownloadingCV] = useState<string | null>(null);
   const [resultsLimit, setResultsLimit] = useState<number | 'all'>(3); // Default to top 3
+  const [isExporting, setIsExporting] = useState(false);
   
   // Ensure default weights present
   useEffect(() => {
@@ -136,8 +140,14 @@ export default function MatchingPageNew() {
   // Auto-run matching when we have careers data but no match results
   useEffect(() => {
     if (selectedJD && selectedCVs && selectedCVs.length > 0 && !matchResult && !loadingStates.matching.isLoading) {
-      console.log('Auto-running matching for careers data:', { selectedJD, selectedCVs });
-      runMatch();
+      // Validate that selectedJD looks like a valid UUID (not a job posting ID)
+      const isValidJdId = selectedJD && typeof selectedJD === 'string' && selectedJD.length === 36 && selectedJD.includes('-');
+      if (isValidJdId) {
+        console.log('Auto-running matching for careers data:', { selectedJD, selectedCVs });
+        runMatch();
+      } else {
+        console.warn('Skipping auto-matching: Invalid JD ID format', { selectedJD });
+      }
     }
   }, [selectedJD, selectedCVs, matchResult, loadingStates.matching.isLoading, runMatch]);
   
@@ -239,6 +249,93 @@ export default function MatchingPageNew() {
       console.error('Failed to download CV:', error);
     } finally {
       setDownloadingCV(null);
+    }
+  };
+
+  // Export results handler
+  const handleExportResults = async () => {
+    if (!matchResult || !matchResult.candidates) {
+      alert('No match results to export');
+      return;
+    }
+
+    setIsExporting(true);
+    
+    try {
+      // Create CSV content
+      const headers = [
+        'Rank',
+        'Candidate Name',
+        'Email',
+        'Phone',
+        'Overall Score (%)',
+        'Skills Score (%)',
+        'Responsibilities Score (%)',
+        'Job Title Score (%)',
+        'Experience Score (%)',
+        'Job Title',
+        'Experience (Years)',
+        'Job Description Title',
+        'Job Description Experience Required',
+        'Application Date',
+        'CV Filename'
+      ];
+
+      const csvRows = [headers.join(',')];
+
+      // Process each candidate
+      candidatesWithComputed.forEach((candidate, index) => {
+        // Find corresponding application data
+        const application = applications.find(app => app.application_id === candidate.cv_id);
+        
+        // Get candidate name
+        const candidateName = resolveCandidateName(candidate, cvIndex);
+        
+        // Get job title and experience
+        const jobTitle = resolveTitle(candidate, cvIndex);
+        const experience = resolveYears(candidate, cvIndex);
+        
+        // Get CV metadata
+        const cvMeta = cvIndex[candidate?.cv_id];
+        const filename = cvMeta?.filename || `cv_${candidate.cv_id}.pdf`;
+
+        const row = [
+          index + 1, // Rank
+          `"${candidateName}"`, // Candidate Name
+          `"${application?.applicant_email || 'N/A'}"`, // Email
+          `"${application?.applicant_phone || 'N/A'}"`, // Phone
+          Math.round((candidate.computed_overall ?? 0) * 100), // Overall Score
+          Math.round((candidate.skills_score ?? 0) * 100), // Skills Score
+          Math.round((candidate.responsibilities_score ?? 0) * 100), // Responsibilities Score
+          Math.round((candidate.job_title_score ?? 0) * 100), // Job Title Score
+          Math.round((candidate.years_score ?? 0) * 100), // Experience Score
+          `"${jobTitle}"`, // Job Title
+          `"${experience}"`, // Experience
+          `"${matchResult.jd_job_title || 'N/A'}"`, // JD Title
+          `"${matchResult.jd_years || 'N/A'} years"`, // JD Experience Required
+          `"${application?.application_date ? new Date(application.application_date).toLocaleDateString() : 'N/A'}"`, // Application Date
+          `"${filename}"` // CV Filename
+        ];
+
+        csvRows.push(row.join(','));
+      });
+
+      // Create and download CSV file
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `match_results_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export results:', error);
+      alert('Failed to export results. Please try again.');
+    } finally {
+      setIsExporting(false);
     }
   };
   
@@ -428,9 +525,22 @@ export default function MatchingPageNew() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <button className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm">
-            <Download className="w-4 h-4 mr-2" />
-            Export Results
+          <button 
+            onClick={handleExportResults}
+            disabled={isExporting}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isExporting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin mr-2" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4 mr-2" />
+                Export Results
+              </>
+            )}
           </button>
           <button className="inline-flex items-center px-3 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 transition-colors text-sm">
             <BarChart3 className="w-4 h-4 mr-2" />

@@ -598,8 +598,16 @@ async def standardize_cv_text(request: StandardizeCVRequest) -> JSONResponse:
             standardized["contact_info"] = {}
         if extracted_pii.get("email") and len(extracted_pii["email"]) > 0:
             standardized["contact_info"]["email"] = extracted_pii["email"][0]
+            logger.info(f"✅ Added email to contact_info: {standardized['contact_info']['email']}")
         if extracted_pii.get("phone") and len(extracted_pii["phone"]) > 0:
             standardized["contact_info"]["phone"] = extracted_pii["phone"][0]
+            logger.info(f"✅ Added phone to contact_info: {standardized['contact_info']['phone']}")
+        
+        # Also store PII at top level for backward compatibility
+        if extracted_pii.get("email") and len(extracted_pii["email"]) > 0:
+            standardized["email"] = extracted_pii["email"][0]
+        if extracted_pii.get("phone") and len(extracted_pii["phone"]) > 0:
+            standardized["phone"] = extracted_pii["phone"][0]
         
         # Generate embeddings for stats
         emb_service = get_embedding_service()

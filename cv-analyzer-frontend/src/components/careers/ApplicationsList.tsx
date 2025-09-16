@@ -7,7 +7,6 @@ import {
   Phone, 
   FileText, 
   Download,
-  Target,
   X,
   Loader2
 } from 'lucide-react';
@@ -61,12 +60,23 @@ export default function ApplicationsList() {
       const candidate = cvData?.candidate;
       const textInfo = cvData?.text_info;
       
-      // Create formatted content with structured data
+      // Find the job application data from the current applications list
+      const jobApplicationFromList = applications.find(app => app.application_id === cvId);
+      
+      // Use job application data from CV response if available (includes phone number)
+      const jobApplicationFromCV = cvData?.job_application;
+      
+      // Prefer CV job application data (has phone) over list data (missing phone)
+      const jobApplication = jobApplicationFromCV || jobApplicationFromList;
+      
+      
+      // Create formatted content with structured data and job application
       const content = {
         candidate: candidate,
         structured: structuredData,
         textInfo: textInfo,
-        uploadDate: cvData?.upload_date
+        uploadDate: cvData?.upload_date,
+        job_application: jobApplication
       };
       
       setViewingCVData({ cvId, filename, content: JSON.stringify(content, null, 2) });
@@ -79,28 +89,6 @@ export default function ApplicationsList() {
   };
 
 
-  const handleMatchAllCandidates = () => {
-    if (!selectedJob) return;
-    
-    // Get current applications to extract CV IDs
-    const currentApplications = applications;
-    const cvIds = currentApplications.map(app => app.application_id);
-    
-    if (cvIds.length === 0) {
-      console.error('No applications found to match');
-      return;
-    }
-    
-    // Set the job and CV IDs in the app store for matching
-    setCareersMatchData({
-      jobId: selectedJob.job_id,
-      jobTitle: selectedJob.job_title || 'Position',
-      cvIds: cvIds
-    });
-    
-    // Navigate to matching page
-    setCurrentTab('match');
-  };
 
   // No need to sort since we're not showing match scores
   const sortedApplications = applications;
@@ -123,16 +111,6 @@ export default function ApplicationsList() {
 
   return (
     <div className="space-y-4">
-      {/* Match All Candidates Button */}
-      <div className="flex justify-center mb-6">
-        <Button 
-          onClick={handleMatchAllCandidates}
-          className="bg-primary-600 hover:bg-primary-700 text-white px-6 py-2"
-        >
-          <Target className="w-4 h-4 mr-2" />
-          Match All Candidates ({applications.length} candidates)
-        </Button>
-      </div>
       
       {sortedApplications.map((application) => (
         <Card key={application.application_id} className="hover:shadow-md transition-shadow">
@@ -235,10 +213,15 @@ export default function ApplicationsList() {
                   {(() => {
                     try {
                       const data = JSON.parse(viewingCVData.content);
-                      const candidate = data.candidate;
-                      const structured = data.structured;
-                      const textInfo = data.textInfo;
-                      const uploadDate = data.uploadDate;
+                      
+                      // Handle both direct structure and nested cv structure
+                      const cvData = data.cv || data;
+                      
+                      const candidate = cvData.candidate;
+                      const structured = cvData.structured_info || cvData.structured;
+                      const textInfo = cvData.text_info || cvData.textInfo;
+                      const uploadDate = cvData.upload_date || cvData.uploadDate;
+                      const jobApplication = cvData.job_application;
                       
                       return (
                         <>
@@ -248,7 +231,7 @@ export default function ApplicationsList() {
                             <div className="grid grid-cols-2 gap-4">
                               <div>
                                 <label className="text-sm font-medium text-gray-500">Full Name</label>
-                                <p className="text-gray-900">{candidate?.full_name || 'N/A'}</p>
+                                <p className="text-gray-900">{jobApplication?.applicant_name || candidate?.full_name || 'N/A'}</p>
                               </div>
                               <div>
                                 <label className="text-sm font-medium text-gray-500">Job Title</label>
@@ -267,15 +250,23 @@ export default function ApplicationsList() {
 
                           {/* Contact Information */}
                           <div className="bg-white border rounded-lg p-4">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information (Job Application)</h3>
                             <div className="grid grid-cols-2 gap-4">
                               <div>
                                 <label className="text-sm font-medium text-gray-500">Email</label>
-                                <p className="text-gray-900">{candidate?.contact_info?.email || 'N/A'}</p>
+                                <p className="text-gray-900">{jobApplication?.applicant_email || candidate?.contact_info?.email || 'N/A'}</p>
                               </div>
                               <div>
                                 <label className="text-sm font-medium text-gray-500">Phone</label>
-                                <p className="text-gray-900">{candidate?.contact_info?.phone || 'N/A'}</p>
+                                <p className="text-gray-900">{jobApplication?.applicant_phone || candidate?.contact_info?.phone || 'N/A'}</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-500">Application Date</label>
+                                <p className="text-gray-900">{jobApplication?.application_date ? new Date(jobApplication.application_date).toLocaleDateString() : 'N/A'}</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-500">Application Status</label>
+                                <p className="text-gray-900 capitalize">{jobApplication?.application_status || 'N/A'}</p>
                               </div>
                             </div>
                           </div>
@@ -316,6 +307,7 @@ export default function ApplicationsList() {
                               Text length: {textInfo?.extracted_text_length || 0} characters
                             </p>
                           </div>
+
                         </>
                       );
                     } catch (error) {
