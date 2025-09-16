@@ -14,19 +14,19 @@ class RateLimiterConfig:
     IS_PRODUCTION = os.getenv("NODE_ENV", "development") == "production"
     DEBUG_MODE = os.getenv("RATE_LIMIT_DEBUG", "false").lower() == "true"
     
-    # Global system limits
-    MAX_GLOBAL_CONCURRENT = int(os.getenv("MAX_GLOBAL_CONCURRENT", "30"))
-    CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("CIRCUIT_BREAKER_THRESHOLD", "5"))
-    CIRCUIT_BREAKER_RECOVERY_TIME = int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIME", "300"))
+    # INCREASED GLOBAL LIMITS for heavy usage
+    MAX_GLOBAL_CONCURRENT = int(os.getenv("MAX_GLOBAL_CONCURRENT", "100"))  # Was 30
+    CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("CIRCUIT_BREAKER_THRESHOLD", "10"))  # Was 5
+    CIRCUIT_BREAKER_RECOVERY_TIME = int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIME", "120"))  # Faster recovery
     
     # Cleanup and maintenance
     CLEANUP_INTERVAL = int(os.getenv("CLEANUP_INTERVAL", "300"))  # 5 minutes
     MEMORY_CLEANUP_THRESHOLD = int(os.getenv("MEMORY_CLEANUP_THRESHOLD", "10000"))  # Clean when tracking 10k+ IPs
     
-    # IP reputation system
-    REPUTATION_DECAY_RATE = float(os.getenv("REPUTATION_DECAY_RATE", "0.01"))  # How fast reputation improves
-    REPUTATION_PENALTY_RATE = float(os.getenv("REPUTATION_PENALTY_RATE", "0.1"))  # How fast reputation degrades
-    MIN_REPUTATION = float(os.getenv("MIN_REPUTATION", "0.1"))  # Minimum reputation score
+    # More forgiving reputation system
+    REPUTATION_DECAY_RATE = float(os.getenv("REPUTATION_DECAY_RATE", "0.05"))  # Faster improvement
+    REPUTATION_PENALTY_RATE = float(os.getenv("REPUTATION_PENALTY_RATE", "0.02"))  # Slower degradation  
+    MIN_REPUTATION = float(os.getenv("MIN_REPUTATION", "0.5"))  # Higher minimum
     
     # Performance monitoring
     ENABLE_METRICS = os.getenv("ENABLE_RATE_LIMIT_METRICS", "true").lower() == "true"
@@ -43,65 +43,66 @@ class RateLimiterConfig:
     
     @classmethod
     def get_rate_limits(cls) -> Dict[str, Dict[str, Any]]:
-        """Get rate limit configurations based on environment"""
-        base_multiplier = 2 if not cls.IS_PRODUCTION else 1
+        """Get rate limit configurations - GENEROUS VERSION for heavy usage"""
+        # More generous base multiplier
+        base_multiplier = 5 if not cls.IS_PRODUCTION else 3  # 5x dev, 3x prod
         
         return {
             "health": {
-                "requests_per_hour": 2000 * base_multiplier,
-                "concurrent_limit": 20,
-                "burst_allowance": 50,
+                "requests_per_hour": 5000 * base_multiplier,
+                "concurrent_limit": 50,
+                "burst_allowance": 100,
                 "priority": 10,
                 "description": "Health check endpoints"
             },
             "auth": {
-                "requests_per_hour": 100 * base_multiplier,
-                "concurrent_limit": 10,
-                "burst_allowance": 5,
+                "requests_per_hour": 200 * base_multiplier,
+                "concurrent_limit": 20,
+                "burst_allowance": 10,
                 "priority": 8,
                 "description": "Authentication endpoints"
             },
             "admin": {
-                "requests_per_hour": 500 * base_multiplier,
-                "concurrent_limit": 15,
-                "burst_allowance": 10,
+                "requests_per_hour": 1000 * base_multiplier,
+                "concurrent_limit": 25,
+                "burst_allowance": 20,
                 "priority": 7,
                 "description": "Admin panel endpoints"
             },
             "job_view": {
-                "requests_per_hour": 200 * base_multiplier,
-                "concurrent_limit": 10,
-                "burst_allowance": 15,
+                "requests_per_hour": 1000 * base_multiplier,  # 🔥 HEAVY BROWSING
+                "concurrent_limit": 25,
+                "burst_allowance": 30,
                 "priority": 6,
                 "description": "Job listing and viewing"
             },
             "job_application": {
-                "requests_per_hour": 100 * base_multiplier,
-                "concurrent_limit": 5,
-                "burst_allowance": 3,
+                "requests_per_hour": 500 * base_multiplier,  # 🔥 MANY APPLICATIONS
+                "concurrent_limit": 15,
+                "burst_allowance": 10,
                 "priority": 5,
-                "description": "Job applications (most resource intensive)"
+                "description": "Job applications - heavy usage ready"
             },
             "file_upload": {
-                "requests_per_hour": 200 * base_multiplier,
-                "concurrent_limit": 10,
-                "burst_allowance": 5,
+                "requests_per_hour": 800 * base_multiplier,  # 🔥 BULK UPLOADS
+                "concurrent_limit": 20,
+                "burst_allowance": 15,
                 "priority": 4,
-                "description": "File upload endpoints"
+                "description": "File upload endpoints - bulk friendly"
             },
             "general": {
-                "requests_per_hour": 150 * base_multiplier,
-                "concurrent_limit": 8,
-                "burst_allowance": 10,
+                "requests_per_hour": 600 * base_multiplier,  # 🔥 INTENSIVE USE
+                "concurrent_limit": 20,
+                "burst_allowance": 25,
                 "priority": 3,
-                "description": "General API endpoints"
+                "description": "General API endpoints - power user ready"
             },
             "static": {
-                "requests_per_hour": 1000 * base_multiplier,
-                "concurrent_limit": 50,
-                "burst_allowance": 100,
+                "requests_per_hour": 2000 * base_multiplier,
+                "concurrent_limit": 100,
+                "burst_allowance": 200,
                 "priority": 1,
-                "description": "Static assets and low-priority endpoints"
+                "description": "Static assets"
             }
         }
     

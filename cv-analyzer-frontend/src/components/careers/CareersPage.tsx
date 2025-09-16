@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button-enhanced';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingCard } from '@/components/ui/loading';
+import { AdminOnly } from '@/components/auth/RoleBasedAccess';
 import JobPostingForm from './JobPostingForm';
 import ApplicationsList from './ApplicationsList';
 import MatchingAnimation from '@/components/ui/matching-animation';
@@ -72,15 +73,19 @@ export default function CareersPage() {
     try {
       const response = await api.deleteAllJobPostings();
       if (response.success) {
-        // Reload job postings to reflect the changes
         await loadJobPostings();
         alert(`Successfully deleted all job postings!\n\nDetails:\n- Job postings deleted: ${response.details.job_postings_deleted}\n- JD documents deleted: ${response.details.jd_documents_deleted}\n- JD structured data deleted: ${response.details.jd_structured_deleted}\n- JD embeddings deleted: ${response.details.jd_embeddings_deleted}\n- CVs preserved: ${response.details.cvs_preserved}`);
       } else {
         alert('Failed to delete job postings. Please try again.');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to delete all job postings:', error);
-      alert('Failed to delete job postings. Please try again.');
+      // Handle specific admin permission error
+      if (error.message?.includes('Admin') || error.message?.includes('403')) {
+        alert('Access denied. Admin privileges required for this action.');
+      } else {
+        alert('Failed to delete job postings. Please try again.');
+      }
     } finally {
       setIsDeletingAll(false);
       setShowDeleteConfirm(false);
@@ -213,26 +218,29 @@ export default function CareersPage() {
             <FileText className="w-4 h-4 mr-2" />
             Post JD as File
           </Button>
-          {jobPostings.length > 0 && (
-            <Button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="bg-red-600 hover:bg-red-700 text-white border border-red-600"
-              style={{ color: 'white' }}
-              disabled={isDeletingAll}
-            >
-              {isDeletingAll ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                  Deleting...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete All Jobs
-                </>
-              )}
-            </Button>
-          )}
+          {/* 🚨 ADMIN-ONLY DELETE ALL BUTTON 🚨 */}
+          <AdminOnly>
+            {jobPostings.length > 0 && (
+              <Button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="bg-red-600 hover:bg-red-700 text-white border border-red-600"
+                style={{ color: 'white' }}
+                disabled={isDeletingAll}
+              >
+                {isDeletingAll ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete All Jobs
+                  </>
+                )}
+              </Button>
+            )}
+          </AdminOnly>
         </div>
       </div>
 
@@ -420,49 +428,53 @@ export default function CareersPage() {
       )}
 
 
-      {/* Delete All Confirmation Dialog */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex items-center mb-4">
-              <AlertCircle className="w-6 h-6 text-red-600 mr-3" />
-              <h3 className="text-lg font-semibold text-gray-900">Delete All Job Postings</h3>
-            </div>
-            <p className="text-gray-600 mb-6">
-              Are you sure you want to delete all job postings? This action cannot be undone.
-              <br /><br />
-              <strong>Note:</strong> All CVs (including job applications) will be preserved.
-            </p>
-            <div className="flex justify-end space-x-3">
-              <Button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-700"
-                disabled={isDeletingAll}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleDeleteAllJobPostings}
-                className="bg-red-600 hover:bg-red-700 text-white"
-                style={{ color: 'white' }}
-                disabled={isDeletingAll}
-              >
-                {isDeletingAll ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                    Deleting...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete All
-                  </>
-                )}
-              </Button>
+      {/* 🚨 ADMIN-ONLY DELETE CONFIRMATION DIALOG 🚨 */}
+      <AdminOnly>
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <div className="flex items-center mb-4">
+                <AlertCircle className="w-6 h-6 text-red-600 mr-3" />
+                <h3 className="text-lg font-semibold text-gray-900">Delete All Job Postings</h3>
+              </div>
+              <p className="text-gray-600 mb-6">
+                Are you sure you want to delete all job postings? This action cannot be undone.
+                <br /><br />
+                <strong>Note:</strong> All CVs (including job applications) will be preserved.
+                <br />
+                <strong className="text-red-600">⚠️ Admin-only action</strong>
+              </p>
+              <div className="flex justify-end space-x-3">
+                <Button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="bg-gray-300 hover:bg-gray-400 text-gray-700"
+                  disabled={isDeletingAll}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleDeleteAllJobPostings}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  style={{ color: 'white' }}
+                  disabled={isDeletingAll}
+                >
+                  {isDeletingAll ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete All
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </AdminOnly>
 
       {/* Matching Animation */}
       <MatchingAnimation isVisible={isMatching} />

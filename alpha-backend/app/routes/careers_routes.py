@@ -16,7 +16,7 @@ import tempfile
 import shutil
 import mimetypes
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends, status
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.requests import Request
 import os
@@ -39,6 +39,8 @@ from app.services.parsing_service import get_parsing_service
 from app.services.llm_service import get_llm_service  
 from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils
+from app.deps.auth import require_admin
+from app.models.user import User
 
 # Storage directory for job application CVs
 STORAGE_DIR = os.getenv("CV_UPLOAD_DIR", "/data/uploads/cv")
@@ -1356,29 +1358,38 @@ async def create_job_posting_from_ui_data(
 
 
 @router.delete("/admin/jobs/delete-all")
-async def delete_all_job_postings() -> JSONResponse:
+async def delete_all_job_postings(
+    current_admin: User = Depends(require_admin)  # 🚨 ADMIN ONLY 🚨
+) -> JSONResponse:
     """
     Delete all job postings and related JD data while preserving CVs.
-    
-    This endpoint will:
-    1. Delete all job posting metadata from job_postings_structured collection
-    2. Delete all JD data from jd_* collections (jd_documents, jd_structured, jd_embeddings)
-    3. Preserve all CV data (including job application CVs)
-    
-    This is useful for cleaning up job postings while keeping the CV database intact.
+    🚨 ADMIN ONLY ENDPOINT 🚨
     """
     try:
-        logger.info("🗑️ Starting deletion of all job postings...")
+        logger.info(f"🗑️ ADMIN ACTION: Starting deletion of all job postings by admin: {current_admin.username}")
+        
+        # Double-check admin role (extra security layer)
+        if current_admin.role != "admin":
+            logger.warning(f"❌ Unauthorized delete attempt by user: {current_admin.username} (role: {current_admin.role})")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="Admin privileges required for this action"
+            )
         
         qdrant = get_qdrant_utils()
         results = qdrant.delete_all_job_postings()
         
         if results["success"]:
-            logger.info(f"✅ Successfully deleted all job postings: {results}")
+            logger.info(f"✅ Successfully deleted all job postings by admin: {current_admin.username}")
             return JSONResponse({
                 "success": True,
                 "message": "All job postings deleted successfully",
-                "details": results
+                "details": results,
+                "performed_by": {
+                    "username": current_admin.username,
+                    "role": current_admin.role,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
             })
         else:
             logger.error(f"❌ Failed to delete job postings: {results}")
@@ -1390,7 +1401,7 @@ async def delete_all_job_postings() -> JSONResponse:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Unexpected error during job postings deletion: {e}")
+        logger.error(f"❌ Unexpected error during job postings deletion by {current_admin.username}: {e}")
         raise HTTPException(
             status_code=500, 
             detail="An unexpected error occurred while deleting job postings. Please try again later."

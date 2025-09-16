@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from app.config.rate_limiter import config
+from app.utils.security import decode_token
 
 logger = logging.getLogger(__name__)
 
@@ -322,11 +323,65 @@ class ProductionRateLimiter:
 rate_limiter = ProductionRateLimiter()
 
 async def rate_limit_middleware(request: Request, call_next):
-    """Production-grade rate limiting middleware"""
+    """Enhanced rate limiting middleware with smart bypasses for admins"""
     client_ip = rate_limiter.get_client_ip(request)
     path = request.url.path
     method = request.method
     
+    # === SMART BYPASS LOGIC ===
+    bypass_rate_limit = False
+    bypass_reason = ""
+    
+    # Method 1: Admin JWT Token Bypass
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        try:
+            token = auth_header.split(" ")[1]
+            decoded_token = decode_token(token)
+            user_role = decoded_token.get("role")
+            username = decoded_token.get("sub")
+            
+            # Bypass for admin users
+            if user_role == "admin":
+                bypass_rate_limit = True
+                bypass_reason = f"admin user ({username})"
+                logger.info(f"🔓 Rate limit bypassed for admin user '{username}' from {client_ip}")
+            
+            # Bypass for development local user 
+            elif username == "syed" and (os.getenv("NODE_ENV") == "development" or 
+                                      os.getenv("LOCAL_AUTH", "").lower() == "true"):
+                bypass_rate_limit = True
+                bypass_reason = "development admin user"
+                logger.info(f"🔓 Rate limit bypassed for dev admin 'syed' from {client_ip}")
+                
+        except Exception as e:
+            # Token invalid, continue with rate limiting
+            logger.debug(f"Token validation failed: {e}")
+    
+    # Method 2: Development Environment Bypass
+    if not rate_limiter.is_production and client_ip in ["127.0.0.1", "::1", "localhost"]:
+        bypass_rate_limit = True
+        bypass_reason = "localhost in development"
+        logger.debug(f"🔓 Rate limit bypassed for localhost in development")
+    
+    # Method 3: Health Check Endpoints (always allow)
+    if path in ["/api/health", "/health", "/", "/docs", "/redoc"]:
+        bypass_rate_limit = True
+        bypass_reason = "health/docs endpoint"
+    
+    # === APPLY BYPASS ===
+    if bypass_rate_limit:
+        response = await call_next(request)
+        
+        # Add bypass headers for transparency
+        if hasattr(response, 'headers'):
+            response.headers["X-RateLimit-Bypassed"] = "true"
+            response.headers["X-RateLimit-Bypass-Reason"] = bypass_reason
+            response.headers["X-RateLimit-Status"] = "bypassed"
+        
+        return response
+    
+    # === NORMAL RATE LIMITING CONTINUES ===
     # Classify the endpoint
     endpoint = rate_limiter._classify_endpoint(path, method)
     
@@ -336,10 +391,10 @@ async def rate_limit_middleware(request: Request, call_next):
     if is_limited:
         rate_limiter.rejection_count += 1
         
-        # Log rate limit hit
+        # Enhanced logging with more context
         logger.warning(f"🚫 Rate limited {client_ip} on {endpoint} ({path}): {reason}")
         
-        # Return proper HTTP 429 response
+        # Return comprehensive 429 response
         return JSONResponse(
             status_code=429,
             content={
@@ -347,12 +402,21 @@ async def rate_limit_middleware(request: Request, call_next):
                 "message": reason,
                 "retry_after": retry_after,
                 "endpoint_type": endpoint,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
+                "client_ip": client_ip,
+                "path": path,
+                "suggestions": {
+                    "immediate": "Wait for the retry_after period before making new requests",
+                    "admin_users": "Admin users are automatically bypassed when authenticated",
+                    "development": "Set NODE_ENV=development for more generous limits"
+                }
             },
             headers={
                 "Retry-After": str(retry_after),
                 "X-RateLimit-Remaining": "0",
-                "X-RateLimit-Reset": str(int(time.time()) + retry_after)
+                "X-RateLimit-Reset": str(int(time.time()) + retry_after),
+                "X-RateLimit-Limit": str(rate_limiter.rate_limits[endpoint].requests_per_hour),
+                "X-RateLimit-Type": endpoint
             }
         )
     
