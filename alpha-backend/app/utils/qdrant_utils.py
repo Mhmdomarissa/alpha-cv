@@ -848,6 +848,48 @@ class QdrantUtils:
             logger.error(f"❌ Failed to update job posting {job_id}: {e}")
             return False
 
+    def update_job_posting_structured_data(self, job_id: str, structured_data: Dict[str, Any]) -> bool:
+        """
+        Update job posting structured data while preserving metadata fields like public_token
+        """
+        try:
+            collection_name = "job_postings_structured"
+            
+            # First get the current point
+            current_point = self.client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="id", match=MatchValue(value=job_id))]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=True
+            )[0]
+            
+            if not current_point:
+                logger.error(f"❌ Job posting {job_id} not found for structured data update")
+                return False
+                
+            point = current_point[0]
+            payload = point.payload.copy()
+            
+            # Update structured data fields while preserving metadata
+            for key, value in structured_data.items():
+                payload[key] = value
+                
+            payload["updated_date"] = datetime.utcnow().isoformat()
+            
+            # Update the point
+            updated_point = PointStruct(id=job_id, vector=point.vector, payload=payload)
+            self.client.upsert(collection_name=collection_name, points=[updated_point])
+            
+            logger.info(f"✅ Updated job posting structured data {job_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to update job posting structured data {job_id}: {e}")
+            return False
+
     def link_application_to_job(
         self, 
         application_id: str, 

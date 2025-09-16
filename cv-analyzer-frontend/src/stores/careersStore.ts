@@ -255,15 +255,99 @@ loadJobPostings: async () => {
         throw new Error('No applications found to match');
       }
       
-      // Use the existing /match API instead of custom careers matching
+      // Get the job posting details to find the original JD ID
+      const jobData = await api.getJobForEdit(jobId);
+      let originalJdId = (jobData as any).jd_id || jobId; // Use jd_id if available, fallback to jobId
+      
+      // If the job posting doesn't have a linked JD, try to find a matching JD by title
+      if (!(jobData as any).jd_id) {
+        logger.warn('Job posting has no linked JD, attempting to find matching JD by title', { jobId, jobTitle: jobData.job_title });
+        
+        // For now, we'll use a hardcoded mapping or try to find the best matching JD
+        // This is a temporary solution - ideally job postings should be created with proper JD links
+        const availableJds = await api.listJDs();
+        
+        // Try multiple matching strategies
+        let matchingJd = null;
+        
+        // Strategy 1: Exact title match
+        matchingJd = availableJds.jds?.find((jd: any) => 
+          jd.job_title && jobData.job_title && 
+          jd.job_title.toLowerCase() === jobData.job_title.toLowerCase()
+        );
+        
+        // Strategy 2: Title contains match
+        if (!matchingJd) {
+          matchingJd = availableJds.jds?.find((jd: any) => 
+            jd.job_title && jobData.job_title && 
+            (jd.job_title.toLowerCase().includes(jobData.job_title.toLowerCase()) ||
+             jobData.job_title.toLowerCase().includes(jd.job_title.toLowerCase()))
+          );
+        }
+        
+        // Strategy 3: If only one JD available, use it (fallback for test data)
+        if (!matchingJd && availableJds.jds?.length === 1) {
+          matchingJd = availableJds.jds[0];
+          logger.warn('Using only available JD as fallback', { 
+            jobId, 
+            jobTitle: jobData.job_title, 
+            fallbackJdTitle: matchingJd.job_title 
+          });
+        }
+        
+        // Strategy 4: If multiple JDs available but no match, use the first one (fallback)
+        if (!matchingJd && availableJds.jds?.length > 0) {
+          matchingJd = availableJds.jds[0];
+          logger.warn('Using first available JD as fallback (no title match found)', { 
+            jobId, 
+            jobTitle: jobData.job_title, 
+            fallbackJdTitle: matchingJd.job_title,
+            totalJds: availableJds.jds.length
+          });
+        }
+        
+        if (matchingJd) {
+          originalJdId = matchingJd.id;
+          logger.info('Found matching JD', { 
+            jobId, 
+            originalJdId, 
+            jobTitle: jobData.job_title,
+            matchedJdTitle: matchingJd.job_title 
+          });
+        } else {
+          const availableTitles = availableJds.jds?.map((jd: any) => jd.job_title) || [];
+          logger.error('No matching JD found for job posting', { 
+            jobId, 
+            jobTitle: jobData.job_title,
+            availableJds: availableTitles,
+            totalJds: availableJds.jds?.length || 0
+          });
+          throw new Error(`No matching job description found for "${jobData.job_title}". Available JDs (${availableJds.jds?.length || 0}): ${availableTitles.join(', ')}`);
+        }
+      }
+      
+      logger.info('Using JD ID for matching', { jobId, originalJdId });
+      
+      // Use the existing /match API with the original JD ID
       const matchResults = await api.matchCandidates({
-        jd_id: jobId,
+        jd_id: originalJdId,
         cv_ids: cvIds
       });
       
       logger.info(`Matching completed for job ${jobId}`, { 
         totalCandidates: matchResults.candidates.length,
         matchResults: matchResults
+      });
+      
+      // Store match results in app store for display in match tab
+      // Import useAppStore dynamically to avoid circular dependency
+      const { useAppStore } = await import('./appStore');
+      const appStore = useAppStore.getState();
+      appStore.setCareersMatchResult(matchResults);
+      appStore.setCareersMatchData({
+        jobId: originalJdId, // Use the actual JD ID that was used for matching
+        jobTitle: get().selectedJob?.job_title || 'Job',
+        cvIds: cvIds
       });
       
       // Convert match results back to application format with scores

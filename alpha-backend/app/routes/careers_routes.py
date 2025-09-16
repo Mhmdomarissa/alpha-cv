@@ -869,20 +869,19 @@ async def list_job_postings(
             # The job data is already merged from get_all_job_postings, so we can extract directly
             structured_info = job.get("structured_info", {})
             
-            # Check both direct job_title and structured_info.job_title
-            job_title = job.get("job_title") or structured_info.get("job_title", job_title)
-            job_location = structured_info.get("location", "") or structured_info.get("job_location", "")
+            # Use job posting's own data first (this is the edited data)
+            job_title = structured_info.get("job_title", "") or job.get("job_title", job_title)
+            job_location = structured_info.get("job_location", "") or structured_info.get("location", "")
             job_summary = structured_info.get("job_summary", "") or structured_info.get("summary", "")
             
-            # Convert responsibilities list to text
+            # Use job posting's own responsibilities and skills (edited data)
             responsibilities_list = structured_info.get("responsibilities", [])
             if responsibilities_list and isinstance(responsibilities_list, list):
-                key_responsibilities = "\n".join(responsibilities_list)
+                key_responsibilities = "\n".join([f"• {resp}" for resp in responsibilities_list])
             
-            # Convert skills/requirements list to text
             skills_list = structured_info.get("skills", []) or structured_info.get("requirements", [])
             if skills_list and isinstance(skills_list, list):
-                qualifications = "\n".join(skills_list)
+                qualifications = "\n".join([f"• {skill}" for skill in skills_list])
             
             summary = JobPostingSummary(
                 job_id=job["id"],
@@ -939,22 +938,22 @@ async def get_job_for_edit(job_id: str) -> dict:
         qualifications = ""
         company_name = job_data.get("company_name", "")
         
+        # Prioritize job posting's own structured_info data (edited data)
         if structured_data:
             structured_info = structured_data.get("structured_info", {})
-            # Check both direct job_title and structured_info.job_title
-            job_title = structured_data.get("job_title") or structured_info.get("job_title", "")
-            job_location = structured_info.get("location", "") or structured_info.get("job_location", "")
+            # Use job posting's own data first (this is the edited data)
+            job_title = structured_info.get("job_title", "") or structured_data.get("job_title", "")
+            job_location = structured_info.get("job_location", "") or structured_info.get("location", "")
             job_summary = structured_info.get("job_summary", "") or structured_info.get("summary", "")
             
-            # Convert responsibilities list to text
+            # Use job posting's own responsibilities and skills (edited data)
             responsibilities_list = structured_info.get("responsibilities", [])
             if responsibilities_list and isinstance(responsibilities_list, list):
-                key_responsibilities = "\n".join(responsibilities_list)
+                key_responsibilities = "\n".join([f"• {resp}" for resp in responsibilities_list])
             
-            # Convert skills/requirements list to text
             skills_list = structured_info.get("skills", []) or structured_info.get("requirements", [])
             if skills_list and isinstance(skills_list, list):
-                qualifications = "\n".join(skills_list)
+                qualifications = "\n".join([f"• {skill}" for skill in skills_list])
         
         return {
             "job_title": job_title,
@@ -1032,8 +1031,8 @@ async def update_job_posting(
         # Update the structured_info in the payload
         current_structured["structured_info"] = structured_info
         
-        # Store updated structured data
-        success = qdrant.store_structured_data(job_id, "job_postings", current_structured)
+        # Store updated structured data while preserving metadata fields
+        success = qdrant.update_job_posting_structured_data(job_id, current_structured)
         
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update job posting data")
@@ -1245,17 +1244,27 @@ async def extract_jd_for_ui(jd_id: str) -> dict:
         
         qdrant = get_qdrant_utils()
         
-        # Get the original JD document content
+        # Get the original JD document content (raw content, not structured)
         jd_doc = qdrant.retrieve_document(jd_id, "jd")
         if not jd_doc:
             raise HTTPException(status_code=404, detail="JD not found")
         
-        original_content = jd_doc.get("content", "")
-        filename = jd_doc.get("filename", "job_description.pdf")
+        # Use raw content and send to LLM for auto-fill (as requested)
+        raw_content = jd_doc.get("raw_content", "")
         
-        # Use new LLM service method for UI extraction
+        if not raw_content:
+            raise HTTPException(status_code=400, detail="No raw content found in JD document")
+        
+        logger.info(f"🔍 Using raw content for auto-fill, length: {len(raw_content)}")
+        
+        # Send raw content to LLM for UI extraction
         llm_service = get_llm_service()
-        ui_data = llm_service.extract_jd_for_ui_display(original_content, filename)
+        ui_data = llm_service.extract_jd_for_ui_display(raw_content, "auto_fill")
+        
+        if not ui_data:
+            raise HTTPException(status_code=500, detail="Failed to extract UI data from JD")
+        
+        logger.info(f"✅ UI data extracted from raw content via LLM")
         
         if not ui_data:
             raise HTTPException(status_code=500, detail="Failed to extract UI data")

@@ -412,10 +412,14 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
     '/api/careers/admin/jobs',
     {
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
       },
       params: {
-        include_inactive: includeInactive
+        include_inactive: includeInactive,
+        _t: Date.now() // Cache busting parameter
       }
     }
   );
@@ -515,7 +519,13 @@ async getPublicJob(token: string): Promise<PublicJobView> {
       company_name: string;
     }>(`/api/careers/admin/jobs/${jobId}/edit-data`, {
       headers: {
-        Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+        Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      },
+      params: {
+        _t: Date.now() // Cache busting parameter
       }
     });
     return response.data;

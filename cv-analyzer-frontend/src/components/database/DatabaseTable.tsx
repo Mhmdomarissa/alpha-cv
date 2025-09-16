@@ -567,26 +567,24 @@ function CVDetails({ cvId }: { cvId: string }) {
             <p className="text-base font-semibold">{formatDate(cv?.cv?.upload_date || cv?.upload_date)}</p>
           </div>
         </div>
-        {/* Contact Information */}
-        {(cv.contact_info || cv.structured_info?.contact_info) && (
-          <div className="mt-4">
-            <h4 className="text-sm font-medium text-gray-500 mb-2">Contact Information</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm text-gray-600">Email</p>
-                <p className="font-medium">
-                  {cv.contact_info?.email || cv.structured_info?.contact_info?.email || 'not provided'}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Phone</p>
-                <p className="font-medium">
-                  {cv.contact_info?.phone || cv.structured_info?.contact_info?.phone || 'not provided'}
-                </p>
-              </div>
+        {/* Contact Information - Show PII extracted from CV */}
+        <div className="mt-4">
+          <h4 className="text-sm font-medium text-gray-500 mb-2">Contact Information (PII Extracted)</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-gray-600">Email</p>
+              <p className="font-medium">
+                {cv.structured_info?.contact_info?.email || cv.structured_info?.email || cv.candidate?.contact_info?.email || 'not provided'}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Phone</p>
+              <p className="font-medium">
+                {cv.structured_info?.contact_info?.phone || cv.structured_info?.phone || cv.candidate?.contact_info?.phone || 'not provided'}
+              </p>
             </div>
           </div>
-        )}
+        </div>
       </div>
       {/* Skills */}
       <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">

@@ -61,9 +61,30 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
         # Parse CV document
         parsed = await asyncio.to_thread(parsing_service.process_document, cv_file_path, "cv")
         cv_raw_text = parsed["clean_text"]
+        extracted_pii = parsed["extracted_pii"]
         
         # Generate CV standardized data using LLM
         cv_standardized = await asyncio.to_thread(llm_service.standardize_cv, cv_raw_text, cv_file_path)
+        
+        # Merge extracted PII into standardized data
+        logger.info("---------- MERGING PII ----------")
+        # Ensure contact_info exists in standardized data
+        if "contact_info" not in cv_standardized:
+            cv_standardized["contact_info"] = {}
+        
+        # Add extracted PII to contact_info
+        if extracted_pii.get("email") and len(extracted_pii["email"]) > 0:
+            cv_standardized["contact_info"]["email"] = extracted_pii["email"][0]
+            logger.info(f"✅ Added email to contact_info: {cv_standardized['contact_info']['email']}")
+        if extracted_pii.get("phone") and len(extracted_pii["phone"]) > 0:
+            cv_standardized["contact_info"]["phone"] = extracted_pii["phone"][0]
+            logger.info(f"✅ Added phone to contact_info: {cv_standardized['contact_info']['phone']}")
+        
+        # Also store PII at top level for backward compatibility
+        if extracted_pii.get("email") and len(extracted_pii["email"]) > 0:
+            cv_standardized["email"] = extracted_pii["email"][0]
+        if extracted_pii.get("phone") and len(extracted_pii["phone"]) > 0:
+            cv_standardized["phone"] = extracted_pii["phone"][0]
         
         # Generate CV embeddings
         cv_embeddings = await asyncio.to_thread(embedding_service.generate_document_embeddings, cv_standardized)

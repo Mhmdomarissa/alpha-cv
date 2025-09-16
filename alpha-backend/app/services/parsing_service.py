@@ -265,6 +265,8 @@ class ParsingService:
             r'\+\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}',
             # 10-digit with country code: +11234567890
             r'\+\d{11,15}',
+            # 11-digit phone numbers (like 09652267482)
+            r'\b\d{11}\b',
             # 7-digit phone: 123-4567
             r'\b\d{3}[-.\s]?\d{4}\b'
         ]

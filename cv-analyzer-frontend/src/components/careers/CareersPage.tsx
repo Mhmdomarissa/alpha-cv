@@ -13,10 +13,12 @@ import {
   ToggleRight,
   Edit3,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Target
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useAppStore } from '@/stores/appStore';
 import { JobPostingListItem } from '@/lib/types';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-enhanced';
@@ -26,6 +28,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingCard } from '@/components/ui/loading';
 import JobPostingForm from './JobPostingForm';
 import ApplicationsList from './ApplicationsList';
+import MatchingAnimation from '@/components/ui/matching-animation';
 
 export default function CareersPage() {
   const { user } = useAuthStore();
@@ -36,8 +39,10 @@ export default function CareersPage() {
     loadJobPostings,
     updateJobStatus,
     selectJob,
-    selectedJob
+    selectedJob,
+    matchJobCandidates
   } = useCareersStore();
+  const { setCurrentTab } = useAppStore();
   
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
@@ -48,6 +53,7 @@ export default function CareersPage() {
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isMatching, setIsMatching] = useState(false);
 
   useEffect(() => {
     loadJobPostings();
@@ -105,6 +111,33 @@ export default function CareersPage() {
       console.error('Failed to refresh job postings:', error);
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleMatchCandidates = async (job: JobPostingListItem) => {
+    try {
+      // Show matching animation
+      setIsMatching(true);
+      
+      // First select the job to load its applications
+      selectJob(job);
+      
+      // Wait a moment for applications to load
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Run the matching
+      await matchJobCandidates(job.job_id);
+      
+      // Hide matching animation
+      setIsMatching(false);
+      
+      // Navigate to match results tab
+      setCurrentTab('match');
+    } catch (error) {
+      console.error('Failed to match candidates:', error);
+      // Hide matching animation on error
+      setIsMatching(false);
+      alert('Failed to match candidates. Please try again.');
     }
   };
 
@@ -253,6 +286,23 @@ export default function CareersPage() {
                   </div>
                   
                   <div className="flex items-center space-x-2 ml-4">
+                    {/* Match Candidates Button - Only show if job has applications */}
+                    {(job.application_count || 0) > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMatchCandidates(job);
+                        }}
+                        title="Match Candidates"
+                        className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold px-3 py-1 shadow-md hover:shadow-lg transition-all duration-200"
+                      >
+                        <Target className="w-4 h-4 mr-1" />
+                        Match ({job.application_count || 0})
+                      </Button>
+                    )}
+                    
                     <Button
                       variant="ghost"
                       size="sm"
@@ -413,6 +463,9 @@ export default function CareersPage() {
           </div>
         </div>
       )}
+
+      {/* Matching Animation */}
+      <MatchingAnimation isVisible={isMatching} />
     </div>
   );
 }

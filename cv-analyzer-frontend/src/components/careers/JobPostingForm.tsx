@@ -234,8 +234,8 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
         console.log('About to show success toast for save (JobPostingForm)');
         showSuccess('Changes Saved Successfully!', 'Your job posting has been updated.');
         console.log('Success toast called for save (JobPostingForm)');
-        // Call onSuccess to close dialog and refresh data after toast is visible
-        setTimeout(() => onSuccess(), 5000);
+        // Call onSuccess immediately to refresh data and close dialog
+        onSuccess();
       }
     } catch (error) {
       console.error('Failed to save job posting updates:', error);

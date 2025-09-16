@@ -606,50 +606,52 @@ class LLMService:
         try:
             # New prompt specifically for UI display
             ui_extraction_prompt = f"""
-You are a professional HR assistant. Extract information from this job description to create a clean, professional job posting for candidates.
+You are a job description parser. Your ONLY job is to extract the EXACT information from the provided job description text below.
 
-Extract the following information in a human-readable, professional format:
+DO NOT CREATE, INVENT, OR GENERATE ANY CONTENT. ONLY EXTRACT what is actually written in the text.
 
-1. **Job Title**: The exact position title (e.g., "Senior Software Engineer", "Marketing Manager")
+If the text says "AI Consultant", return "AI Consultant". If it says "Senior Software Engineer", return "Senior Software Engineer". Extract exactly what is written.
 
-2. **Job Location**: Location information (e.g., "Remote", "New York, NY", "Dubai, UAE", "Hybrid - London")
-
-3. **Job Summary**: A clear, engaging 2-3 sentence summary that describes the role and company. This should attract candidates and give them a quick overview of what they'll be doing.
-
-4. **Key Responsibilities**: List the main duties and responsibilities as bullet points. Write them as complete, clear sentences that candidates can easily understand. Focus on what the person will actually be doing day-to-day.
-
-5. **Qualifications**: List the required skills, experience, and qualifications as bullet points. Write them as clear requirements that candidates can easily assess themselves against.
-
-Guidelines:
-- Use professional, engaging language that appeals to job seekers
-- Make everything easy to read and understand
-- Avoid internal jargon or overly technical language
-- Write complete sentences, not fragments
-- Be specific but concise
-- Focus on what matters most to candidates
-
-Job Description Content:
+Job Description Text:
 {content}
 
-Return your response in this exact JSON format:
+Extract these 5 fields from the text above:
+
+1. job_title: Find the exact job title mentioned in the text (e.g., "AI Consultant", "Senior AI Consultant", "Data Scientist")
+2. job_location: Find location information if mentioned, otherwise use "Location not specified"
+3. job_summary: Write 2-3 sentences summarizing what this role does based on the text
+4. key_responsibilities: List 3-5 main responsibilities mentioned in the text as bullet points
+5. qualifications: List 3-5 required skills/qualifications mentioned in the text as bullet points
+
+Return ONLY this JSON format:
 {{
-    "job_title": "extracted job title",
-    "job_location": "location information",
-    "job_summary": "professional summary paragraph",
-    "key_responsibilities": "• Responsibility 1\\n• Responsibility 2\\n• Responsibility 3",
-    "qualifications": "• Qualification 1\\n• Qualification 2\\n• Qualification 3"
+    "job_title": "exact title from text",
+    "job_location": "location from text or 'Location not specified'",
+    "job_summary": "summary based on text content",
+    "key_responsibilities": "• responsibility from text\\n• another responsibility from text",
+    "qualifications": "• qualification from text\\n• another qualification from text"
 }}
 """
 
             messages = [
-                {"role": "system", "content": "You are a professional HR assistant specializing in creating clear, candidate-friendly job postings."},
+                {"role": "system", "content": "You are a text extraction tool. Extract only what is written in the provided text. Do not generate or create any content."},
                 {"role": "user", "content": ui_extraction_prompt}
             ]
+            
+            # Debug: Log what's being sent to LLM
+            logger.info(f"🔍 UI Extraction - Content length: {len(content)} characters")
+            logger.info(f"🔍 UI Extraction - Content preview: {content[:300]}...")
             
             response = self._call_openai_api(
                 messages=messages,
                 max_tokens=2000
             )
+            
+            # Debug: Log what's received from LLM
+            if response.success:
+                logger.info(f"🔍 UI Extraction - LLM Response: {response.data}")
+            else:
+                logger.error(f"🔍 UI Extraction - LLM Error: {response.error_message}")
             
             if not response.success:
                 logger.error(f"❌ Failed to extract UI data: {response.error_message}")
