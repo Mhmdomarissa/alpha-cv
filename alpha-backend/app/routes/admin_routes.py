@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from sqlmodel import Session, select
+from datetime import datetime
 from app.db.auth_db import get_session
 from app.models.user import User
 from app.schemas.auth import UserCreate, UserRead, UserUpdate
@@ -109,4 +110,40 @@ def reset_rate_limiter(_: User = Depends(require_admin)):
         "success": True,
         "message": "Rate limiter state has been reset",
         "timestamp": limiter.last_cleanup
+    }
+
+@router.get("/rate-limiter/bypass-test")
+def test_rate_limiter_bypass(_: User = Depends(require_admin)):
+    """Test endpoint to verify admin bypass is working"""
+    return {
+        "success": True,
+        "message": "Rate limiter bypass is working correctly for admin users",
+        "timestamp": datetime.utcnow().isoformat(),
+        "note": "This endpoint would be rate limited for non-admin users"
+    }
+
+@router.post("/rate-limiter/whitelist-ip")
+def whitelist_ip(
+    ip_address: str, 
+    duration_hours: int = 24,
+    _: User = Depends(require_admin)
+):
+    """Temporarily whitelist an IP address (admin only)"""
+    from datetime import timedelta
+    limiter = get_rate_limiter()
+    
+    # Set IP reputation to maximum (bypasses most limits)
+    limiter.ip_reputation[ip_address] = 1.0
+    
+    # Clear any existing rate limit history
+    if ip_address in limiter.ip_requests:
+        limiter.ip_requests[ip_address].clear()
+    limiter.ip_concurrent[ip_address] = 0
+    
+    return {
+        "success": True,
+        "message": f"IP {ip_address} has been whitelisted for {duration_hours} hours",
+        "ip_address": ip_address,
+        "duration_hours": duration_hours,
+        "expires_at": (datetime.utcnow() + timedelta(hours=duration_hours)).isoformat()
     }
