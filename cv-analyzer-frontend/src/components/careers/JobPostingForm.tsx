@@ -240,7 +240,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
       setIsSaving(false);
     }
   };
-
+  
   const handleSubmit = async () => {
     console.log('🔄 handleSubmit called - checking for duplicates...');
     
@@ -280,24 +280,24 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
         result = await createJobPostingWithFormData(null, formData);
       }
       
-      if (result) {
-        setSuccess({ 
-          link: result.public_link, 
+    if (result) {
+      setSuccess({ 
+        link: result.public_link, 
           token: result.public_token,
           jobId: result.job_id
-        });
-        setSelectedFile(null);
+      });
+      setSelectedFile(null);
         // Keep form data for editing
         setShowForm(true);
         
         console.log('About to show success toast for job posting (JobPostingForm)');
         showSuccess('Job Posted Successfully!', 'Your job posting is now live and ready to receive applications.');
         console.log('Success toast called for job posting (JobPostingForm)');
-        
-        // Close form after delay
-        setTimeout(() => {
-          onSuccess();
-        }, 5000);
+      
+      // Close form after delay
+      setTimeout(() => {
+        onSuccess();
+      }, 5000);
       }
     } catch (error) {
       console.error('Failed to create job posting:', error);
@@ -337,7 +337,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
       }
     }
   };
-
+  
   const handleCopyLink = async () => {
     if (success?.link) {
       const copySuccess = await copyToClipboard(success.link);
@@ -380,30 +380,30 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
               <p className="font-semibold">Job posting created successfully!</p>
               
               {/* Professional Job Link */}
-              <div className="space-y-2">
-                <div className="flex items-center space-x-2">
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
                   <span className="text-sm font-medium">Job Posting Link:</span>
                   <span className="text-sm bg-blue-100 px-2 py-1 rounded truncate max-w-xs">
-                    {success.link}
-                  </span>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={handleCopyLink}
+                  {success.link}
+                </span>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={handleCopyLink}
                     className="h-8 px-2 text-blue-700 hover:text-blue-900"
                     title="Copy job posting link"
-                  >
-                    {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={handleViewJob}
+                >
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={handleViewJob}
                     className="h-8 px-2 text-blue-700 hover:text-blue-900"
                     title="Preview job posting"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </Button>
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </Button>
                 </div>
               </div>
               
@@ -421,7 +421,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
           </AlertDescription>
         </Alert>
       )}
-
+      
       {/* Save Success Display */}
       {saveSuccess && (
         <Alert className="border-blue-200 bg-blue-50">
@@ -514,9 +514,9 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
                     <Upload className="w-4 h-4 mr-2" />
                     {isUploading ? 'Processing...' : 'Upload JD'}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                <Button
+                  variant="ghost"
+                  size="sm"
                     onClick={() => {
                       setSelectedFile(null);
                       setShowForm(false);
@@ -528,10 +528,10 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
                         qualifications: ''
                       });
                     }}
-                    className="text-green-700 hover:bg-green-200"
-                  >
-                    Remove file
-                  </Button>
+                  className="text-green-700 hover:bg-green-200"
+                >
+                  Remove file
+                </Button>
                 </div>
               </div>
             ) : (
@@ -578,7 +578,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
           </div>
         </CardContent>
       </Card>
-
+      
       {/* Phase 2: Auto-fill Section */}
       {uploadPhase === 'uploaded' && (
         <Card className="border-green-200 shadow-sm">
@@ -738,8 +738,8 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
             onClick={onSuccess}
             className="px-6 py-3 border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all duration-200"
           >
-            Cancel
-          </Button>
+          Cancel
+        </Button>
           
           {/* Save button - only show after job is created or when editing */}
           {(success || jobId) && (
@@ -755,18 +755,18 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
           
           {/* Post Job button - only show if no job created yet and not editing */}
           {!success && !jobId && (
-            <Button
-              onClick={handleSubmit}
+        <Button
+          onClick={handleSubmit}
               disabled={(!selectedFile && !showForm) || (showForm && !formData.jobTitle.trim()) || isCreatingJob || isUploading || isAutoFilling}
               className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+        >
               <Briefcase className="w-5 h-5 mr-2" />
               {isCreatingJob ? 'Creating...' : isUploading ? 'Uploading...' : isAutoFilling ? 'Auto-filling...' : 'Post Job'}
-            </Button>
+        </Button>
           )}
         </div>
       </div>
-      </div>
+    </div>
     </>
   );
 }
