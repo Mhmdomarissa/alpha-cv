@@ -28,7 +28,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingCard } from '@/components/ui/loading';
 import JobPostingForm from './JobPostingForm';
 import ApplicationsList from './ApplicationsList';
-import MatchingAnimation from '@/components/ui/matching-animation';
 
 export default function CareersPage() {
   const { user } = useAuthStore();
@@ -53,11 +52,11 @@ export default function CareersPage() {
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isMatching, setIsMatching] = useState(false);
 
   useEffect(() => {
     loadJobPostings();
   }, [loadJobPostings]);
+
 
   const handleToggleStatus = async (jobId: string, currentStatus: boolean) => {
     await updateJobStatus(jobId, !currentStatus);
@@ -116,9 +115,6 @@ export default function CareersPage() {
 
   const handleMatchCandidates = async (job: JobPostingListItem) => {
     try {
-      // Show matching animation
-      setIsMatching(true);
-      
       // First select the job to load its applications
       selectJob(job);
       
@@ -128,15 +124,10 @@ export default function CareersPage() {
       // Run the matching
       await matchJobCandidates(job.job_id);
       
-      // Hide matching animation
-      setIsMatching(false);
-      
       // Navigate to match results tab
       setCurrentTab('match');
     } catch (error) {
       console.error('Failed to match candidates:', error);
-      // Hide matching animation on error
-      setIsMatching(false);
       alert('Failed to match candidates. Please try again.');
     }
   };
@@ -464,8 +455,6 @@ export default function CareersPage() {
         </div>
       )}
 
-      {/* Matching Animation */}
-      <MatchingAnimation isVisible={isMatching} />
     </div>
   );
 }

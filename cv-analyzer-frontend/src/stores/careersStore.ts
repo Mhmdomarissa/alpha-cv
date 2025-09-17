@@ -244,6 +244,12 @@ loadJobPostings: async () => {
 
   matchJobCandidates: async (jobId: string, minScore?: number) => {
     set({ isLoading: true, error: null });
+    
+    // Set careers matching loading state in app store
+    const { useAppStore } = await import('./appStore');
+    const appStore = useAppStore.getState();
+    appStore.setLoading('careersMatching', true);
+    
     try {
       logger.info('Matching candidates for job', { jobId, minScore });
       
@@ -373,6 +379,9 @@ loadJobPostings: async () => {
         isLoading: false
       }));
       
+      // Clear careers matching loading state
+      appStore.setLoading('careersMatching', false);
+      
       return {
         job_id: jobId,
         job_title: matchResults.jd_job_title,
@@ -386,6 +395,10 @@ loadJobPostings: async () => {
         isLoading: false, 
         error: error.message || 'Failed to match candidates' 
       });
+      
+      // Clear careers matching loading state on error
+      appStore.setLoading('careersMatching', false);
+      
       throw error;
     }
   },
@@ -415,6 +428,7 @@ loadJobPostings: async () => {
     logger.info('Converted MatchResponse', result);
     return result;
   },
+
   
   // stores/careersStore.ts
 

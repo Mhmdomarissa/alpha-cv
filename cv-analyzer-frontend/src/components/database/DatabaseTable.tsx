@@ -160,9 +160,12 @@ export default function DatabasePageNew() {
     await reprocessJD(jdId);
   };
   const canStartMatching = selectedCVs.length > 0 && selectedJD;
-  const handleStartMatching = async () => {
-    await runMatch();
+  const handleStartMatching = () => {
+    // Navigate to match tab immediately to show loading animation
     setCurrentTab('match');
+    
+    // The MatchingPageNew component will automatically detect selectedJD and selectedCVs
+    // and start the matching process, showing the loading animation
   };
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
@@ -197,10 +200,9 @@ export default function DatabasePageNew() {
             <Button
               variant="primary"
               onClick={handleStartMatching}
-              disabled={loadingStates.matching.isLoading}
             >
               <Play className="w-4 h-4 mr-2" />
-              {loadingStates.matching.isLoading ? 'Matching...' : 'Match Selected'}
+              Match Selected
             </Button>
           )}
         </div>

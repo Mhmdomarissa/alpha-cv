@@ -66,6 +66,9 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
   // Initialize success state for editing mode
   useEffect(() => {
     if (jobId && initialData) {
+      // In edit mode, always show the form
+      setShowForm(true);
+      
       if (publicToken) {
         // Job has a valid token, preserve it
         setSuccess({
@@ -219,15 +222,8 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
     setSaveSuccess(false);
 
     try {
-      const updateData = {
-        job_title: formData.jobTitle || undefined,
-        job_location: formData.jobLocation || undefined,
-        job_summary: formData.jobSummary || undefined,
-        key_responsibilities: formData.keyResponsibilities || undefined,
-        qualifications: formData.qualifications || undefined,
-      };
-
-      const result = await api.updateJobPosting(currentJobId, updateData);
+      // Use unified endpoint for updating existing job
+      const result = await api.unifiedJobUpdate(null, currentJobId, formData);
 
       if (result.success) {
         setSaveSuccess(true);
@@ -266,14 +262,14 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
       console.log('Debug job posting: uploadPhase =', uploadPhase, 'jdId =', jdId, 'hasFormData =', Object.values(formData).some(v => v.trim()));
       
       if (uploadPhase === 'autofilled' && jdId) {
-        // If we have auto-filled data from the two-phase system, use the new endpoint
+        // If we have auto-filled data from the two-phase system, use the unified endpoint
         // This will create a job posting with the edited/auto-filled human-readable content
-        console.log('Using new two-phase system with auto-filled data');
-        result = await api.createJobPostingFromUIData(jdId, formData);
+        console.log('Using unified endpoint with auto-filled data');
+        result = await api.unifiedJobUpdate(jdId, null, formData);
       } else if (jdId && Object.values(formData).some(v => v.trim())) {
-        // If we have a JD ID and form data (even if not in autofilled phase), use the new system
-        console.log('Using new two-phase system with manual edits, jdId:', jdId);
-        result = await api.createJobPostingFromUIData(jdId, formData);
+        // If we have a JD ID and form data (even if not in autofilled phase), use the unified system
+        console.log('Using unified endpoint with manual edits, jdId:', jdId);
+        result = await api.unifiedJobUpdate(jdId, null, formData);
       } else if (selectedFile) {
         // If there's a file but no auto-fill yet, use the old method
         console.log('Using createJobPostingWithFormData for file upload');
@@ -467,24 +463,38 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
         <CardContent className="p-6">
           <div
             className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
+              jobId ? 'border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed' : // Disabled in edit mode
               dragActive
                 ? 'border-blue-500 bg-blue-50 shadow-lg scale-[1.02]'  // Enhanced drag active state
                 : selectedFile
                 ? 'border-green-500 bg-green-50 shadow-md'  // Enhanced selected file state
                 : 'border-gray-300 bg-gray-50 hover:border-blue-400 hover:bg-blue-50 hover:shadow-md'  // Enhanced default state
             }`}
-            onDragEnter={(e) => {
+            onDragEnter={jobId ? undefined : (e) => {
               e.preventDefault();
               setDragActive(true);
             }}
-            onDragLeave={(e) => {
+            onDragLeave={jobId ? undefined : (e) => {
               e.preventDefault();
               setDragActive(false);
             }}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
+            onDragOver={jobId ? undefined : (e) => e.preventDefault()}
+            onDrop={jobId ? undefined : handleDrop}
           >
-            {selectedFile ? (
+            {jobId ? (
+              // Edit mode - show disabled state
+              <div className="space-y-3">
+                <div className="w-16 h-16 bg-gray-200 rounded-full mx-auto flex items-center justify-center">
+                  <Edit3 className="w-8 h-8 text-gray-500" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-600">Edit Mode</p>
+                  <p className="text-sm text-gray-500">
+                    File upload is disabled. Edit the form fields below.
+                  </p>
+                </div>
+              </div>
+            ) : selectedFile ? (
               <div className="space-y-3">
                 <div className="w-16 h-16 bg-green-200 rounded-full mx-auto flex items-center justify-center">
                   <FileText className="w-8 h-8 text-green-700" />
