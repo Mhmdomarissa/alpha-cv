@@ -481,7 +481,9 @@ class QdrantUtils:
         job_id: str, 
         public_token: str,
         company_name: Optional[str] = None,
-        additional_info: Optional[str] = None
+        additional_info: Optional[str] = None,
+        posted_by_user: Optional[str] = None,
+        posted_by_role: Optional[str] = None
     ) -> bool:
         """
         Store job posting metadata in job_postings_structured collection
@@ -495,6 +497,8 @@ class QdrantUtils:
                 "public_token": public_token,
                 "company_name": company_name,
                 "additional_info": additional_info,
+                "posted_by_user": posted_by_user,
+                "posted_by_role": posted_by_role,
                 "is_active": True,
                 "created_date": datetime.utcnow().isoformat(),
                 "document_type": "job_posting_metadata"
@@ -514,7 +518,9 @@ class QdrantUtils:
         job_id: str, 
         jd_id: str, 
         public_token: str, 
-        ui_data: Dict[str, Any]
+        ui_data: Dict[str, Any],
+        posted_by_user: Optional[str] = None,
+        posted_by_role: Optional[str] = None
     ) -> bool:
         """
         Store UI-specific job posting data (separate from matching embeddings).
@@ -531,6 +537,8 @@ class QdrantUtils:
                 "created_date": datetime.utcnow().isoformat(),
                 "is_active": True,
                 "data_type": "ui_display",  # Mark as UI data
+                "posted_by_user": posted_by_user,
+                "posted_by_role": posted_by_role,
                 
                 # UI-specific structured info
                 "structured_info": {
@@ -990,12 +998,22 @@ class QdrantUtils:
             collection_name = "job_postings_structured"
             
             filter_conditions = []
+            filter_conditions_not = []
+            
             if not include_inactive:
                 filter_conditions.append(
                     FieldCondition(key="is_active", match=MatchValue(value=True))
                 )
             
-            filter_obj = Filter(must=filter_conditions) if filter_conditions else None
+            # Always exclude deleted jobs
+            filter_conditions_not.append(
+                FieldCondition(key="is_deleted", match=MatchValue(value=True))
+            )
+            
+            filter_obj = Filter(
+                must=filter_conditions if filter_conditions else None,
+                must_not=filter_conditions_not
+            )
             
             results = self.client.scroll(
                 collection_name=collection_name,
@@ -1236,6 +1254,290 @@ class QdrantUtils:
                 "jd_structured_deleted": 0,
                 "jd_embeddings_deleted": 0,
                 "cvs_preserved": 0,
+                "success": False,
+                "error": str(e)
+            }
+
+    def get_job_posting_by_id(self, job_id: str) -> Optional[dict]:
+        """
+        Get a job posting by its ID to check if it exists
+        """
+        try:
+            # Search in job_postings_structured collection
+            search_result = self.client.scroll(
+                collection_name="job_postings_structured",
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="id",
+                            match=MatchValue(value=job_id)
+                        )
+                    ],
+                    must_not=[
+                        FieldCondition(
+                            key="is_deleted",
+                            match=MatchValue(value=True)
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            if search_result[0]:
+                return search_result[0][0].payload
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting job posting {job_id}: {e}")
+            return None
+
+    def soft_delete_job_posting(self, job_id: str, deleted_by: str, deleted_at: str) -> dict:
+        """
+        Soft delete a job posting and related data
+        
+        Returns:
+            dict: Success status and details of what was deleted/archived
+        """
+        try:
+            results = {
+                "job_posting_deleted": False,
+                "jd_documents_deleted": 0,
+                "jd_structured_deleted": 0,
+                "jd_embeddings_deleted": 0,
+                "applications_archived": 0,
+                "success": False
+            }
+            
+            # 1. Get the job posting to find related JD data
+            job_posting = self.get_job_posting_by_id(job_id)
+            if not job_posting:
+                return {
+                    "success": False,
+                    "error": f"Job posting {job_id} not found or already deleted"
+                }
+            
+            jd_id = job_posting.get("jd_id")
+            logger.info(f"🗑️ Soft deleting job posting {job_id} with JD {jd_id}")
+            
+            # 2. Soft delete job posting (mark as deleted)
+            try:
+                # Find the job posting point
+                search_result = self.client.scroll(
+                    collection_name="job_postings_structured",
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="id",
+                                match=MatchValue(value=job_id)
+                            )
+                        ]
+                    ),
+                    limit=1,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                if search_result[0]:
+                    point = search_result[0][0]
+                    updated_payload = point.payload.copy()
+                    updated_payload.update({
+                        "is_deleted": True,
+                        "deleted_by": deleted_by,
+                        "deleted_at": deleted_at
+                    })
+                    
+                    # Update the point with soft deletion metadata
+                    self.client.upsert(
+                        collection_name="job_postings_structured",
+                        points=[PointStruct(
+                            id=point.id,
+                            vector=point.vector or {},
+                            payload=updated_payload
+                        )]
+                    )
+                    results["job_posting_deleted"] = True
+                    logger.info(f"✅ Soft deleted job posting {job_id}")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to soft delete job posting {job_id}: {e}")
+                return {"success": False, "error": f"Failed to delete job posting: {str(e)}"}
+            
+            # 3. Soft delete related JD documents if they exist
+            if jd_id:
+                try:
+                    # JD Documents
+                    jd_docs = self.client.scroll(
+                        collection_name="jd_documents",
+                        scroll_filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="id",
+                                    match=MatchValue(value=jd_id)
+                                )
+                            ]
+                        ),
+                        limit=100,
+                        with_payload=True,
+                        with_vectors=False
+                    )
+                    
+                    if jd_docs[0]:
+                        for point in jd_docs[0]:
+                            updated_payload = point.payload.copy()
+                            updated_payload.update({
+                                "is_deleted": True,
+                                "deleted_by": deleted_by,
+                                "deleted_at": deleted_at,
+                                "deleted_reason": f"Related to deleted job posting {job_id}"
+                            })
+                            
+                            self.client.upsert(
+                                collection_name="jd_documents",
+                                points=[PointStruct(
+                                    id=point.id,
+                                    vector=point.vector or {},
+                                    payload=updated_payload
+                                )]
+                            )
+                        results["jd_documents_deleted"] = len(jd_docs[0])
+                        logger.info(f"✅ Soft deleted {len(jd_docs[0])} JD documents")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to soft delete JD documents: {e}")
+                
+                # 4. Soft delete JD structured data
+                try:
+                    jd_structured = self.client.scroll(
+                        collection_name="jd_structured",
+                        scroll_filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="id",
+                                    match=MatchValue(value=jd_id)
+                                )
+                            ]
+                        ),
+                        limit=100,
+                        with_payload=True,
+                        with_vectors=False
+                    )
+                    
+                    if jd_structured[0]:
+                        for point in jd_structured[0]:
+                            updated_payload = point.payload.copy()
+                            updated_payload.update({
+                                "is_deleted": True,
+                                "deleted_by": deleted_by,
+                                "deleted_at": deleted_at,
+                                "deleted_reason": f"Related to deleted job posting {job_id}"
+                            })
+                            
+                            self.client.upsert(
+                                collection_name="jd_structured",
+                                points=[PointStruct(
+                                    id=point.id,
+                                    vector=point.vector or {},
+                                    payload=updated_payload
+                                )]
+                            )
+                        results["jd_structured_deleted"] = len(jd_structured[0])
+                        logger.info(f"✅ Soft deleted {len(jd_structured[0])} JD structured data")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to soft delete JD structured data: {e}")
+                
+                # 5. Soft delete JD embeddings
+                try:
+                    jd_embeddings = self.client.scroll(
+                        collection_name="jd_embeddings",
+                        scroll_filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="jd_id",
+                                    match=MatchValue(value=jd_id)
+                                )
+                            ]
+                        ),
+                        limit=1000,
+                        with_payload=True,
+                        with_vectors=False
+                    )
+                    
+                    if jd_embeddings[0]:
+                        for point in jd_embeddings[0]:
+                            updated_payload = point.payload.copy()
+                            updated_payload.update({
+                                "is_deleted": True,
+                                "deleted_by": deleted_by,
+                                "deleted_at": deleted_at,
+                                "deleted_reason": f"Related to deleted job posting {job_id}"
+                            })
+                            
+                            self.client.upsert(
+                                collection_name="jd_embeddings",
+                                points=[PointStruct(
+                                    id=point.id,
+                                    vector=point.vector,  # Keep the vector for embeddings
+                                    payload=updated_payload
+                                )]
+                            )
+                        results["jd_embeddings_deleted"] = len(jd_embeddings[0])
+                        logger.info(f"✅ Soft deleted {len(jd_embeddings[0])} JD embeddings")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to soft delete JD embeddings: {e}")
+            
+            # 6. Archive applications instead of deleting them
+            try:
+                # Find applications for this job
+                applications = self.client.scroll(
+                    collection_name="applications_structured",
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="job_id",
+                                match=MatchValue(value=job_id)
+                            )
+                        ]
+                    ),
+                    limit=1000,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                if applications[0]:
+                    for point in applications[0]:
+                        updated_payload = point.payload.copy()
+                        updated_payload.update({
+                            "job_deleted": True,
+                            "job_deleted_by": deleted_by,
+                            "job_deleted_at": deleted_at,
+                            "application_status": "archived_job_deleted"
+                        })
+                        
+                        self.client.upsert(
+                            collection_name="applications_structured",
+                            points=[PointStruct(
+                                id=point.id,
+                                vector=point.vector or {},
+                                payload=updated_payload
+                            )]
+                        )
+                    results["applications_archived"] = len(applications[0])
+                    logger.info(f"✅ Archived {len(applications[0])} applications")
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to archive applications: {e}")
+            
+            results["success"] = True
+            logger.info(f"✅ Successfully soft-deleted job posting {job_id}: {results}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during soft deletion of job posting {job_id}: {e}")
+            return {
                 "success": False,
                 "error": str(e)
             }
