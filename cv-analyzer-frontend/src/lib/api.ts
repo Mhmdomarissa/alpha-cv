@@ -182,7 +182,12 @@ class ApiClient {
 
   // Two-phase JD upload methods
   async extractJDForUI(jdId: string): Promise<any> {
-    const response = await this.client.post(`/api/careers/admin/jobs/${jdId}/extract-ui-data`);
+    const token = localStorage.getItem('auth_token');
+    const response = await this.client.post(`/api/careers/admin/jobs/${jdId}/extract-ui-data`, {}, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
     return response.data;
   }
 
@@ -196,9 +201,11 @@ class ApiClient {
     formDataObj.append('key_responsibilities', formData.keyResponsibilities || '');
     formDataObj.append('qualifications', formData.qualifications || '');
     
+    const token = localStorage.getItem('auth_token');
     const response = await this.client.post('/api/careers/admin/jobs/create-from-ui-data', formDataObj, {
       headers: {
         'Content-Type': 'multipart/form-data',
+        'Authorization': `Bearer ${token}`,
       },
     });
     return response.data;
@@ -563,6 +570,18 @@ async getPublicJob(token: string): Promise<PublicJobView> {
     return response.data;
   }
 
+  async deleteJobPosting(jobId: string): Promise<{ success: boolean; message: string; details: any }> {
+    const response = await this.client.delete(
+      `/api/careers/admin/jobs/${jobId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      }
+    );
+    return response.data;
+  }
+
   async deleteAllJobPostings(): Promise<{ success: boolean; message: string; details: any }> {
     const response = await this.client.delete(
       `/api/careers/admin/jobs/delete-all`,
@@ -654,6 +673,7 @@ export const api = {
   RequestRetryHandler.withRetry(() => apiClient.updateJobStatus(jobId, status)),
   matchJobCandidates: (jobId: string, request: { min_score?: number; include_inactive?: boolean }) => 
   RequestRetryHandler.withRetry(() => apiClient.matchJobCandidates(jobId, request)),
+  deleteJobPosting: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.deleteJobPosting(jobId)),
   deleteAllJobPostings: () => RequestRetryHandler.withRetry(() => apiClient.deleteAllJobPostings()),
 };
 

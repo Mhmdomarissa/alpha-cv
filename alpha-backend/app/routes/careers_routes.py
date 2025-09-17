@@ -39,7 +39,7 @@ from app.services.parsing_service import get_parsing_service
 from app.services.llm_service import get_llm_service  
 from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils
-from app.deps.auth import require_admin
+from app.deps.auth import require_admin, require_user
 from app.models.user import User
 
 # Storage directory for job application CVs
@@ -496,8 +496,8 @@ async def post_job(
     job_summary: Optional[str] = Form(None),
     key_responsibilities: Optional[str] = Form(None),
     qualifications: Optional[str] = Form(None),
-    file: Optional[UploadFile] = File(None)
-    # Add authentication here when ready: current_user = Depends(require_hr_user)
+    file: Optional[UploadFile] = File(None),
+    current_user: User = Depends(require_user)
 ) -> JobPostingResponse:
     """
     HR endpoint: Upload job description → create public link
@@ -635,7 +635,9 @@ async def post_job(
         # 6. Store job posting metadata for careers functionality
         success_steps.append(
             qdrant.store_job_posting_metadata(
-                job_id, public_token, company_name, additional_info
+                job_id, public_token, company_name, additional_info,
+                posted_by_user=current_user.username,
+                posted_by_role=current_user.role
             )
         )
         
@@ -658,7 +660,9 @@ async def post_job(
             upload_date=_now_iso(),
             filename=filename,
             is_active=True,
-            company_name=company_name
+            company_name=company_name,
+            posted_by_user=current_user.username,
+            posted_by_role=current_user.role
         )
         
     except HTTPException:
@@ -674,8 +678,8 @@ async def post_job_manual(
     key_responsibilities: Optional[str] = Form(None),
     qualifications: Optional[str] = Form(None),
     company_name: Optional[str] = Form(None),
-    additional_info: Optional[str] = Form(None)
-    # Add authentication here when ready: current_user = Depends(require_hr_user)
+    additional_info: Optional[str] = Form(None),
+    current_user: User = Depends(require_user)
 ) -> JobPostingResponse:
     """
     HR endpoint: Create job posting manually with form data
@@ -763,7 +767,9 @@ Additional Information:
         # 6. Store job posting metadata for careers functionality
         success_steps.append(
             qdrant.store_job_posting_metadata(
-                job_id, public_token, company_name, additional_info
+                job_id, public_token, company_name, additional_info,
+                posted_by_user=current_user.username,
+                posted_by_role=current_user.role
             )
         )
         
@@ -785,7 +791,9 @@ Additional Information:
             upload_date=_now_iso(),
             filename=f"manual_job_{job_id}.txt",
             is_active=True,
-            company_name=company_name
+            company_name=company_name,
+            posted_by_user=current_user.username,
+            posted_by_role=current_user.role
         )
         
     except HTTPException:
@@ -1297,7 +1305,8 @@ async def create_job_posting_from_ui_data(
     job_location: str = Form(...),
     job_summary: str = Form(...),
     key_responsibilities: str = Form(...),
-    qualifications: str = Form(...)
+    qualifications: str = Form(...),
+    current_user: User = Depends(require_user)
 ) -> dict:
     """
     Create a job posting from human-readable UI data that was auto-filled and potentially edited.
@@ -1331,7 +1340,9 @@ async def create_job_posting_from_ui_data(
             job_id=job_id,
             jd_id=jd_id,
             public_token=public_token,
-            ui_data=ui_data
+            ui_data=ui_data,
+            posted_by_user=current_user.username,
+            posted_by_role=current_user.role
         )
         
         if not success:
@@ -1355,6 +1366,72 @@ async def create_job_posting_from_ui_data(
     except Exception as e:
         logger.error(f"❌ Failed to create job posting from UI data: {e}")
         raise HTTPException(status_code=500, detail="Failed to create job posting")
+
+
+@router.delete("/admin/jobs/{job_id}")
+async def delete_job_posting(
+    job_id: str,
+    current_user: User = Depends(require_user)  # Allow both admin and user
+) -> JSONResponse:
+    """
+    Delete a specific job posting and all related data (soft deletion)
+    
+    This endpoint will:
+    1. Mark job posting as deleted in job_postings_structured collection
+    2. Mark related JD data as deleted in jd_* collections if it exists
+    3. Archive job applications instead of deleting them
+    4. Return confirmation with cleanup summary
+    
+    Available to both admin and regular users.
+    """
+    try:
+        logger.info(f"🗑️ USER ACTION: Starting deletion of job posting {job_id} by user: {current_user.username} (role: {current_user.role})")
+        
+        qdrant = get_qdrant_utils()
+        
+        # Check if job posting exists first
+        job_exists = qdrant.get_job_posting_by_id(job_id)
+        if not job_exists:
+            logger.warning(f"❌ Job posting {job_id} not found for deletion by {current_user.username}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail=f"Job posting with ID {job_id} not found"
+            )
+        
+        # Perform soft deletion
+        results = qdrant.soft_delete_job_posting(
+            job_id=job_id,
+            deleted_by=current_user.username,
+            deleted_at=datetime.utcnow().isoformat()
+        )
+        
+        if results["success"]:
+            logger.info(f"✅ Successfully soft-deleted job posting {job_id} by user: {current_user.username}")
+            return JSONResponse({
+                "success": True,
+                "message": f"Job posting {job_id} deleted successfully",
+                "details": results,
+                "deleted_by": {
+                    "username": current_user.username,
+                    "role": current_user.role,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            })
+        else:
+            logger.error(f"❌ Failed to delete job posting {job_id}: {results}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to delete job posting: {results.get('error', 'Unknown error')}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during job posting {job_id} deletion by {current_user.username}: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="An unexpected error occurred while deleting the job posting. Please try again later."
+        )
 
 
 @router.delete("/admin/jobs/delete-all")

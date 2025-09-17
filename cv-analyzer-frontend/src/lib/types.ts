@@ -354,6 +354,8 @@ export interface JobPostingResponse {
   filename: string;
   is_active: boolean;
   company_name?: string;
+  posted_by_user?: string;
+  posted_by_role?: string;
 }
 
 export interface PublicJobView {
@@ -367,6 +369,8 @@ export interface PublicJobView {
   responsibilities?: string[];
   experience_required?: string;
   is_active: boolean;
+  posted_by_user?: string;
+  posted_by_role?: string;
 }
 
 export interface JobApplicationResponse {
@@ -388,6 +392,8 @@ export interface JobPostingListItem {
   is_active: boolean;
   application_count?: number;
   public_token: string; // Already present
+  posted_by_user?: string;
+  posted_by_role?: string;
 }
 
 export interface JobApplicationListItem {

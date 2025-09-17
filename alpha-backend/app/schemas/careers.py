@@ -27,6 +27,8 @@ class JobPostingResponse(BaseModel):
     filename: str = Field(..., description="Original filename of uploaded job description")
     is_active: bool = Field(True, description="Whether the job posting is currently accepting applications")
     company_name: Optional[str] = Field(None, description="Company name associated with posting")
+    posted_by_user: Optional[str] = Field(None, description="Username of the user who posted this job")
+    posted_by_role: Optional[str] = Field(None, description="Role of the user who posted this job (admin/user)")
 
 class PublicJobView(BaseModel):
     """Public-facing model for job postings (no sensitive data)"""
@@ -40,6 +42,8 @@ class PublicJobView(BaseModel):
     responsibilities: Optional[List[str]] = Field([], description="List of job responsibilities and duties")
     experience_required: Optional[str] = Field("Not specified", description="Required years of experience")
     is_active: bool = Field(True, description="Whether the job is currently accepting applications")
+    posted_by_user: Optional[str] = Field(None, description="Username of the user who posted this job")
+    posted_by_role: Optional[str] = Field(None, description="Role of the user who posted this job (admin/user)")
 
 
 class JobApplicationRequest(BaseModel):
@@ -86,6 +90,8 @@ class JobPostingSummary(BaseModel):
     is_active: bool = Field(..., description="Whether job is active")
     application_count: int = Field(0, description="Number of applications received")
     public_token: str = Field(..., description="Public access token for the job")
+    posted_by_user: Optional[str] = Field(None, description="Username of the user who posted this job")
+    posted_by_role: Optional[str] = Field(None, description="Role of the user who posted this job (admin/user)")
 
 class JobPostingUpdate(BaseModel):
     """Request model for updating job posting details"""
