@@ -219,13 +219,12 @@ class ApiClient {
       formDataObj.append('additional_info', formData.additionalInfo);
     }
     
-    const response = await this.client.post('/api/careers/admin/jobs/unified-update', formDataObj, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-        'Authorization': `Bearer ${token}`,
-      },
-        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-      }
+     const token = localStorage.getItem('auth_token');
+     const response = await this.client.post('/api/careers/admin/jobs/unified-update', formDataObj, {
+       headers: {
+         'Content-Type': 'multipart/form-data',
+         'Authorization': `Bearer ${token}`,
+       }
     });
     return response.data;
   }
