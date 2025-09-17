@@ -44,6 +44,7 @@ interface AppState {
     jds: LoadingState;
     upload: LoadingState;
     matching: LoadingState;
+    careersMatching: LoadingState;
     health: LoadingState;
     stats: LoadingState;
     database: LoadingState;
@@ -115,6 +116,7 @@ export const useAppStore = create<AppState>()(
         jds: { isLoading: false, error: null },
         upload: { isLoading: false, error: null },
         matching: { isLoading: false, error: null },
+        careersMatching: { isLoading: false, error: null },
         health: { isLoading: false, error: null },
         stats: { isLoading: false, error: null },
         database: { isLoading: false, error: null },

@@ -947,13 +947,20 @@ async def get_job_for_edit(job_id: str) -> dict:
             job_summary = structured_info.get("job_summary", "") or structured_info.get("summary", "")
             
             # Use job posting's own responsibilities and skills (edited data)
-            responsibilities_list = structured_info.get("responsibilities", [])
-            if responsibilities_list and isinstance(responsibilities_list, list):
-                key_responsibilities = "\n".join([f"• {resp}" for resp in responsibilities_list])
+            # Handle both string format (from UI extraction) and array format (from matching pipeline)
+            key_responsibilities = structured_info.get("key_responsibilities", "")
+            if not key_responsibilities:
+                # Fallback to array format
+                responsibilities_list = structured_info.get("responsibilities", [])
+                if responsibilities_list and isinstance(responsibilities_list, list):
+                    key_responsibilities = "\n".join([f"• {resp}" for resp in responsibilities_list])
             
-            skills_list = structured_info.get("skills", []) or structured_info.get("requirements", [])
-            if skills_list and isinstance(skills_list, list):
-                qualifications = "\n".join([f"• {skill}" for skill in skills_list])
+            qualifications = structured_info.get("qualifications", "")
+            if not qualifications:
+                # Fallback to array format
+                skills_list = structured_info.get("skills", []) or structured_info.get("requirements", [])
+                if skills_list and isinstance(skills_list, list):
+                    qualifications = "\n".join([f"• {skill}" for skill in skills_list])
         
         return {
             "job_title": job_title,
@@ -970,87 +977,6 @@ async def get_job_for_edit(job_id: str) -> dict:
         logger.error(f"❌ Failed to get job data for editing: {e}")
         raise HTTPException(status_code=500, detail="Failed to get job data for editing")
 
-@router.patch("/admin/jobs/{job_id}/update", response_model=dict)
-async def update_job_posting(
-    job_id: str,
-    update_data: JobPostingUpdate
-    # Add authentication: current_user = Depends(require_hr_user)
-) -> dict:
-    """Update job posting details in job_postings_structured collection"""
-    try:
-        logger.info(f"🔄 Updating job posting {job_id} with new data")
-        
-        qdrant = get_qdrant_utils()
-        
-        # Verify job exists
-        job_data = qdrant.get_job_posting_by_id(job_id)
-        if not job_data:
-            raise HTTPException(status_code=404, detail="Job posting not found")
-        
-        # Get current structured data
-        client = qdrant.client
-        current_structured = None
-        try:
-            res = client.retrieve("job_postings_structured", ids=[job_id], with_payload=True, with_vectors=False)
-            if res:
-                current_structured = res[0].payload
-        except Exception as e:
-            logger.warning(f"Could not retrieve current structured data for job {job_id}: {e}")
-            current_structured = {}
-        
-        if not current_structured:
-            current_structured = {}
-        
-        # Update structured_info with new data
-        structured_info = current_structured.get("structured_info", {})
-        
-        # Update fields if provided
-        if update_data.job_title is not None:
-            structured_info["job_title"] = update_data.job_title
-        if update_data.job_location is not None:
-            structured_info["location"] = update_data.job_location
-            structured_info["job_location"] = update_data.job_location
-        if update_data.job_summary is not None:
-            structured_info["job_summary"] = update_data.job_summary
-            structured_info["summary"] = update_data.job_summary
-        if update_data.key_responsibilities is not None:
-            # Convert text to list format for consistency
-            responsibilities_list = [line.strip() for line in update_data.key_responsibilities.split('\n') if line.strip()]
-            structured_info["responsibilities"] = responsibilities_list
-        if update_data.qualifications is not None:
-            # Convert text to list format for consistency
-            skills_list = [line.strip() for line in update_data.qualifications.split('\n') if line.strip()]
-            structured_info["skills"] = skills_list
-        
-        # Update top-level fields
-        if update_data.company_name is not None:
-            current_structured["company_name"] = update_data.company_name
-        if update_data.additional_info is not None:
-            current_structured["additional_info"] = update_data.additional_info
-        
-        # Update the structured_info in the payload
-        current_structured["structured_info"] = structured_info
-        
-        # Store updated structured data while preserving metadata fields
-        success = qdrant.update_job_posting_structured_data(job_id, current_structured)
-        
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to update job posting data")
-        
-        logger.info(f"✅ Job posting {job_id} updated successfully")
-        
-        return {
-            "success": True,
-            "job_id": job_id,
-            "message": "Job posting updated successfully",
-            "updated_fields": [k for k, v in update_data.dict().items() if v is not None]
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Failed to update job posting: {e}")
-        raise HTTPException(status_code=500, detail="Failed to update job posting")
 
 @router.patch("/admin/jobs/{job_id}/status", response_model=dict)
 async def toggle_job_status(
@@ -1181,56 +1107,6 @@ async def get_job_info(public_token: str) -> dict:
         logger.error(f"❌ Failed to get job info: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve job information")
 
-@router.put("/admin/jobs/{job_id}", response_model=JobPostingResponse)
-async def update_job_posting(
-    job_id: str,
-    company_name: Optional[str] = Form(None),
-    additional_info: Optional[str] = Form(None),
-    is_active: Optional[bool] = Form(None)
-    # Add authentication here when ready: current_user = Depends(require_hr_user)
-) -> JobPostingResponse:
-    """
-    Update job posting metadata (company_name, additional_info, status)
-    """
-    try:
-        logger.info(f"📝 Updating job posting: {job_id}")
-        
-        qdrant = get_qdrant_utils()
-        
-        # Check if job exists
-        job_data = qdrant.get_job_posting_by_id(job_id)
-        if not job_data:
-            raise HTTPException(status_code=404, detail="Job posting not found")
-        
-        # Update job posting metadata
-        success = qdrant.update_job_posting(
-            job_id, company_name, additional_info, is_active
-        )
-        
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to update job posting")
-        
-        # Get updated job data
-        updated_job_data = qdrant.get_job_posting_by_id(job_id)
-        
-        logger.info(f"✅ Job posting {job_id} updated successfully")
-        
-        return JobPostingResponse(
-            job_id=job_id,
-            public_link=f"/careers/jobs/{updated_job_data['public_token']}",
-            public_token=updated_job_data["public_token"],
-            job_title=updated_job_data.get("job_title", "Position"),
-            upload_date=updated_job_data.get("created_date", _now_iso()),
-            filename=updated_job_data.get("filename", "job_description.pdf"),
-            is_active=updated_job_data.get("is_active", True),
-            company_name=updated_job_data.get("company_name")
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Failed to update job posting: {e}")
-        raise HTTPException(status_code=500, detail="Failed to update job posting. Please try again later.")
 
 
 @router.post("/admin/jobs/{jd_id}/extract-ui-data")
@@ -1288,32 +1164,28 @@ async def extract_jd_for_ui(jd_id: str) -> dict:
         raise HTTPException(status_code=500, detail="Failed to extract UI data")
 
 
-@router.post("/admin/jobs/create-from-ui-data")
-async def create_job_posting_from_ui_data(
-    jd_id: str = Form(...),
+
+
+@router.post("/admin/jobs/unified-update")
+async def unified_job_update(
+    jd_id: Optional[str] = Form(None),
+    job_id: Optional[str] = Form(None),
     job_title: str = Form(...),
     job_location: str = Form(...),
     job_summary: str = Form(...),
     key_responsibilities: str = Form(...),
-    qualifications: str = Form(...)
+    qualifications: str = Form(...),
+    company_name: Optional[str] = Form(None),
+    additional_info: Optional[str] = Form(None)
 ) -> dict:
     """
-    Create a job posting from human-readable UI data that was auto-filled and potentially edited.
-    This links the original JD (for matching) with the human-readable display data (for candidates).
+    Unified endpoint for creating or updating job postings.
+    - If job_id is provided: Update existing job posting
+    - If jd_id is provided (and no job_id): Create new job posting from JD
+    - Saves data directly to job_postings_structured collection
     """
     try:
-        logger.info(f"📝 Creating job posting from UI data for JD: {jd_id}")
-        
         qdrant = get_qdrant_utils()
-        
-        # Verify the original JD exists
-        jd_doc = qdrant.retrieve_document(jd_id, "jd")
-        if not jd_doc:
-            raise HTTPException(status_code=404, detail="Original JD not found")
-        
-        # Generate job posting metadata
-        job_id = str(uuid.uuid4())
-        public_token = generate_public_token()
         
         # Prepare UI data
         ui_data = {
@@ -1324,35 +1196,82 @@ async def create_job_posting_from_ui_data(
             "qualifications": qualifications
         }
         
-        # Store UI data in job_postings_structured
-        success = qdrant.store_job_posting_ui_data(
-            job_id=job_id,
-            jd_id=jd_id,
-            public_token=public_token,
-            ui_data=ui_data
-        )
-        
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to store job posting")
-        
-        logger.info(f"✅ Job posting created from UI data: {job_id}")
-        
-        # Return the same format as other job posting endpoints
-        public_link = f"https://alphacv.alphadatarecruitment.ae/careers/jobs/{public_token}"
-        
-        return {
-            "success": True,
-            "job_id": job_id,
-            "public_token": public_token,
-            "public_link": public_link,
-            "message": "Job posting created successfully with human-readable content"
-        }
+        if job_id:
+            # Update existing job posting
+            logger.info(f"📝 Updating existing job posting: {job_id}")
+            
+            # Verify job exists
+            existing_job = qdrant.get_job_posting_by_id(job_id)
+            if not existing_job:
+                raise HTTPException(status_code=404, detail="Job posting not found")
+            
+            # Update structured data
+            success = qdrant.update_job_posting_structured_data(job_id, {
+                "structured_info": ui_data,
+                "company_name": company_name,
+                "additional_info": additional_info,
+                "updated_date": _now_iso()
+            })
+            
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to update job posting")
+            
+            logger.info(f"✅ Job posting updated: {job_id}")
+            
+            return {
+                "success": True,
+                "job_id": job_id,
+                "public_token": existing_job.get("public_token"),
+                "message": "Job posting updated successfully"
+            }
+            
+        elif jd_id:
+            # Create new job posting from JD
+            logger.info(f"📝 Creating new job posting from JD: {jd_id}")
+            
+            # Verify the original JD exists
+            jd_doc = qdrant.retrieve_document(jd_id, "jd")
+            if not jd_doc:
+                raise HTTPException(status_code=404, detail="Original JD not found")
+            
+            # Generate new job posting metadata
+            new_job_id = str(uuid.uuid4())
+            public_token = generate_public_token()
+            
+            # Store UI data in job_postings_structured
+            success = qdrant.store_job_posting_ui_data(
+                job_id=new_job_id,
+                jd_id=jd_id,
+                public_token=public_token,
+                ui_data=ui_data
+            )
+            
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to create job posting")
+            
+            # Update with additional metadata if provided
+            if company_name or additional_info:
+                qdrant.update_job_posting_structured_data(new_job_id, {
+                    "company_name": company_name,
+                    "additional_info": additional_info
+                })
+            
+            logger.info(f"✅ New job posting created: {new_job_id}")
+            
+            return {
+                "success": True,
+                "job_id": new_job_id,
+                "public_token": public_token,
+                "message": "Job posting created successfully"
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Either job_id (for update) or jd_id (for create) must be provided")
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Failed to create job posting from UI data: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create job posting")
+        logger.error(f"❌ Failed to process job update: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process job update")
 
 
 @router.delete("/admin/jobs/delete-all")
