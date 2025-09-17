@@ -137,19 +137,29 @@ export default function MatchingPageNew() {
     }
   }, [matchWeights, setMatchWeights]);
 
-  // Auto-run matching when we have careers data but no match results
+  // Auto-run matching when we have selected data but no match results
   useEffect(() => {
-    if (selectedJD && selectedCVs && selectedCVs.length > 0 && !matchResult && !loadingStates.matching.isLoading) {
-      // Validate that selectedJD looks like a valid UUID (not a job posting ID)
-      const isValidJdId = selectedJD && typeof selectedJD === 'string' && selectedJD.length === 36 && selectedJD.includes('-');
-      if (isValidJdId) {
-        console.log('Auto-running matching for careers data:', { selectedJD, selectedCVs });
-        runMatch();
+    if (selectedJD && selectedCVs && selectedCVs.length > 0 && !matchResult && !loadingStates.matching.isLoading && !loadingStates.careersMatching.isLoading) {
+      // Check if this is careers data (when we have applications from careers store)
+      const hasCareersData = applications && applications.length > 0;
+      
+      if (hasCareersData) {
+        // For careers data, validate that selectedJD looks like a valid UUID
+        const isValidJdId = selectedJD && typeof selectedJD === 'string' && selectedJD.length === 36 && selectedJD.includes('-');
+        if (isValidJdId) {
+          console.log('Auto-running matching for careers data:', { selectedJD, selectedCVs });
+          runMatch();
+        } else {
+          console.warn('Skipping auto-matching: Invalid JD ID format', { selectedJD });
+        }
       } else {
-        console.warn('Skipping auto-matching: Invalid JD ID format', { selectedJD });
+        // For database page data, auto-run matching immediately
+        console.log('Auto-running matching for database data:', { selectedJD, selectedCVs });
+        runMatch();
       }
     }
-  }, [selectedJD, selectedCVs, matchResult, loadingStates.matching.isLoading, runMatch]);
+  }, [selectedJD, selectedCVs, matchResult, loadingStates.matching.isLoading, loadingStates.careersMatching.isLoading, runMatch, applications]);
+
   
   const normWeights = useMemo(() => normalizeWeights(matchWeights ?? DEFAULT_WEIGHTS), [matchWeights]);
   
@@ -339,7 +349,35 @@ export default function MatchingPageNew() {
     }
   };
   
-  // Empty state
+  // Loading state - show matching animation when matching is in progress
+  if (loadingStates.matching.isLoading || loadingStates.careersMatching.isLoading) {
+    return (
+      <div className="space-y-8">
+        <div className="text-center">
+          <h1 className="text-3xl font-semibold text-gray-900">AI Matching Results</h1>
+          <p className="text-base mt-2 text-gray-600">Analyzing candidates...</p>
+        </div>
+        <div className="text-center py-16">
+          <div className="w-20 h-20 mx-auto bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center animate-spin mb-6">
+            <Target className="w-10 h-10 text-white" />
+          </div>
+          <h3 className="text-xl font-semibold text-gray-800 mb-2">Matching in Progress</h3>
+          <p className="text-sm text-gray-500 mb-6">
+            Our AI is analyzing candidate profiles and matching them with job requirements...
+          </p>
+          <div className="flex justify-center">
+            <div className="flex space-x-1">
+              <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"></div>
+              <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+              <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Empty state - show when no matching is in progress and no results
   if (!matchResult?.candidates || matchResult.candidates.length === 0) {
     return (
       <div className="space-y-8">
@@ -1070,7 +1108,7 @@ export default function MatchingPageNew() {
             </div>
           )}
         </div>
-      </motion.div>
-    </div>
+        </motion.div>
+      </div>
   );
 }

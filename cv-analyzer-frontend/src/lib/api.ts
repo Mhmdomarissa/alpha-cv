@@ -191,22 +191,41 @@ class ApiClient {
     return response.data;
   }
 
-  async createJobPostingFromUIData(jdId: string, formData: any): Promise<any> {
+
+  async unifiedJobUpdate(
+    jdId: string | null, 
+    jobId: string | null, 
+    formData: any
+  ): Promise<any> {
     // Backend expects form data, not JSON
     const formDataObj = new FormData();
-    formDataObj.append('jd_id', jdId);
+    
+    if (jobId) {
+      formDataObj.append('job_id', jobId);
+    } else if (jdId) {
+      formDataObj.append('jd_id', jdId);
+    }
+    
     formDataObj.append('job_title', formData.jobTitle || '');
     formDataObj.append('job_location', formData.jobLocation || '');
     formDataObj.append('job_summary', formData.jobSummary || '');
     formDataObj.append('key_responsibilities', formData.keyResponsibilities || '');
     formDataObj.append('qualifications', formData.qualifications || '');
     
-    const token = localStorage.getItem('auth_token');
-    const response = await this.client.post('/api/careers/admin/jobs/create-from-ui-data', formDataObj, {
+    if (formData.companyName) {
+      formDataObj.append('company_name', formData.companyName);
+    }
+    if (formData.additionalInfo) {
+      formDataObj.append('additional_info', formData.additionalInfo);
+    }
+    
+    const response = await this.client.post('/api/careers/admin/jobs/unified-update', formDataObj, {
       headers: {
         'Content-Type': 'multipart/form-data',
         'Authorization': `Bearer ${token}`,
       },
+        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+      }
     });
     return response.data;
   }
@@ -224,7 +243,6 @@ class ApiClient {
     });
     return response.data;
   }
-
 
   // System endpoints
   async getSystemStats(): Promise<SystemStatsResponse> {
@@ -488,26 +506,6 @@ async getPublicJob(token: string): Promise<PublicJobView> {
     );
     return response.data;
   }
-  async updateJobPosting(jobId: string, updateData: {
-    job_title?: string;
-    job_location?: string;
-    job_summary?: string;
-    key_responsibilities?: string;
-    qualifications?: string;
-    company_name?: string;
-    additional_info?: string;
-  }): Promise<{ success: boolean; message: string; updated_fields: string[] }> {
-    const response = await this.client.patch<{ success: boolean; message: string; updated_fields: string[] }>(
-      `/api/careers/admin/jobs/${jobId}/update`,
-      updateData,
-      {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-        }
-      }
-    );
-    return response.data;
-  }
 
   async getJobForEdit(jobId: string): Promise<{
     job_title: string;
@@ -622,7 +620,7 @@ export const api = {
   getJDEmbeddings: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.getJDEmbeddings(jdId)),
   standardizeJD: (jdText: string, filename?: string) => RequestRetryHandler.withRetry(() => apiClient.standardizeJD(jdText, filename)),
   extractJDForUI: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.extractJDForUI(jdId)),
-  createJobPostingFromUIData: (jdId: string, formData: any) => RequestRetryHandler.withRetry(() => apiClient.createJobPostingFromUIData(jdId, formData)),
+  unifiedJobUpdate: (jdId: string | null, jobId: string | null, formData: any) => RequestRetryHandler.withRetry(() => apiClient.unifiedJobUpdate(jdId, jobId, formData)),
   
   // Matching
   matchCandidates: (request: MatchRequest) => RequestRetryHandler.withRetry(() => apiClient.matchCandidates(request)),
@@ -658,15 +656,6 @@ export const api = {
     RequestRetryHandler.withRetry(() => apiClient.submitJobApplication(token, name, email, phone, cvFile)),
   getJobApplications: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobApplications(jobId)),
 
-  updateJobPosting: (jobId: string, updateData: {
-    job_title?: string;
-    job_location?: string;
-    job_summary?: string;
-    key_responsibilities?: string;
-    qualifications?: string;
-    company_name?: string;
-    additional_info?: string;
-  }) => RequestRetryHandler.withRetry(() => apiClient.updateJobPosting(jobId, updateData)),
   
   getJobForEdit: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobForEdit(jobId)),
   updateJobStatus: (jobId: string, status: { is_active: boolean }) => 
