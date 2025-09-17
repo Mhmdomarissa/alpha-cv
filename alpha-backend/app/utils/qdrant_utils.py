@@ -632,10 +632,23 @@ class QdrantUtils:
                         if 'job_summary' in structured_info or 'summary' in structured_info:
                             job_data['job_summary'] = structured_info.get('job_summary', structured_info.get('summary', ''))
                             job_data['summary'] = structured_info.get('summary', structured_info.get('job_summary', ''))
-                        if 'responsibilities' in structured_info:
+                        # Handle responsibilities - support both string and array formats
+                        if 'key_responsibilities' in structured_info:
+                            # String format from UI extraction
+                            job_data['responsibilities'] = structured_info['key_responsibilities'].split('\n')
+                            job_data['responsibility_sentences'] = structured_info['key_responsibilities'].split('\n')
+                        elif 'responsibilities' in structured_info:
+                            # Array format from matching pipeline
                             job_data['responsibility_sentences'] = structured_info['responsibilities']
                             job_data['responsibilities'] = structured_info['responsibilities']
-                        if 'skills' in structured_info:
+                        
+                        # Handle qualifications/skills - support both string and array formats
+                        if 'qualifications' in structured_info:
+                            # String format from UI extraction
+                            job_data['requirements'] = structured_info['qualifications'].split('\n')
+                            job_data['skills_sentences'] = structured_info['qualifications'].split('\n')
+                        elif 'skills' in structured_info:
+                            # Array format from matching pipeline
                             job_data['skills_sentences'] = structured_info['skills']
                             job_data['skills'] = structured_info['skills']
                     
@@ -671,7 +684,16 @@ class QdrantUtils:
                                     
                                     if 'structured_info' in job_metadata and job_metadata['structured_info']:
                                         if isinstance(job_metadata['structured_info'], dict):
-                                            job_data.update(job_metadata['structured_info'])
+                                            structured_info = job_metadata['structured_info']
+                                            # Handle string format from UI extraction
+                                            if 'key_responsibilities' in structured_info:
+                                                job_data['responsibilities'] = structured_info['key_responsibilities'].split('\n')
+                                                job_data['responsibility_sentences'] = structured_info['key_responsibilities'].split('\n')
+                                            if 'qualifications' in structured_info:
+                                                job_data['requirements'] = structured_info['qualifications'].split('\n')
+                                                job_data['skills_sentences'] = structured_info['qualifications'].split('\n')
+                                            # Update other fields
+                                            job_data.update(structured_info)
                                     
                                     return job_data
                                 else:
