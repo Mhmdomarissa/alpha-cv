@@ -1,1 +1,7 @@
 .less-history-file:
+.search
+"home/ubuntu
+"& git checkout main
+"home/ubuntu && docker-compose down && docker-compose up -d --build
+"home/ubuntu && git status
+"home/ubuntu && git add . && git commit -m "Final integration: merge Syed-dev with user attribution and delete functionality" && git push origin main
