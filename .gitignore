@@ -50,6 +50,8 @@ out/
 # IDEs
 .vscode/
 .idea/
+.cursor/
+.claude/
 *.swp
 *.swo
 
@@ -112,3 +114,19 @@ build/
 # LLM Cache
 .llm_cache/
 alpha-backend/.llm_cache/
+
+# Linux system files
+.lesshst
+.bash_history
+.bashrc
+.profile
+.gitconfig
+*.lock
+
+# SSL/Certificate files
+certbot/
+
+# System process and session files
+*.session
+*.state
+**/accounts/

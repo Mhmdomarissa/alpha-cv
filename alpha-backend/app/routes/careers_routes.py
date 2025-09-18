@@ -525,7 +525,6 @@ async def post_job(
             validate_file_upload(file)
         
         job_id = str(uuid.uuid4())
-        jd_id = str(uuid.uuid4())  # Create a separate ID for the JD collection
         public_token = generate_public_token()
         
         # 2. Process data (file or form)
