@@ -31,9 +31,70 @@ class QdrantUtils:
     def __init__(self, host: str = "qdrant", port: int = 6333):
         self.host = host
         self.port = port
-        self.client = QdrantClient(host=host, port=port)
-        logger.info(f"🗄 Connected to Qdrant at {host}:{port}")
-        self._ensure_collections_exist()
+        # Environment-aware connection strategy
+        import os
+        self.environment = os.getenv("ENVIRONMENT", "development")
+        
+        # Use connection pool for production, direct client for development
+        self._pool = None
+        self._client = None
+        self._use_pool = self.environment == "production"
+        
+        logger.info(f"🗄 QdrantUtils initialized for {host}:{port} (environment: {self.environment})")
+    
+    @property
+    def client(self) -> QdrantClient:
+        """Get client - uses pool in production, direct client in development"""
+        if self._use_pool:
+            # Production: Use connection pool
+            if self._pool is None:
+                import asyncio
+                try:
+                    # Try to get pool synchronously (for backward compatibility)
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If we're in an async context, we need to handle this differently
+                        logger.warning("⚠️ Using fallback client in async context")
+                        self._client = QdrantClient(host=self.host, port=self.port)
+                        self._ensure_collections_exist()
+                        return self._client
+                    else:
+                        self._pool = loop.run_until_complete(self._get_pool())
+                except RuntimeError:
+                    # No event loop, create direct client
+                    self._client = QdrantClient(host=self.host, port=self.port)
+                    self._ensure_collections_exist()
+                    return self._client
+            
+            # For now, return direct client (pool integration will be async)
+            if self._client is None:
+                self._client = QdrantClient(host=self.host, port=self.port)
+                self._ensure_collections_exist()
+            return self._client
+        else:
+            # Development: Use direct client
+            if self._client is None:
+                self._client = QdrantClient(host=self.host, port=self.port)
+                self._ensure_collections_exist()
+            return self._client
+    
+    async def _get_pool(self):
+        """Get connection pool for production"""
+        from app.utils.qdrant_pool import get_qdrant_pool
+        return await get_qdrant_pool()
+    
+    async def _get_client_async(self):
+        """Get client from connection pool (async version)"""
+        if self._use_pool:
+            if self._pool is None:
+                self._pool = await self._get_pool()
+            return self._pool
+        else:
+            # Development: return direct client
+            if self._client is None:
+                self._client = QdrantClient(host=self.host, port=self.port)
+                self._ensure_collections_exist()
+            return self._client
 
     # ---------- collection management ----------
 
@@ -1012,9 +1073,12 @@ class QdrantUtils:
             logger.error(f"❌ Failed to get applications for job {job_id}: {e}")
             return []
 
-    def get_all_job_postings(self, include_inactive: bool = False) -> List[Dict]:
+    def get_all_job_postings(self, include_inactive: bool = False, posted_by_user: Optional[str] = None, user_role: Optional[str] = None) -> List[Dict]:
         """
-        Get all job postings (for HR dashboard)
+        Get job postings (for HR dashboard)
+        - If posted_by_user is provided: only show jobs posted by that user
+        - If user_role is 'admin': show all jobs (admin can see everything)
+        - If user_role is 'user': only show jobs posted by that user
         """
         try:
             collection_name = "job_postings_structured"
@@ -1031,6 +1095,14 @@ class QdrantUtils:
             filter_conditions_not.append(
                 FieldCondition(key="is_deleted", match=MatchValue(value=True))
             )
+            
+            # Role-based filtering
+            if posted_by_user and user_role != "admin":
+                # Regular users can only see their own job postings
+                filter_conditions.append(
+                    FieldCondition(key="posted_by_user", match=MatchValue(value=posted_by_user))
+                )
+            # Admins can see all jobs (no additional filter needed)
             
             filter_obj = Filter(
                 must=filter_conditions if filter_conditions else None,
@@ -1063,10 +1135,20 @@ class QdrantUtils:
                         # Merge JD data with metadata (metadata takes precedence for careers fields)
                         # Remove 'id' from jd_data to avoid conflicts with job_metadata
                         jd_data_clean = {k: v for k, v in jd_data.items() if k != 'id'}
+                        
+                        # Merge carefully - metadata should take precedence for user attribution fields
                         job_data = {**jd_data_clean, **job_metadata}
                         
-                        # Debug logging for public_token
+                        # Ensure user attribution fields are preserved from metadata
+                        if job_metadata.get('posted_by_user'):
+                            job_data['posted_by_user'] = job_metadata['posted_by_user']
+                        if job_metadata.get('posted_by_role'):
+                            job_data['posted_by_role'] = job_metadata['posted_by_role']
+                        
+                        # Debug logging for public_token and user attribution
                         logger.info(f"  Final job_data public_token: {job_data.get('public_token', 'MISSING')}")
+                        logger.info(f"  Final job_data posted_by_user: {job_data.get('posted_by_user', 'MISSING')}")
+                        logger.info(f"  Final job_data posted_by_role: {job_data.get('posted_by_role', 'MISSING')}")
                         if 'public_token' not in job_data or job_data.get('public_token') == 'unknown':
                             logger.warning(f"⚠️ Job {job_id} missing public_token. Metadata: {job_metadata.get('public_token')}, Final: {job_data.get('public_token')}")
                         

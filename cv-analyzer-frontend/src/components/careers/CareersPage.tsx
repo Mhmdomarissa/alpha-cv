@@ -156,7 +156,9 @@ export default function CareersPage() {
       // Handle specific errors
       if (error.message?.includes('404') || error.message?.includes('not found')) {
         alert('Job posting not found. It may have already been deleted.');
-      } else if (error.message?.includes('401') || error.message?.includes('403')) {
+      } else if (error.message?.includes('403') || error.message?.includes('You can only delete job postings that you created')) {
+        alert('Access denied. You can only delete job postings that you created.');
+      } else if (error.message?.includes('401')) {
         alert('Access denied. Please make sure you are logged in.');
       } else {
         alert('Failed to delete job posting. Please try again.');
@@ -211,7 +213,12 @@ export default function CareersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Job Postings</h1>
-          <p className="text-gray-600 mt-1">Manage your job postings and applications</p>
+          <p className="text-gray-600 mt-1">
+            {user.role === 'admin' 
+              ? 'Manage all job postings and applications' 
+              : `Manage your job postings and applications (${user.username})`
+            }
+          </p>
         </div>
         <div className="flex space-x-3">
           <Button
@@ -264,6 +271,29 @@ export default function CareersPage() {
             </div>
       </div>
 
+      {/* Role-based information banner */}
+      {user.role === 'admin' && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
+            <p className="text-blue-800 text-sm">
+              <strong>Admin View:</strong> You can see and manage all job postings in the system.
+            </p>
+          </div>
+        </div>
+      )}
+      
+      {user.role === 'user' && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+            <p className="text-green-800 text-sm">
+              <strong>User View:</strong> You can only see and manage job postings that you created.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Job Postings List */}
       <div className="grid gap-6">
         {jobPostings.length === 0 ? (
@@ -309,7 +339,14 @@ export default function CareersPage() {
                             <span>Posted by: </span>
                             <span className="font-medium text-gray-700 ml-1">{job.posted_by_user}</span>
                             {job.posted_by_role === 'admin' && (
-                              <Badge variant="outline" className="ml-2 text-xs">Admin</Badge>
+                              <Badge variant="outline" className="ml-2 text-xs bg-blue-50 text-blue-700 border-blue-200">Admin</Badge>
+                            )}
+                            {job.posted_by_role === 'user' && (
+                              <Badge variant="outline" className="ml-2 text-xs bg-green-50 text-green-700 border-green-200">User</Badge>
+                            )}
+                            {/* Show ownership indicator for current user */}
+                            {job.posted_by_user === user.username && (
+                              <Badge variant="outline" className="ml-2 text-xs bg-purple-50 text-purple-700 border-purple-200">Your Job</Badge>
                             )}
                           </div>
                         )}
@@ -344,54 +381,63 @@ export default function CareersPage() {
                       </Button>
                     )}
                     
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEditJob(job);
-                      }}
-                      title="Edit Job Posting"
-                      className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                      disabled={isLoadingEditData}
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </Button>
+                    {/* Edit button - only show if user can edit (admin or own job) */}
+                    {(user.role === 'admin' || job.posted_by_user === user.username) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditJob(job);
+                        }}
+                        title="Edit Job Posting"
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        disabled={isLoadingEditData}
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </Button>
+                    )}
                     
                     
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleToggleStatus(job.job_id, job.is_active);
-                      }}
-                      title={job.is_active ? "Deactivate Job" : "Activate Job"}
-                      className={job.is_active 
-                        ? "text-orange-600 hover:text-orange-700 hover:bg-orange-50" 
-                        : "text-green-600 hover:text-green-700 hover:bg-green-50"
-                      }
-                    >
-                      {job.is_active ? (
-                        <ToggleLeft className="w-4 h-4" />
-                      ) : (
-                        <ToggleRight className="w-4 h-4" />
-                      )}
-                    </Button>
+                    {/* Toggle status button - only show if user can toggle (admin or own job) */}
+                    {(user.role === 'admin' || job.posted_by_user === user.username) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleStatus(job.job_id, job.is_active);
+                        }}
+                        title={job.is_active ? "Deactivate Job" : "Activate Job"}
+                        className={job.is_active 
+                          ? "text-orange-600 hover:text-orange-700 hover:bg-orange-50" 
+                          : "text-green-600 hover:text-green-700 hover:bg-green-50"
+                        }
+                      >
+                        {job.is_active ? (
+                          <ToggleLeft className="w-4 h-4" />
+                        ) : (
+                          <ToggleRight className="w-4 h-4" />
+                        )}
+                      </Button>
+                    )}
                     
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowJobDeleteConfirm(job);
-                      }}
-                      title="Delete Job Posting"
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      disabled={isDeletingJob === job.job_id}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    {/* Delete button - only show if user can delete (admin or own job) */}
+                    {(user.role === 'admin' || job.posted_by_user === user.username) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowJobDeleteConfirm(job);
+                        }}
+                        title="Delete Job Posting"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        disabled={isDeletingJob === job.job_id}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
                     
                         <Button
                           variant="ghost"
@@ -546,6 +592,16 @@ export default function CareersPage() {
               <p className="text-sm text-yellow-800 mt-2">
                 💡 <strong>Note:</strong> This is a soft deletion - data can be recovered if needed.
               </p>
+              {user.role === 'admin' && showJobDeleteConfirm.posted_by_user !== user.username && (
+                <p className="text-sm text-blue-800 mt-2">
+                  🔧 <strong>Admin Action:</strong> You are deleting a job posted by {showJobDeleteConfirm.posted_by_user}.
+                </p>
+              )}
+              {user.role === 'user' && showJobDeleteConfirm.posted_by_user === user.username && (
+                <p className="text-sm text-green-800 mt-2">
+                  ✅ <strong>Your Job:</strong> You are deleting your own job posting.
+                </p>
+              )}
             </div>
             <div className="flex justify-end space-x-3">
               <Button

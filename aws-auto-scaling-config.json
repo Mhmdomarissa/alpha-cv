@@ -1,0 +1,126 @@
+{
+  "LaunchTemplate": {
+    "LaunchTemplateName": "alpha-cv-production",
+    "VersionDescription": "Production-ready Alpha CV system",
+    "LaunchTemplateData": {
+      "ImageId": "ami-0c02fb55956c7d316",
+      "InstanceType": "c5.2xlarge",
+      "KeyName": "your-key-pair-name",
+      "SecurityGroupIds": ["sg-xxxxxxxxx"],
+      "UserData": "IyEvYmluL2Jhc2gKc3VkbyB5dW0gdXBkYXRlIC15CnN1ZG8geXVtIGluc3RhbGwgZG9ja2VyIC15CnN1ZG8gc3lzdGVtY3RsIHN0YXJ0IGRvY2tlcgpzdWRvIHN5c3RlbWN0bCBlbmFibGUgZG9ja2VyCgpjZCAvaG9tZS9lYzItdXNlcgpnaXQgY2xvbmUgaHR0cHM6Ly9naXRodWIuY29tL3lvdXItcmVwby9hbHBoYS1jdi5naXQKY2QgYWxwaGEtY3YKCmNwIGVudi5wcm9kdWN0aW9uLmV4YW1wbGUgLmVudgpkb2NrZXItY29tcG9zZSB1cCAtZA==",
+      "IamInstanceProfile": {
+        "Name": "AlphaCV-EC2-InstanceProfile"
+      },
+      "BlockDeviceMappings": [
+        {
+          "DeviceName": "/dev/xvda",
+          "Ebs": {
+            "VolumeSize": 100,
+            "VolumeType": "gp3",
+            "DeleteOnTermination": true,
+            "Encrypted": true
+          }
+        }
+      ],
+      "TagSpecifications": [
+        {
+          "ResourceType": "instance",
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "AlphaCV-Production"
+            },
+            {
+              "Key": "Environment",
+              "Value": "production"
+            },
+            {
+              "Key": "Application",
+              "Value": "alpha-cv"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "AutoScalingGroup": {
+    "AutoScalingGroupName": "alpha-cv-asg",
+    "LaunchTemplate": {
+      "LaunchTemplateName": "alpha-cv-production",
+      "Version": "$Latest"
+    },
+    "MinSize": 2,
+    "MaxSize": 10,
+    "DesiredCapacity": 2,
+    "VPCZoneIdentifier": "subnet-xxxxxxxxx,subnet-yyyyyyyyy",
+    "TargetGroupARNs": ["arn:aws:elasticloadbalancing:region:account:targetgroup/alpha-cv-tg/xxxxxxxxx"],
+    "HealthCheckType": "ELB",
+    "HealthCheckGracePeriod": 300,
+    "Tags": [
+      {
+        "Key": "Name",
+        "Value": "AlphaCV-ASG",
+        "PropagateAtLaunch": true
+      },
+      {
+        "Key": "Environment",
+        "Value": "production",
+        "PropagateAtLaunch": true
+      }
+    ]
+  },
+  "ScalingPolicies": [
+    {
+      "PolicyName": "ScaleUp-CPU",
+      "PolicyType": "TargetTrackingScaling",
+      "TargetTrackingConfiguration": {
+        "TargetValue": 70.0,
+        "PredefinedMetricSpecification": {
+          "PredefinedMetricType": "ASGAverageCPUUtilization"
+        },
+        "ScaleOutCooldown": 300,
+        "ScaleInCooldown": 300
+      }
+    },
+    {
+      "PolicyName": "ScaleUp-Memory",
+      "PolicyType": "TargetTrackingScaling",
+      "TargetTrackingConfiguration": {
+        "TargetValue": 80.0,
+        "CustomizedMetricSpecification": {
+          "MetricName": "MemoryUtilization",
+          "Namespace": "AWS/EC2",
+          "Statistic": "Average"
+        },
+        "ScaleOutCooldown": 300,
+        "ScaleInCooldown": 300
+      }
+    }
+  ],
+  "CloudWatchAlarms": [
+    {
+      "AlarmName": "AlphaCV-High-CPU",
+      "AlarmDescription": "High CPU utilization for Alpha CV",
+      "MetricName": "CPUUtilization",
+      "Namespace": "AWS/EC2",
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 2,
+      "Threshold": 80,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "AlarmActions": ["arn:aws:sns:region:account:alpha-cv-alerts"]
+    },
+    {
+      "AlarmName": "AlphaCV-High-Memory",
+      "AlarmDescription": "High memory utilization for Alpha CV",
+      "MetricName": "MemoryUtilization",
+      "Namespace": "AWS/EC2",
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 2,
+      "Threshold": 85,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "AlarmActions": ["arn:aws:sns:region:account:alpha-cv-alerts"]
+    }
+  ]
+}

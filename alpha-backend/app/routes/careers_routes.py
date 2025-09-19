@@ -444,45 +444,6 @@ async def apply_to_job(
         logger.error(f"❌ Failed to process application: {e}")
         raise HTTPException(status_code=500, detail="Failed to submit application. Please try again later.")
 
-@router.get("/applications/{job_id}/status")
-async def get_application_status(job_id: str) -> dict:
-    """
-    Get application processing status (for enterprise background jobs)
-    
-    Returns detailed status including processing time, queue position, and results
-    """
-    try:
-        from app.services.enhanced_job_queue import get_enterprise_job_queue
-        
-        job_queue = await get_enterprise_job_queue()
-        status = job_queue.get_job_status(job_id)
-        
-        if not status:
-            raise HTTPException(status_code=404, detail="Application job not found or expired")
-        
-        # Add estimated completion time based on queue metrics
-        system_metrics = job_queue.get_system_metrics()
-        avg_processing_time = system_metrics["performance_metrics"]["average_processing_time"]
-        queue_size = system_metrics["queue_metrics"]["current_queue_size"]
-        
-        # Enhance status with additional context
-        enhanced_status = {
-            **status,
-            "estimated_completion_minutes": max(1, int((queue_size * avg_processing_time) / 60)) if status["status"] == "queued" else None,
-            "system_health": {
-                "queue_size": queue_size,
-                "active_workers": system_metrics["worker_metrics"]["active_workers"],
-                "average_processing_time_seconds": avg_processing_time
-            }
-        }
-        
-        return enhanced_status
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Failed to get application status: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve application status")
 
 # ==================== HR/ADMIN ENDPOINTS (May require authentication later) ====================
 
@@ -801,47 +762,22 @@ Additional Information:
         logger.error(f"❌ Failed to create manual job posting: {e}")
         raise HTTPException(status_code=500, detail="Failed to create job posting. Please try again later.")
 
-@router.post("/admin/jobs/{job_id}/fix-token")
-async def fix_job_token(job_id: str):
-    """
-    Manually fix the public_token for a specific job
-    """
-    try:
-        qdrant = get_qdrant_utils()
-        
-        # Generate new token
-        new_token = generate_public_token()
-        
-        # Update the job
-        success = qdrant.update_job_posting_public_token(job_id, new_token)
-        
-        if success:
-            logger.info(f"✅ Manually fixed public_token for job {job_id}: {new_token[:8]}...")
-            return {
-                "success": True,
-                "job_id": job_id,
-                "public_token": new_token,
-                "public_link": f"http://localhost:3001/careers/jobs/{new_token}"
-            }
-        else:
-            logger.error(f"❌ Failed to fix public_token for job {job_id}")
-            raise HTTPException(status_code=500, detail="Failed to fix job token")
-            
-    except Exception as e:
-        logger.error(f"❌ Error fixing job token {job_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fix job token")
 
 @router.get("/admin/jobs", response_model=List[JobPostingSummary])
 async def list_job_postings(
-    include_inactive: bool = False
-    # Add authentication: current_user = Depends(require_hr_user)
+    include_inactive: bool = False,
+    current_user: User = Depends(require_user)
 ) -> List[JobPostingSummary]:
-    """List all job postings for HR dashboard"""
+    """List job postings for HR dashboard - filtered by user role"""
     try:
-        logger.info(f"📋 Listing job postings (include_inactive: {include_inactive})")
+        logger.info(f"📋 Listing job postings for user {current_user.username} (role: {current_user.role}, include_inactive: {include_inactive})")
         
         qdrant = get_qdrant_utils()
-        job_postings = qdrant.get_all_job_postings(include_inactive)
+        job_postings = qdrant.get_all_job_postings(
+            include_inactive=include_inactive,
+            posted_by_user=current_user.username,
+            user_role=current_user.role
+        )
         
         # Sort by upload_date (newest first) before processing
         job_postings.sort(key=lambda x: x.get("upload_date", x.get("created_date", x.get("stored_at", ""))), reverse=True)
@@ -904,7 +840,9 @@ async def list_job_postings(
                 filename=job.get("filename", "job_description.pdf"),
                 is_active=job.get("is_active", True),
                 application_count=len(applications),
-                public_token=job.get("public_token") or "unknown"
+                public_token=job.get("public_token") or "unknown",
+                posted_by_user=job.get("posted_by_user"),
+                posted_by_role=job.get("posted_by_role")
             )
             summaries.append(summary)
         
@@ -916,10 +854,10 @@ async def list_job_postings(
         raise HTTPException(status_code=500, detail="Failed to retrieve job postings")
 
 @router.get("/admin/jobs/{job_id}/edit-data", response_model=dict)
-async def get_job_for_edit(job_id: str) -> dict:
-    """Get job data for editing"""
+async def get_job_for_edit(job_id: str, current_user: User = Depends(require_user)) -> dict:
+    """Get job data for editing - users can only edit their own jobs"""
     try:
-        logger.info(f"📝 Getting job data for editing: {job_id}")
+        logger.info(f"📝 Getting job data for editing: {job_id} by user: {current_user.username}")
         
         qdrant = get_qdrant_utils()
         
@@ -927,6 +865,16 @@ async def get_job_for_edit(job_id: str) -> dict:
         job_data = qdrant.get_job_posting_by_id(job_id)
         if not job_data:
             raise HTTPException(status_code=404, detail="Job posting not found")
+        
+        # Authorization check: Users can only edit their own job postings (unless admin)
+        if current_user.role != "admin":
+            job_poster = job_data.get("posted_by_user")
+            if job_poster != current_user.username:
+                logger.warning(f"❌ Unauthorized edit attempt: User {current_user.username} tried to edit job posted by {job_poster}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only edit job postings that you created"
+                )
         
         # Get structured data
         client = qdrant.client
@@ -990,14 +938,30 @@ async def get_job_for_edit(job_id: str) -> dict:
 @router.patch("/admin/jobs/{job_id}/status", response_model=dict)
 async def toggle_job_status(
     job_id: str, 
-    status_update: JobStatusUpdate
-    # Add authentication: current_user = Depends(require_hr_user)
+    status_update: JobStatusUpdate,
+    current_user: User = Depends(require_user)
 ) -> dict:
-    """Activate/deactivate job postings"""
+    """Activate/deactivate job postings - users can only toggle their own jobs"""
     try:
-        logger.info(f"🔄 Updating job {job_id} status to: {status_update.is_active}")
+        logger.info(f"🔄 Updating job {job_id} status to: {status_update.is_active} by user: {current_user.username}")
         
         qdrant = get_qdrant_utils()
+        
+        # Check if job exists and get job data for authorization
+        job_data = qdrant.get_job_posting_by_id(job_id)
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job posting not found")
+        
+        # Authorization check: Users can only toggle their own job postings (unless admin)
+        if current_user.role != "admin":
+            job_poster = job_data.get("posted_by_user")
+            if job_poster != current_user.username:
+                logger.warning(f"❌ Unauthorized status toggle attempt: User {current_user.username} tried to toggle job posted by {job_poster}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only toggle status of job postings that you created"
+                )
+        
         success = qdrant.update_job_posting_status(job_id, status_update.is_active)
         
         if not success:
@@ -1059,62 +1023,9 @@ async def get_job_applications(
         logger.error(f"❌ Failed to get job applications: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve applications")
 
-@router.get("/admin/health", response_model=CareersHealthResponse)
-async def careers_health_check() -> CareersHealthResponse:
-    """Health check endpoint for careers functionality"""
-    try:
-        qdrant = get_qdrant_utils()
-        stats = qdrant.get_careers_stats()
-        
-        status = "healthy"
-        if stats.get("error") or any(
-            col_status.get("status") == "unhealthy" 
-            for col_status in stats.get("collections_status", {}).values()
-        ):
-            status = "degraded"
-        
-        return CareersHealthResponse(
-            status=status,
-            job_postings_count=stats.get("job_postings_count", 0),
-            applications_count=stats.get("applications_count", 0),
-            active_jobs_count=stats.get("active_jobs_count", 0),
-            collections_status=stats.get("collections_status", {})
-        )
-        
-    except Exception as e:
-        logger.error(f"❌ Careers health check failed: {e}")
-        return CareersHealthResponse(
-            status="unhealthy",
-            job_postings_count=0,
-            applications_count=0,
-            active_jobs_count=0,
-            collections_status={"error": str(e)}
-        )
 
 # ==================== UTILITY ENDPOINTS ====================
 
-@router.get("/jobs/{public_token}/info")
-async def get_job_info(public_token: str) -> dict:
-    """Get basic job info without full details (for previews, etc.)"""
-    try:
-        qdrant = get_qdrant_utils()
-        job_data = qdrant.get_job_posting_by_token(public_token)
-        
-        if not job_data:
-            raise HTTPException(status_code=404, detail="Job posting not found")
-        
-        return {
-            "job_id": job_data["id"],
-            "is_active": job_data.get("is_active", True),
-            "company_name": job_data.get("company_name", "Alpha Data Recruitment"),
-            "upload_date": job_data.get("created_date", job_data.get("upload_date", _now_iso()))
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Failed to get job info: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve job information")
 
 
 
@@ -1208,12 +1119,22 @@ async def unified_job_update(
         
         if job_id:
             # Update existing job posting
-            logger.info(f"📝 Updating existing job posting: {job_id}")
+            logger.info(f"📝 Updating existing job posting: {job_id} by user: {current_user.username}")
             
             # Verify job exists
             existing_job = qdrant.get_job_posting_by_id(job_id)
             if not existing_job:
                 raise HTTPException(status_code=404, detail="Job posting not found")
+            
+            # Authorization check: Users can only update their own job postings (unless admin)
+            if current_user.role != "admin":
+                job_poster = existing_job.get("posted_by_user")
+                if job_poster != current_user.username:
+                    logger.warning(f"❌ Unauthorized update attempt: User {current_user.username} tried to update job posted by {job_poster}")
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="You can only update job postings that you created"
+                    )
             
             # Update structured data
             success = qdrant.update_job_posting_structured_data(job_id, {
@@ -1300,7 +1221,9 @@ async def delete_job_posting(
     3. Archive job applications instead of deleting them
     4. Return confirmation with cleanup summary
     
-    Available to both admin and regular users.
+    Authorization:
+    - Admins can delete any job posting
+    - Regular users can only delete their own job postings
     """
     try:
         logger.info(f"🗑️ USER ACTION: Starting deletion of job posting {job_id} by user: {current_user.username} (role: {current_user.role})")
@@ -1315,6 +1238,16 @@ async def delete_job_posting(
                 status_code=status.HTTP_404_NOT_FOUND, 
                 detail=f"Job posting with ID {job_id} not found"
             )
+        
+        # Authorization check: Users can only delete their own job postings (unless admin)
+        if current_user.role != "admin":
+            job_poster = job_exists.get("posted_by_user")
+            if job_poster != current_user.username:
+                logger.warning(f"❌ Unauthorized deletion attempt: User {current_user.username} tried to delete job posted by {job_poster}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only delete job postings that you created"
+                )
         
         # Perform soft deletion
         results = qdrant.soft_delete_job_posting(
@@ -1401,143 +1334,3 @@ async def delete_all_job_postings(
             status_code=500, 
             detail="An unexpected error occurred while deleting job postings. Please try again later."
         )
-
-# ==================== ENTERPRISE MONITORING ENDPOINTS ====================
-
-@router.get("/admin/system/queue-stats")
-async def get_queue_system_stats() -> dict:
-    """
-    Get comprehensive enterprise job queue statistics and health metrics
-    """
-    try:
-        from app.services.enhanced_job_queue import get_enterprise_job_queue
-        from app.services.careers_service import get_application_processing_stats
-        
-        # Get queue metrics
-        job_queue = await get_enterprise_job_queue()
-        queue_metrics = job_queue.get_system_metrics()
-        
-        # Get application processing stats
-        processing_stats = await get_application_processing_stats()
-        
-        return {
-            "queue_system": queue_metrics,
-            "processing_system": processing_stats,
-            "timestamp": _now_iso(),
-            "system_status": {
-                "overall_health": "healthy" if all([
-                    queue_metrics["performance_metrics"]["memory_utilization"] < 85,
-                    queue_metrics["queue_metrics"]["success_rate"] > 80,
-                    not queue_metrics["circuit_breaker"]["is_open"]
-                ]) else "degraded",
-                "can_accept_applications": queue_metrics["queue_metrics"]["current_queue_size"] < 2000,
-                "estimated_capacity": max(0, 2000 - queue_metrics["queue_metrics"]["current_queue_size"])
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to get queue stats: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve system statistics")
-
-@router.post("/admin/system/queue-control")
-async def control_queue_system(action: str = Form(...)) -> dict:
-    """
-    Control enterprise job queue system
-    
-    Actions:
-    - pause: Pause processing new jobs
-    - resume: Resume processing
-    - scale_up: Add more workers
-    - scale_down: Remove workers
-    - reset_circuit_breaker: Reset circuit breaker state
-    """
-    try:
-        from app.services.enhanced_job_queue import get_enterprise_job_queue
-        
-        job_queue = await get_enterprise_job_queue()
-        
-        if action == "pause":
-            # Implementation would pause workers
-            return {"success": True, "message": "Queue processing paused", "action": action}
-        
-        elif action == "resume":
-            # Implementation would resume workers
-            return {"success": True, "message": "Queue processing resumed", "action": action}
-        
-        elif action == "scale_up":
-            await job_queue._scale_up()
-            return {"success": True, "message": "Scaled up workers", "action": action}
-        
-        elif action == "scale_down":
-            await job_queue._scale_down()
-            return {"success": True, "message": "Scaled down workers", "action": action}
-        
-        elif action == "reset_circuit_breaker":
-            job_queue.circuit_breaker_open = False
-            job_queue.circuit_breaker_failures = 0
-            job_queue.circuit_breaker_last_failure = 0
-            return {"success": True, "message": "Circuit breaker reset", "action": action}
-        
-        else:
-            raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Failed to control queue system: {e}")
-        raise HTTPException(status_code=500, detail="Failed to control queue system")
-
-@router.get("/admin/system/emergency-status")
-async def get_emergency_system_status() -> dict:
-    """
-    Get emergency system status for crisis management
-    
-    Returns critical metrics for immediate action during viral traffic
-    """
-    try:
-        from app.services.enhanced_job_queue import get_enterprise_job_queue
-        import psutil
-        
-        job_queue = await get_enterprise_job_queue()
-        metrics = job_queue.get_system_metrics()
-        
-        # System resource metrics
-        memory_percent = psutil.virtual_memory().percent
-        cpu_percent = psutil.cpu_percent(interval=1)
-        disk_percent = psutil.disk_usage('/').percent
-        
-        # Critical thresholds
-        is_critical = any([
-            memory_percent > 90,
-            cpu_percent > 90,
-            metrics["queue_metrics"]["current_queue_size"] > 3000,
-            metrics["circuit_breaker"]["is_open"]
-        ])
-        
-        return {
-            "emergency_level": "CRITICAL" if is_critical else "NORMAL",
-            "critical_metrics": {
-                "memory_percent": memory_percent,
-                "cpu_percent": cpu_percent,
-                "disk_percent": disk_percent,
-                "queue_size": metrics["queue_metrics"]["current_queue_size"],
-                "circuit_breaker_open": metrics["circuit_breaker"]["is_open"],
-                "active_workers": metrics["worker_metrics"]["active_workers"]
-            },
-            "immediate_actions": [
-                "Consider enabling emergency mode" if is_critical else "System operating normally",
-                "Scale up workers immediately" if metrics["queue_metrics"]["current_queue_size"] > 1500 else None,
-                "Check system resources" if memory_percent > 80 or cpu_percent > 80 else None,
-                "Circuit breaker triggered - investigate errors" if metrics["circuit_breaker"]["is_open"] else None
-            ],
-            "capacity_status": {
-                "can_handle_viral_traffic": not is_critical and metrics["queue_metrics"]["current_queue_size"] < 1000,
-                "max_recommended_concurrent": 2000 - metrics["queue_metrics"]["current_queue_size"],
-                "estimated_processing_time_minutes": metrics["performance_metrics"]["average_processing_time"] / 60
-            },
-            "timestamp": _now_iso()
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to get emergency status: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve emergency status")

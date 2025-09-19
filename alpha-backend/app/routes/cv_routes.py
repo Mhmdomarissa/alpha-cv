@@ -286,15 +286,6 @@ async def list_cvs() -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"Failed to list CVs: {e}")
 
 
-@router.get("/test")
-async def test_cv_endpoint() -> JSONResponse:
-    """Test endpoint to verify CV routes are working."""
-    return JSONResponse({"status": "success", "message": "CV routes are working"})
-
-@router.get("/test/{test_id}") 
-async def test_cv_pattern(test_id: str) -> JSONResponse:
-    """Test endpoint to verify CV route pattern is working."""
-    return JSONResponse({"status": "success", "message": f"CV route pattern works with ID: {test_id}"})
 
 @router.get("/{cv_id}")
 async def get_cv_details(cv_id: str) -> JSONResponse:
