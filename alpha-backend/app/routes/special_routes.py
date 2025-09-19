@@ -140,138 +140,6 @@ def _get_structured_jd(jd_id: str) -> Optional[Dict[str, Any]]:
 # ----------------------------
 # Matching endpoints (legacy)
 # ----------------------------
-@router.post("/match-cv-jd")
-async def match_cv_jd(request: MatchRequest) -> JSONResponse:
-    """
-    Match a specific CV against a specific JD using explainable scoring
-    (skills/responsibilities %, title & experience signals).
-    """
-    try:
-        svc = get_matching_service()
-        result = svc.match_cv_against_jd(request.cv_id, request.jd_id)
-        response = {
-            "status": "success",
-            "match_result": {
-                "cv_id": result.cv_id,
-                "jd_id": result.jd_id,
-                "overall_score": result.overall_score,
-                "breakdown": {
-                    "skills_score": result.skills_score,
-                    "responsibilities_score": result.responsibilities_score,
-                    "title_score": result.title_score,
-                    "experience_score": result.experience_score,
-                },
-                "explanation": result.explanation,
-                "match_details": result.match_details,
-                "processing_time": result.processing_time,
-            },
-            "scoring_weights": {
-                "skills": 80,
-                "responsibilities": 15,
-                "title": 2.5,
-                "experience": 2.5,
-            },
-            "matching_method": "explainable_via_structured+32vec",
-        }
-        return JSONResponse(response)
-    except Exception as e:
-        logger.error(f"❌ CV-JD matching failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Matching failed: {str(e)}")
-
-@router.post("/bulk-match")
-async def bulk_match(request: BulkMatchRequest) -> JSONResponse:
-    """
-    Bulk match one JD against many CVs and return top-k.
-    """
-    try:
-        if len(request.cv_ids) > 50:
-            raise HTTPException(status_code=400, detail="Maximum 50 CVs per request")
-        svc = get_matching_service()
-        results = svc.bulk_match(request.jd_id, request.cv_ids, request.top_k)
-        matches = []
-        for r in results:
-            matches.append({
-                "cv_id": r.cv_id,
-                "jd_id": r.jd_id,
-                "overall_score": r.overall_score,
-                "breakdown": {
-                    "skills_score": r.skills_score,
-                    "responsibilities_score": r.responsibilities_score,
-                    "title_score": r.title_score,
-                    "experience_score": r.experience_score,
-                },
-                "explanation": r.explanation,
-                "processing_time": r.processing_time,
-                "match_summary": {
-                    "skills_matched": r.match_details["skills_analysis"]["matched"],
-                    "total_skills_required": r.match_details["skills_analysis"]["total_required"],
-                    "responsibilities_matched": r.match_details["responsibilities_analysis"]["matched"],
-                    "total_responsibilities_required": r.match_details["responsibilities_analysis"]["total_required"],
-                }
-            })
-        return JSONResponse({
-            "status": "success",
-            "bulk_match_results": {
-                "jd_id": request.jd_id,
-                "total_cvs_processed": len(request.cv_ids),
-                "results_returned": len(matches),
-                "top_k": request.top_k,
-                "matches": matches,
-            },
-            "matching_method": "bulk_structured+32vec",
-        })
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Bulk matching failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Bulk matching failed: {str(e)}")
-
-@router.post("/find-top-candidates")
-async def find_top_candidates(request: TopCandidatesRequest) -> JSONResponse:
-    """
-    Run matching across ALL CVs in DB and return the top-N candidates.
-    """
-    try:
-        svc = get_matching_service()
-        results = svc.find_top_candidates(request.jd_id, request.limit)
-        candidates = []
-        for r in results:
-            cv_info = _get_structured_cv(r.cv_id) or {"id": r.cv_id}
-            candidates.append({
-                "cv_id": r.cv_id,
-                "overall_score": r.overall_score,
-                "breakdown": {
-                    "skills_score": r.skills_score,
-                    "responsibilities_score": r.responsibilities_score,
-                    "title_score": r.title_score,
-                    "experience_score": r.experience_score,
-                },
-                "explanation": r.explanation,
-                "candidate_details": {
-                    "filename": cv_info.get("filename", "Unknown"),
-                    "full_name": cv_info.get("name", "Not specified"),
-                    "job_title": cv_info.get("job_title", "Not specified"),
-                    "years_of_experience": cv_info.get("years_of_experience", "Not specified"),
-                    "top_skills": (cv_info.get("skills") or [])[:5],
-                },
-                "match_highlights": {
-                    "top_skill_matches": r.match_details["skills_analysis"]["matches"][:3],
-                    "top_responsibility_matches": r.match_details["responsibilities_analysis"]["matches"][:3],
-                }
-            })
-        return JSONResponse({
-            "status": "success",
-            "candidate_search": {
-                "jd_id": request.jd_id,
-                "candidates_found": len(candidates),
-                "search_limit": request.limit,
-                "candidates": candidates,
-            },
-            "search_method": "full_db_structured+32vec",
-        })
-    except Exception as e:
-        logger.error(f"❌ Top candidate search failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Candidate search failed: {str(e)}")
 
 # ----------------------------
 # Real-time text match (no DB)
@@ -506,10 +374,6 @@ async def match_text(request: TextMatchRequest) -> JSONResponse:
         logger.error(f"❌ Text matching failed: {e}")
         raise HTTPException(status_code=500, detail=f"Text matching failed: {str(e)}")
 
-# Alias kept for FE compatibility
-@router.post("/standardize-and-match-text")
-async def standardize_and_match_text(request: TextMatchRequest) -> JSONResponse:
-    return await match_text(request)
 
 # ----------------------------
 # New deterministic matcher (schemas)
@@ -679,11 +543,18 @@ async def health_check() -> JSONResponse:
             status["services"]["embedding"] = {"status": "unhealthy", "error": str(e)}
             status["status"] = "degraded"
         try:
-            cache = get_cache_service()
-            status["services"]["cache"] = {"status": "healthy", "stats": cache.get_stats()}
+            # Try Redis cache first
+            from app.utils.redis_cache import get_redis_cache
+            redis_cache = get_redis_cache()
+            status["services"]["cache"] = redis_cache.health_check()
         except Exception as e:
-            status["services"]["cache"] = {"status": "unhealthy", "error": str(e)}
-            status["status"] = "degraded"
+            # Fallback to in-memory cache
+            try:
+                cache = get_cache_service()
+                status["services"]["cache"] = {"status": "healthy", "stats": cache.get_stats(), "type": "in-memory"}
+            except Exception as e2:
+                status["services"]["cache"] = {"status": "unhealthy", "error": str(e2)}
+                status["status"] = "degraded"
         import os
         status["environment"] = {
             "openai_key_configured": bool(os.getenv("OPENAI_API_KEY")),
@@ -806,173 +677,6 @@ async def get_database_status():
         logger.error(f"❌ Failed to get database status: {e}")
         raise HTTPException(status_code=500, detail=f"Database status error: {str(e)}")
 
-@router.get("/database/collections")
-async def list_all_collections():
-    try:
-        q = get_qdrant_utils().client
-        cols = q.get_collections()
-        detailed = {}
-        for c in cols.collections:
-            name = c.name
-            info = q.get_collection(name)
-            try:
-                sample_points, _ = q.scroll(
-                    collection_name=name,
-                    limit=2,
-                    with_payload=True,
-                    with_vectors=False,
-                )
-                samples = [p.payload for p in (sample_points or [])]
-            except Exception:
-                samples = []
-            vectors = info.config.params.vectors
-            if hasattr(vectors, "size"):
-                vector_config = {"size": vectors.size, "distance": str(vectors.distance)}
-            else:
-                vector_config = {n: {"size": v.size, "distance": str(v.distance)} for n, v in vectors.items()}
-            detailed[name] = {
-                "points_count": info.points_count,
-                "vector_config": vector_config,
-                "status": str(info.status),
-                "sample_data": samples,
-            }
-        return JSONResponse({"status": "success", "collections": detailed, "timestamp": time.time()})
-    except Exception as e:
-        logger.error(f"❌ Failed to list collections: {e}")
-        raise HTTPException(status_code=500, detail=f"Collections listing error: {str(e)}")
-
-@router.get("/database/cv/{cv_id}")
-async def get_cv_data(cv_id: str):
-    """
-    Show what's stored for a specific CV across the three collections:
-      - cv_documents
-      - cv_structured
-      - cv_embeddings
-    """
-    try:
-        q = get_qdrant_utils().client
-        out: Dict[str, Any] = {}
-        # cv_documents
-        try:
-            res = q.retrieve("cv_documents", ids=[cv_id], with_payload=True, with_vectors=False)
-            out["documents"] = {"found": bool(res), "payload": (res[0].payload if res else None)}
-        except Exception as e:
-            out["documents"] = {"found": False, "error": str(e)}
-        # cv_structured
-        try:
-            res = q.retrieve("cv_structured", ids=[cv_id], with_payload=True, with_vectors=False)
-            out["structured"] = {"found": bool(res), "payload": (res[0].payload if res else None)}
-        except Exception as e:
-            out["structured"] = {"found": False, "error": str(e)}
-        # cv_embeddings (sample)
-        try:
-            pts, _ = q.scroll(
-                collection_name="cv_embeddings",
-                scroll_filter={"must": [{"key": "document_id", "match": {"value": cv_id}}]},
-                limit=5,
-                with_payload=True,
-                with_vectors=False,
-            )
-            out["embeddings"] = {
-                "found": bool(pts),
-                "count_sampled": len(pts or []),
-                "sample": [p.payload for p in (pts or [])],
-            }
-        except Exception as e:
-            out["embeddings"] = {"found": False, "error": str(e)}
-        return JSONResponse({"status": "success", "cv_id": cv_id, "storage_locations": out, "timestamp": time.time()})
-    except Exception as e:
-        logger.error(f"❌ Failed to get CV data: {e}")
-        raise HTTPException(status_code=500, detail=f"CV data retrieval error: {str(e)}")
-
-@router.get("/database/jd/{jd_id}")
-async def get_jd_data(jd_id: str):
-    """
-    Show what's stored for a specific JD across the three collections:
-      - jd_documents
-      - jd_structured
-      - jd_embeddings
-    """
-    try:
-        q = get_qdrant_utils().client
-        out: Dict[str, Any] = {}
-        # jd_documents
-        try:
-            res = q.retrieve("jd_documents", ids=[jd_id], with_payload=True, with_vectors=False)
-            out["documents"] = {"found": bool(res), "payload": (res[0].payload if res else None)}
-        except Exception as e:
-            out["documents"] = {"found": False, "error": str(e)}
-        # jd_structured
-        try:
-            res = q.retrieve("jd_structured", ids=[jd_id], with_payload=True, with_vectors=False)
-            out["structured"] = {"found": bool(res), "payload": (res[0].payload if res else None)}
-        except Exception as e:
-            out["structured"] = {"found": False, "error": str(e)}
-        # jd_embeddings (sample)
-        try:
-            pts, _ = q.scroll(
-                collection_name="jd_embeddings",
-                scroll_filter={"must": [{"key": "document_id", "match": {"value": jd_id}}]},
-                limit=5,
-                with_payload=True,
-                with_vectors=False,
-            )
-            out["embeddings"] = {
-                "found": bool(pts),
-                "count_sampled": len(pts or []),
-                "sample": [p.payload for p in (pts or [])],
-            }
-        except Exception as e:
-            out["embeddings"] = {"found": False, "error": str(e)}
-        return JSONResponse({"status": "success", "jd_id": jd_id, "storage_locations": out, "timestamp": time.time()})
-    except Exception as e:
-        logger.error(f"❌ Failed to get JD data: {e}")
-        raise HTTPException(status_code=500, detail=f"JD data retrieval error: {str(e)}")
-
-@router.get("/database/embeddings")
-async def get_embeddings_info():
-    """
-    Summarize embedding structure for cv_embeddings and jd_embeddings.
-    """
-    try:
-        q = get_qdrant_utils().client
-        info = {}
-        for name in ["cv_embeddings", "jd_embeddings"]:
-            try:
-                coll = q.get_collection(name)
-                pts, _ = q.scroll(
-                    collection_name=name,
-                    limit=1,
-                    with_payload=True,
-                    with_vectors=True,
-                )
-                if pts:
-                    p = pts[0]
-                    info[name] = {
-                        "total_points": coll.points_count,
-                        "sample_payload_keys": list((p.payload or {}).keys()),
-                        "vector_dim": len(p.vector) if isinstance(p.vector, list) else 768,
-                        "embedding_model": "all-mpnet-base-v2",
-                    }
-                else:
-                    info[name] = {
-                        "total_points": coll.points_count,
-                        "vector_structure": "No data",
-                        "status": "Empty collection",
-                    }
-            except Exception as e:
-                info[name] = {"error": str(e)}
-        return JSONResponse({
-            "status": "success",
-            "embeddings_info": info,
-            "embedding_model": "all-mpnet-base-v2",
-            "vector_dimensions": 768,
-            "distance_metric": "Cosine",
-            "timestamp": time.time(),
-        })
-    except Exception as e:
-        logger.error(f"❌ Failed to get embeddings info: {e}")
-        raise HTTPException(status_code=500, detail=f"Embeddings info error: {str(e)}")
 
 @router.get("/database/view")
 async def view_database() -> JSONResponse:

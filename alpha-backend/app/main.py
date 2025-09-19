@@ -93,7 +93,7 @@ app = FastAPI(
 # CORS
 # --------------------
 # Environment-specific origins
-dev_origins = ["http://localhost:3000", "http://localhost:8000", "http://localhost"]
+dev_origins = ["http://localhost:3000", "http://localhost:3001", "http://localhost:8000", "http://localhost"]
 prod_origins = ["https://alphacv.alphadatarecruitment.ae"]
 
 # Check if in development mode
@@ -172,10 +172,6 @@ app.include_router(special_routes.router, prefix="/api", tags=["Matching & Syste
 # Careers routes (public job postings & applications)
 app.include_router(careers_routes.router, prefix="/api/careers", tags=["Careers & Public Applications"])
 
-# Keep legacy aliases for FE compatibility (can remove later)
-app.include_router(cv_routes.router, prefix="/api/jobs", tags=["Legacy CV Routes"])
-app.include_router(jd_routes.router, prefix="/api/jobs", tags=["Legacy JD Routes"])
-app.include_router(special_routes.router, prefix="/api/jobs", tags=["Legacy Matching Routes"])
 
 
 # --------------------
@@ -191,7 +187,6 @@ async def root():
         "endpoints": {
             "cv_management": "/api/cv",
             "jd_management": "/api/jd",
-            "matching_explainable": "/api/match-cv-jd",
             "matching_deterministic": "/api/match",
             "text_match": "/api/match-text",
             "health": "/api/health",

@@ -40,7 +40,16 @@ class EmbeddingService:
         self.model_name = model_name
         self.model = None
         self.device = None
-        self._embedding_cache = {}
+        self._embedding_cache = {}  # Fallback in-memory cache
+        
+        # Initialize Redis cache
+        try:
+            from app.utils.redis_cache import get_redis_cache
+            self.redis_cache = get_redis_cache()
+            logger.info("✅ Redis cache initialized for embeddings")
+        except Exception as e:
+            logger.warning(f"⚠️ Redis cache not available: {e}")
+            self.redis_cache = None
         
         self._initialize_model()
         logger.info(f"🔥 EmbeddingService initialized with {model_name}")
@@ -171,9 +180,19 @@ class EmbeddingService:
         # Clean text
         clean_text = self._prepare_text(text)
         
-        # Check cache
+        # Check Redis cache first
+        if self.redis_cache:
+            try:
+                cached_embedding = self.redis_cache.get(f"embedding:{hash(clean_text)}", "embeddings")
+                if cached_embedding is not None:
+                    logger.debug("Using Redis cached embedding")
+                    return np.array(cached_embedding, dtype=np.float32)
+            except Exception as e:
+                logger.warning(f"Redis cache read failed: {e}")
+        
+        # Check in-memory cache
         if clean_text in self._embedding_cache:
-            logger.debug("Using cached embedding")
+            logger.debug("Using in-memory cached embedding")
             return self._embedding_cache[clean_text]
         
         try:
@@ -186,7 +205,14 @@ class EmbeddingService:
             if isinstance(embedding, torch.Tensor):
                 embedding = embedding.cpu().numpy()
             
-            # Cache the result
+            # Cache in Redis (1 hour TTL)
+            if self.redis_cache:
+                try:
+                    self.redis_cache.set(f"embedding:{hash(clean_text)}", embedding.tolist(), 3600, "embeddings")
+                except Exception as e:
+                    logger.warning(f"Redis cache write failed: {e}")
+            
+            # Cache in memory as fallback
             self._embedding_cache[clean_text] = embedding
             
             processing_time = time.time() - start_time

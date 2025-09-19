@@ -1,0 +1,225 @@
+version: '3.8'
+
+services:
+  # =======================
+  # Backend (FastAPI) - Production Optimized
+  # =======================
+  backend:
+    build: ./alpha-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./.env
+    environment:
+      # Environment detection
+      NODE_ENV: "production"
+      ENVIRONMENT: "production"
+      
+      # Database connection pooling - AWS optimized (4 cores, 15GB RAM)
+      QDRANT_MAX_CONNECTIONS: "20"
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      
+      # Rate limiting - Optimized for 40 concurrent users
+      MAX_GLOBAL_CONCURRENT: "80"
+      CIRCUIT_BREAKER_THRESHOLD: "30"
+      CIRCUIT_BREAKER_RECOVERY_TIME: "300"
+      
+      # Job queue scaling - AWS optimized (4 CPU cores)
+      MIN_QUEUE_WORKERS: "4"
+      MAX_QUEUE_WORKERS: "16"
+      QUEUE_SIZE_THRESHOLD: "2000"
+      
+      # Memory and performance - AWS optimized (15GB RAM)
+      MEMORY_THRESHOLD_MB: "12288"
+      CPU_THRESHOLD_PERCENT: "80"
+      
+      # Performance monitoring
+      ENABLE_PERFORMANCE_MONITORING: "true"
+      LOG_LEVEL: "INFO"
+      ENABLE_REQUEST_LOGGING: "true"
+      
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    restart: unless-stopped
+    volumes:
+      - ./alpha-backend:/app
+    networks:
+      - cv-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, json, sys; resp=urllib.request.urlopen('http://localhost:8000/api/health', timeout=5); data=json.loads(resp.read().decode()); sys.exit(0 if data.get('status') in ('healthy','degraded') else 1)"]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4.0'
+        reservations:
+          memory: 4G
+          cpus: '2.0'
+
+  # =======================
+  # Frontend (Next.js) - Production Optimized
+  # =======================
+  frontend:
+    build: 
+      context: ./cv-analyzer-frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./.env
+    environment:
+      # Production API URLs
+      NEXT_PUBLIC_API_URL: "https://alphacv.alphadatarecruitment.ae"
+      NEXT_PUBLIC_API_BASE: "https://alphacv.alphadatarecruitment.ae"
+      BACKEND_URL: "http://backend:8000"
+      NODE_ENV: "production"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - cv-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+
+  # =======================
+  # Postgres - Production Optimized
+  # =======================
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: cv_database
+      POSTGRES_USER: cv_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      
+      # Production optimizations
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres.conf:/etc/postgresql/postgresql.conf:ro
+    restart: unless-stopped
+    networks:
+      - cv-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+  # =======================
+  # Qdrant - Production Optimized
+  # =======================
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./qdrant_config.yaml:/qdrant/config/production.yaml:ro
+    restart: unless-stopped
+    networks:
+      - cv-network
+    environment:
+      # Production settings
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_REQUESTS: 100
+      QDRANT__STORAGE__PERFORMANCE__MAX_OPTIMIZATION_THREADS: 4
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4.0'
+        reservations:
+          memory: 4G
+          cpus: '2.0'
+
+
+  # =======================
+  # Nginx - Production Optimized
+  # =======================
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.production.conf:/etc/nginx/nginx.conf:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - cv-network
+    environment:
+      - DOMAIN=alphacv.alphadatarecruitment.ae
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+
+
+  # =======================
+  # Monitoring - Prometheus
+  # =======================
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    networks:
+      - cv-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  prometheus_data:
+
+networks:
+  cv-network:
+    driver: bridge

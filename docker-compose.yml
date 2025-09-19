@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # =======================
   # Backend (FastAPI)
@@ -11,14 +9,43 @@ services:
     env_file:
       - ./.env
     environment:
-      # fallbacks if .env not set
-      QDRANT_HOST: qdrant
-      QDRANT_PORT: 6333
+      # Environment detection - will be overridden by .env file
+      NODE_ENV: "${NODE_ENV:-development}"
+      ENVIRONMENT: "${ENVIRONMENT:-development}"
+      
+      # Database connection pooling - Environment-aware
+      QDRANT_MAX_CONNECTIONS: "${QDRANT_MAX_CONNECTIONS:-10}"
+      QDRANT_HOST: "${QDRANT_HOST:-qdrant}"
+      QDRANT_PORT: "${QDRANT_PORT:-6333}"
+      
+      # Rate limiting - Environment-aware
+      MAX_GLOBAL_CONCURRENT: "${MAX_GLOBAL_CONCURRENT:-50}"
+      CIRCUIT_BREAKER_THRESHOLD: "${CIRCUIT_BREAKER_THRESHOLD:-10}"
+      CIRCUIT_BREAKER_RECOVERY_TIME: "${CIRCUIT_BREAKER_RECOVERY_TIME:-300}"
+      
+      # Job queue scaling - Environment-aware
+      MIN_QUEUE_WORKERS: "${MIN_QUEUE_WORKERS:-2}"
+      MAX_QUEUE_WORKERS: "${MAX_QUEUE_WORKERS:-20}"
+      QUEUE_SIZE_THRESHOLD: "${QUEUE_SIZE_THRESHOLD:-1000}"
+      
+      # Memory and performance - Environment-aware
+      MEMORY_THRESHOLD_MB: "${MEMORY_THRESHOLD_MB:-4096}"
+      CPU_THRESHOLD_PERCENT: "${CPU_THRESHOLD_PERCENT:-90}"
+      
+      # Performance monitoring - Environment-aware
+      ENABLE_PERFORMANCE_MONITORING: "${ENABLE_PERFORMANCE_MONITORING:-false}"
+      LOG_LEVEL: "${LOG_LEVEL:-DEBUG}"
+      ENABLE_REQUEST_LOGGING: "${ENABLE_REQUEST_LOGGING:-true}"
+      
+      # Enable local development authentication
+      LOCAL_AUTH: "true"
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
         condition: service_started
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     volumes:
       - ./alpha-backend:/app
@@ -43,7 +70,8 @@ services:
       - ./.env
     environment:
       # Expose the backend URL to the browser (through nginx proxy)
-      NEXT_PUBLIC_API_URL: "https://alphacv.alphadatarecruitment.ae"
+      NEXT_PUBLIC_API_URL: "http://localhost:8000"
+      NEXT_PUBLIC_API_BASE: "http://localhost:8000"
       BACKEND_URL: "http://backend:8000"
     restart: unless-stopped
     depends_on:
@@ -88,7 +116,30 @@ services:
     restart: unless-stopped
     networks:
       - cv-network
-    # (qdrant image doesn’t ship curl/wget; rely on service_started here)
+    # (qdrant image doesn't ship curl/wget; rely on service_started here)
+
+  # =======================
+  # Redis Cache - Local Development
+  # =======================
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - cv-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    environment:
+      # Development Redis settings
+      REDIS_MAXMEMORY: "100mb"
+      REDIS_MAXMEMORY_POLICY: "allkeys-lru"
 
   # =======================
   # Nginx
@@ -133,6 +184,7 @@ services:
 volumes:
   postgres_data:
   qdrant_data:
+  redis_data:
 
 networks:
   cv-network:

@@ -68,11 +68,21 @@ class ApplicationJob:
 class EnterpriseJobQueue:
     """Enterprise-grade job queue with auto-scaling and load balancing"""
     
-    def __init__(self, min_workers: int = 2, max_workers: int = 50):
-        # Queue configuration
-        self.min_workers = min_workers
-        self.max_workers = max_workers
-        self.current_workers = min_workers
+    def __init__(self, min_workers: int = None, max_workers: int = None):
+        # Environment-aware worker configuration
+        import os
+        environment = os.getenv("ENVIRONMENT", "development")
+        
+        if environment == "production":
+            # Production worker configuration for 50+ concurrent users
+            self.min_workers = min_workers or int(os.getenv("MIN_QUEUE_WORKERS", "10"))
+            self.max_workers = max_workers or int(os.getenv("MAX_QUEUE_WORKERS", "100"))
+        else:
+            # Development worker configuration (lower for local testing)
+            self.min_workers = min_workers or int(os.getenv("MIN_QUEUE_WORKERS", "2"))
+            self.max_workers = max_workers or int(os.getenv("MAX_QUEUE_WORKERS", "20"))
+        
+        self.current_workers = self.min_workers
         
         # Priority queues
         self.queues = {
@@ -92,17 +102,29 @@ class EnterpriseJobQueue:
         self.last_scale_check = time.time()
         self.scale_check_interval = 30  # Check every 30 seconds
         
-        # Circuit breaker state
+        # Circuit breaker state (will be set by environment-aware configuration below)
         self.circuit_breaker_open = False
         self.circuit_breaker_failures = 0
         self.circuit_breaker_last_failure = 0
-        self.circuit_breaker_threshold = 10  # 10 failures in 5 minutes
-        self.circuit_breaker_timeout = 300  # 5 minutes
         
-        # Performance thresholds
-        self.memory_threshold_mb = 4096  # 4GB memory limit (increased for development)
-        self.cpu_threshold_percent = 90  # 90% CPU threshold
-        self.queue_size_threshold = 1000  # Scale up if queue > 1000
+        # Performance thresholds - Environment-aware configuration
+        import os
+        environment = os.getenv("ENVIRONMENT", "development")
+        
+        if environment == "production":
+            # Production thresholds for 50+ concurrent users
+            self.memory_threshold_mb = int(os.getenv("MEMORY_THRESHOLD_MB", "16384"))  # 16GB
+            self.cpu_threshold_percent = int(os.getenv("CPU_THRESHOLD_PERCENT", "85"))  # 85% CPU
+            self.queue_size_threshold = int(os.getenv("QUEUE_SIZE_THRESHOLD", "5000"))  # Scale up if queue > 5000
+            self.circuit_breaker_threshold = int(os.getenv("CIRCUIT_BREAKER_THRESHOLD", "50"))  # 50 failures
+            self.circuit_breaker_timeout = int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIME", "300"))  # 5 minutes
+        else:
+            # Development thresholds (lower for local testing)
+            self.memory_threshold_mb = int(os.getenv("MEMORY_THRESHOLD_MB", "4096"))  # 4GB
+            self.cpu_threshold_percent = int(os.getenv("CPU_THRESHOLD_PERCENT", "90"))  # 90% CPU
+            self.queue_size_threshold = int(os.getenv("QUEUE_SIZE_THRESHOLD", "1000"))  # Scale up if queue > 1000
+            self.circuit_breaker_threshold = int(os.getenv("CIRCUIT_BREAKER_THRESHOLD", "10"))  # 10 failures
+            self.circuit_breaker_timeout = int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIME", "300"))  # 5 minutes
         
         # Start initial workers
         self._start_workers()
