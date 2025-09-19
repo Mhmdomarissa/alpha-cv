@@ -20,6 +20,7 @@ import {
 import { useCareersStore } from '@/stores/careersStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useAppStore } from '@/stores/appStore';
+import { useUserSessionStore } from '@/stores/userSessionStore';
 import { JobPostingListItem } from '@/lib/types';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-enhanced';
@@ -45,6 +46,14 @@ export default function CareersPage() {
   } = useCareersStore();
   const { setCurrentTab } = useAppStore();
   
+  // User session store for isolated state management
+  const {
+    loadingStates,
+    setLoading,
+    queueRequest,
+    clearUserData
+  } = useUserSessionStore();
+  
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editingJob, setEditingJob] = useState<JobPostingListItem | null>(null);
@@ -59,8 +68,16 @@ export default function CareersPage() {
   const [showJobDeleteConfirm, setShowJobDeleteConfirm] = useState<JobPostingListItem | null>(null);
 
   useEffect(() => {
-    loadJobPostings();
-  }, [loadJobPostings]);
+    // Use user session store for request queuing
+    queueRequest('load-job-postings', async () => {
+      setLoading('careers', true);
+      try {
+        await loadJobPostings();
+      } finally {
+        setLoading('careers', false);
+      }
+    });
+  }, [loadJobPostings, queueRequest, setLoading]);
 
 
   const handleToggleStatus = async (jobId: string, currentStatus: boolean) => {
@@ -186,7 +203,7 @@ export default function CareersPage() {
     );
   }
 
-  if (isLoading) {
+  if (isLoading || loadingStates.careers) {
     return (
       <div className="p-6">
         <LoadingCard />

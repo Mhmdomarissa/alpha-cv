@@ -44,39 +44,49 @@ class QdrantUtils:
     
     @property
     def client(self) -> QdrantClient:
-        """Get client - uses pool in production, direct client in development"""
+        """Get client - optimized for both sync and async contexts"""
         if self._use_pool:
-            # Production: Use connection pool
+            # Production: Use connection pool with proper async handling
             if self._pool is None:
-                import asyncio
                 try:
-                    # Try to get pool synchronously (for backward compatibility)
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        # If we're in an async context, we need to handle this differently
-                        logger.warning("⚠️ Using fallback client in async context")
-                        self._client = QdrantClient(host=self.host, port=self.port)
-                        self._ensure_collections_exist()
-                        return self._client
-                    else:
-                        self._pool = loop.run_until_complete(self._get_pool())
-                except RuntimeError:
-                    # No event loop, create direct client
-                    self._client = QdrantClient(host=self.host, port=self.port)
-                    self._ensure_collections_exist()
-                    return self._client
+                    import asyncio
+                    import threading
+                    
+                    # Check if we're in an async context
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # We're in an async context, use fallback client
+                        logger.debug("🔄 Async context detected, using fallback client")
+                        return self._get_fallback_client()
+                    except RuntimeError:
+                        # No event loop running, safe to use sync pool initialization
+                        from app.utils.qdrant_pool import get_qdrant_pool
+                        self._pool = asyncio.run(get_qdrant_pool())
+                        logger.info("✅ Qdrant connection pool initialized")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Failed to get Qdrant pool: {e}, using fallback client")
+                    return self._get_fallback_client()
             
-            # For now, return direct client (pool integration will be async)
-            if self._client is None:
-                self._client = QdrantClient(host=self.host, port=self.port)
-                self._ensure_collections_exist()
-            return self._client
+            # Return client from pool (sync access)
+            try:
+                return self._pool.get_client()
+            except Exception as e:
+                logger.warning(f"⚠️ Pool client access failed: {e}, using fallback")
+                return self._get_fallback_client()
         else:
             # Development: Use direct client
             if self._client is None:
-                self._client = QdrantClient(host=self.host, port=self.port)
-                self._ensure_collections_exist()
+                self._client = self._get_fallback_client()
             return self._client
+    
+    def _get_fallback_client(self) -> QdrantClient:
+        """Get a direct Qdrant client as fallback"""
+        try:
+            return QdrantClient(host=self.host, port=self.port, timeout=10)
+        except Exception as e:
+            logger.error(f"❌ Failed to create Qdrant client: {e}")
+            raise
     
     async def _get_pool(self):
         """Get connection pool for production"""

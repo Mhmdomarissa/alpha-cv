@@ -283,52 +283,27 @@ async def apply_to_job(
                     job_id=None
                 )
         
-        # SYNC PROCESSING: Traditional immediate processing
-        logger.info(f"🔄 Processing CV synchronously for application {application_id}")
+        # OPTIMIZED ASYNC PROCESSING: Use the same optimized processing as regular CVs
+        logger.info(f"🚀 Processing CV asynchronously for application {application_id}")
         
-        # Continue with original sync processing logic...
+        # Import the optimized CV processing function
+        from app.routes.cv_routes import process_cv_async
         
-        # Extract text using parsing service
+        # Extract text using parsing service (synchronous part)
         import tempfile
-        
-        # Get file extension for temp file
         file_ext = '.' + cv_file.filename.split('.')[-1].lower() if '.' in cv_file.filename else '.txt'
         
-        # Save to temporary file for parsing
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
             tmp.write(file_content)
             tmp_path = tmp.name
-        
-        # Persist the original file to disk for proper download functionality
-        persisted_path = None
-        try:
-            if cv_file.filename:
-                # Get file extension
-                file_ext = os.path.splitext(cv_file.filename)[1].lower()
-                if not file_ext:
-                    file_ext = '.pdf'  # Default to PDF if no extension
-                
-                # Create filename using application_id to avoid collisions
-                dest_filename = f"{application_id}{file_ext}"
-                dest_path = os.path.join(STORAGE_DIR, dest_filename)
-                
-                # Copy the temporary file to the storage directory
-                shutil.copyfile(tmp_path, dest_path)
-                persisted_path = dest_path
-                logger.info(f"✅ Stored job application CV file: {dest_path}")
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to persist job application CV file: {e}")
-            persisted_path = None
         
         try:
             parsing_service = get_parsing_service()
             parsed = parsing_service.process_document(tmp_path, "cv")
             extracted_text = parsed["clean_text"]
             raw_content = parsed["raw_text"]
-            # Get PII extracted from CV
             extracted_pii = parsed.get("extracted_pii", {"email": [], "phone": []})
         finally:
-            # Clean up temporary file
             try:
                 os.unlink(tmp_path)
             except Exception:
@@ -337,32 +312,18 @@ async def apply_to_job(
         if not extracted_text or len(extracted_text.strip()) < 50:
             raise HTTPException(status_code=400, detail="Could not extract sufficient text from CV. Please check the file format.")
         
-        # Process with LLM service
-        llm_service = get_llm_service()
-        llm_result = llm_service.standardize_cv(extracted_text, cv_file.filename)
-        
-        # Update contact_info with application form data (prioritize form data over extracted PII)
-        if "contact_info" not in llm_result:
-            llm_result["contact_info"] = {}
-        
-        # Always use the application form data for contact information
-        llm_result["contact_info"]["name"] = applicant_name
-        llm_result["contact_info"]["email"] = applicant_email
-        if applicant_phone:
-            llm_result["contact_info"]["phone"] = applicant_phone
-        
-        # Also update the name field if it exists
-        if "name" in llm_result:
-            llm_result["name"] = applicant_name
-            
-        logger.info(f"✅ Updated contact info with application data: {applicant_name}, {applicant_email}")
-        
-        # Generate embeddings
-        embedding_service = get_embedding_service()
-        embeddings_data = embedding_service.generate_document_embeddings(llm_result)
-        
-        # 4. Store application data
-        application_data = {
+        # Prepare CV data for async processing (same as regular upload)
+        cv_data = {
+            "cv_id": application_id,
+            "extracted_text": extracted_text,
+            "filename": cv_file.filename,
+            "raw_content": raw_content,
+            "extracted_pii": extracted_pii,
+            "file_ext": os.path.splitext(cv_file.filename)[1].lower() if cv_file.filename else ".txt",
+            "persisted_path": persisted_path,
+            "mime_type": cv_file.content_type or "application/octet-stream",
+            "is_job_application": True,
+            "job_id": job_data["id"],
             "applicant_name": applicant_name,
             "applicant_email": applicant_email,
             "applicant_phone": applicant_phone,
@@ -372,70 +333,17 @@ async def apply_to_job(
             "company_name": job_data.get("company_name", "Alpha Data Recruitment")
         }
         
-        # 5. Store in existing CV collections (reuse existing infrastructure)
-        success_steps = []
+        # Start background processing
+        import asyncio
+        asyncio.create_task(process_cv_async(cv_data))
         
-        # Store raw document in CV collection
-        success_steps.append(
-            qdrant.store_document(
-                application_id, "cv", cv_file.filename,
-                cv_file.content_type or "application/octet-stream",
-                extracted_text, _now_iso(),
-                file_path=persisted_path,  # Now we store the file path for proper downloads
-                mime_type=cv_file.content_type
-            )
-        )
-        
-        # Store structured data in CV collection (with updated contact info)
-        cv_structured_payload = {
-            **llm_result,  # Include all LLM processed data (with updated contact info)
-            "document_id": application_id,
-            "document_type": "cv"
-        }
-        
-        # Ensure contact_info exists and includes application form data
-        if "contact_info" not in cv_structured_payload:
-            cv_structured_payload["contact_info"] = {}
-        
-        # Prioritize application form data over extracted PII
-        cv_structured_payload["contact_info"]["name"] = applicant_name
-        cv_structured_payload["contact_info"]["email"] = applicant_email
-        if applicant_phone:
-            cv_structured_payload["contact_info"]["phone"] = applicant_phone
-        
-        # Also update the name field if it exists
-        if "name" in cv_structured_payload:
-            cv_structured_payload["name"] = applicant_name
-            
-        success_steps.append(
-            qdrant.store_structured_data(application_id, "cv", cv_structured_payload)
-        )
-        
-        # Store embeddings in CV collection
-        success_steps.append(
-            qdrant.store_embeddings_exact(application_id, "cv", embeddings_data)
-        )
-        
-        # Link application to job
-        success_steps.append(
-            qdrant.link_application_to_job(
-                application_id, job_data["id"], application_data, 
-                cv_file.filename, _now_iso()
-            )
-        )
-        
-        # Verify all steps succeeded
-        if not all(success_steps):
-            logger.error(f"❌ Failed to store application {application_id} - some steps failed: {success_steps}")
-            raise HTTPException(status_code=500, detail="Failed to process application. Please try again.")
-            
-        logger.info(f"✅ Application {application_id} successfully processed and stored")
-        
+        # Return immediate response
         return JobApplicationResponse(
             success=True,
             application_id=application_id,
-            message=f"Thank you, {applicant_name}! Your application has been submitted successfully.",
-            next_steps="We will review your CV and contact you if there's a match for this position."
+            message=f"Thank you, {applicant_name}! Your application is being processed with our optimized systems.",
+            next_steps=f"Your CV is being processed in the background. You can check the status at /api/cv/cv-upload-progress/{application_id} or wait for an email confirmation within 2-5 minutes.",
+            job_id=application_id
         )
         
     except HTTPException:

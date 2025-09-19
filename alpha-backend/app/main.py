@@ -52,16 +52,38 @@ async def lifespan(app: FastAPI):
 
         # Initialize core dependencies
         logger.info("🗄 Initializing Qdrant client & collections...")
-        get_qdrant_utils()  # ensures collections exist
+        qdrant_utils = get_qdrant_utils()  # ensures collections exist
         logger.info("✅ Qdrant ready")
+        
+        # Initialize Qdrant connection pool for production
+        if os.getenv("ENVIRONMENT") == "production":
+            logger.info("🔗 Initializing Qdrant connection pool...")
+            from app.utils.qdrant_pool import get_qdrant_pool
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    logger.info("⚠️ Event loop running, Qdrant pool will be initialized on first use")
+                else:
+                    pool = loop.run_until_complete(get_qdrant_pool())
+                    logger.info("✅ Qdrant connection pool ready")
+            except Exception as e:
+                logger.warning(f"⚠️ Qdrant pool initialization failed: {e}")
+        else:
+            logger.info("🔗 Using direct Qdrant client for development")
 
         logger.info("🧠 Warming embedding service...")
         get_embedding_service()
         logger.info("✅ Embedding service ready")
 
         logger.info("🧰 Initializing cache service...")
-        get_cache_service()
+        cache_service = get_cache_service()
         logger.info("✅ Cache ready")
+        
+        logger.info("🔴 Initializing Redis cache...")
+        from app.utils.redis_cache import get_redis_cache
+        redis_cache = get_redis_cache()
+        logger.info("✅ Redis cache ready")
 
         logger.info("🔐 Initializing auth database...")
         init_auth_db()

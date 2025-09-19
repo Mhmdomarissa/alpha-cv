@@ -1,0 +1,73 @@
+# Qdrant Configuration - Optimized for g4dn.xlarge (16GB RAM, 4 vCPU)
+# Allocated 4GB memory, 2 CPUs
+
+service:
+  http_port: 6333
+  grpc_port: 6334
+  enable_cors: true
+  max_request_size_mb: 64
+  max_workers: 4
+
+storage:
+  # Storage optimizations for AWS EBS
+  storage_path: "/qdrant/storage"
+  snapshots_path: "/qdrant/snapshots"
+  
+  # Performance settings
+  performance:
+    max_search_requests: 80          # Reduced from 100 for memory efficiency
+    max_optimization_threads: 2      # Use 2 threads for optimization
+    
+  # Memory management
+  memory:
+    # MMAP threshold for vectors (256MB)
+    mmap_threshold_kb: 262144
+    # Payload index threshold (32MB)  
+    payload_m_threshold_kb: 32768
+    
+  # WAL (Write-Ahead Log) settings
+  wal:
+    wal_capacity_mb: 256             # Reduced from default 512MB
+    wal_segments_ahead: 2            # Pre-create 2 segments
+    
+  # Optimizer settings
+  optimizer:
+    # Optimize every 30 minutes instead of default
+    optimization_cpu_budget: 2
+    max_optimization_threads: 2
+    indexing_threshold_kb: 51200     # 50MB threshold
+    
+  # Collection defaults
+  collection:
+    # Default vector storage
+    vectors:
+      on_disk_payload: false         # Keep payload in memory for speed
+      
+    # HNSW index parameters (optimized for limited memory)
+    hnsw_config:
+      m: 16                          # Reduced from default 32
+      ef_construct: 128              # Reduced from default 200  
+      full_scan_threshold: 1000      # Use full scan for small collections
+      max_indexing_threads: 2        # Limit indexing threads
+      on_disk: false                 # Keep in memory for performance
+      payload_m: 8                   # Payload connections
+
+# Cluster settings (for future scaling)
+cluster:
+  enabled: false
+
+# TLS settings (configure if needed)
+tls:
+  enabled: false
+
+# Telemetry
+telemetry:
+  enabled: true
+  
+# Logging
+log_level: "INFO"
+
+# Quantization settings (for memory efficiency)
+quantization:
+  always_ram: false
+  rescore: true

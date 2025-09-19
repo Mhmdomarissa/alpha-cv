@@ -1,0 +1,7 @@
+John Doe
+Software Engineer
+5 years experience
+Skills: Python, JavaScript, React, Node.js
+Responsibilities: Develop web applications, Write clean code, Lead team projects
+Email: john.doe@example.com
+Phone: +971501234567

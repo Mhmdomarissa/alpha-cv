@@ -79,9 +79,43 @@ class QdrantConnectionPool:
                 logger.info(f"📋 Creating collection: {name}")
                 client.create_collection(collection_name=name, vectors_config=cfg)
     
+    def get_client(self) -> QdrantClient:
+        """Get a client from the pool (sync version)"""
+        if not self._initialized:
+            # Initialize synchronously
+            import asyncio
+            asyncio.run(self.initialize())
+        
+        # Try to get existing connection
+        try:
+            client = self._pool.get_nowait()
+        except asyncio.QueueEmpty:
+            # Create new connection if under limit
+            with self._lock:
+                if self._created_connections < self.max_connections:
+                    import asyncio
+                    client = asyncio.run(self._create_client())
+                    self._created_connections += 1
+                    logger.info(f"🔗 Created new Qdrant connection ({self._created_connections}/{self.max_connections})")
+                else:
+                    # Wait for available connection
+                    import asyncio
+                    client = asyncio.run(self._pool.get())
+        
+        return client
+    
+    def return_client(self, client: QdrantClient):
+        """Return a client to the pool"""
+        try:
+            self._pool.put_nowait(client)
+        except asyncio.QueueFull:
+            # Pool is full, close this connection
+            logger.warning("🔗 Connection pool full, closing excess connection")
+            # Note: QdrantClient doesn't have explicit close method
+    
     @asynccontextmanager
-    async def get_client(self):
-        """Get a client from the pool"""
+    async def get_client_async(self):
+        """Get a client from the pool (async version)"""
         if not self._initialized:
             await self.initialize()
         
@@ -113,7 +147,7 @@ class QdrantConnectionPool:
     async def health_check(self) -> Dict[str, Any]:
         """Check pool health"""
         try:
-            async with self.get_client() as client:
+            async with self.get_client_async() as client:
                 cols = client.get_collections()
                 return {
                     "status": "healthy",

@@ -5,6 +5,7 @@ Uses:
   - *_embeddings for EXACT 32 vectors
   - *_documents for raw files/text payloads
 """
+import asyncio
 import logging
 import time
 from typing import List, Dict, Any, Optional, Tuple
@@ -142,6 +143,186 @@ def _get_structured_jd(jd_id: str) -> Optional[Dict[str, Any]]:
 # ----------------------------
 
 # ----------------------------
+# Progress Tracking for Large Matching Operations
+# ----------------------------
+
+# Global progress tracking (in production, use Redis or database)
+_matching_progress = {}
+
+@router.get("/matching-progress/{job_id}")
+async def get_matching_progress(job_id: str):
+    """
+    Get real-time progress of matching operations.
+    Useful for monitoring large batch matching jobs.
+    """
+    try:
+        progress = _matching_progress.get(job_id, {})
+        return JSONResponse({
+            "job_id": job_id,
+            "status": progress.get("status", "not_found"),
+            "progress_percent": progress.get("progress_percent", 0),
+            "total_candidates": progress.get("total_candidates", 0),
+            "processed_candidates": progress.get("processed_candidates", 0),
+            "current_chunk": progress.get("current_chunk", 0),
+            "total_chunks": progress.get("total_chunks", 0),
+            "start_time": progress.get("start_time"),
+            "estimated_completion": progress.get("estimated_completion"),
+            "results_so_far": progress.get("results_so_far", 0)
+        })
+    except Exception as e:
+        logger.error(f"❌ Failed to get matching progress: {e}")
+        raise HTTPException(status_code=500, detail=f"Progress tracking error: {str(e)}")
+
+def update_matching_progress(job_id: str, **kwargs):
+    """Update matching progress for a job"""
+    if job_id not in _matching_progress:
+        _matching_progress[job_id] = {}
+    _matching_progress[job_id].update(kwargs)
+
+# ----------------------------
+# Optimized Parallel Processing Functions
+# ----------------------------
+
+async def process_single_candidate(candidate_data: dict, jd_structured: dict, matching_service, weights: dict) -> dict:
+    """
+    Process a single candidate asynchronously.
+    This function handles the heavy matching computation without blocking.
+    """
+    try:
+        cv_id = candidate_data["id"]
+        cv_name = candidate_data.get("name") or cv_id
+        
+        # Parse CV years properly
+        cv_title = candidate_data.get("job_title", "")
+        cv_years = safe_parse_years(candidate_data.get("years_of_experience"))
+        cv_skills = [s for s in candidate_data.get("skills_sentences", []) if s]
+        cv_resps = [r for r in candidate_data.get("responsibility_sentences", []) if r]
+        
+        # Prepare CV structured data for MatchingService
+        cv_structured = {
+            "id": cv_id,
+            "name": cv_name,
+            "job_title": cv_title,
+            "years_of_experience": cv_years,
+            "skills": cv_skills,
+            "responsibilities": cv_resps
+        }
+        
+        # Use MatchingService to get match result (run in thread pool to avoid blocking)
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            if jd_structured.get("id") != "text_jd":
+                # OPTIMIZED: Use stored embeddings for both CV and JD
+                match_result = await loop.run_in_executor(
+                    executor, 
+                    matching_service.match_by_ids,
+                    cv_id,
+                    jd_structured.get("id"),
+                    weights
+                )
+            else:
+                # LEGACY: Generate embeddings for text JD, use stored for CV if available
+                match_result = await loop.run_in_executor(
+                    executor,
+                    matching_service.match_structured_data,
+                    cv_structured,
+                    jd_structured,
+                    weights
+                )
+        
+        return {
+            "candidate_data": candidate_data,
+            "match_result": match_result,
+            "cv_structured": cv_structured
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to process candidate {candidate_data.get('id', 'unknown')}: {e}")
+        return None
+
+async def process_candidates_chunk_parallel(candidates_chunk: list, jd_structured: dict, matching_service, weights: dict) -> list:
+    """
+    Process a chunk of candidates in parallel using asyncio.
+    This provides significant performance improvement for large batches.
+    """
+    try:
+        # Create tasks for parallel processing
+        tasks = []
+        for candidate in candidates_chunk:
+            task = process_single_candidate(candidate, jd_structured, matching_service, weights)
+            tasks.append(task)
+        
+        # Process all candidates in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Filter out failed results and convert to CandidateBreakdown
+        resp_candidates = []
+        for result in results:
+            if result is None or isinstance(result, Exception):
+                continue
+                
+            candidate_data = result["candidate_data"]
+            match_result = result["match_result"]
+            cv_structured = result["cv_structured"]
+            
+            # Convert MatchResult to CandidateBreakdown
+            skills_assignments = []
+            if "skills_analysis" in match_result.match_details and "matches" in match_result.match_details["skills_analysis"]:
+                for match in match_result.match_details["skills_analysis"]["matches"]:
+                    skills_assignments.append(AssignmentItem(
+                        type="skill",
+                        jd_index=match.get("jd_index", 0),
+                        jd_item=match.get("jd_skill", ""),
+                        cv_index=match.get("cv_index", 0),
+                        cv_item=match.get("cv_skill", ""),
+                        score=match.get("similarity", 0.0),
+                    ))
+            
+            responsibilities_assignments = []
+            if "responsibilities_analysis" in match_result.match_details and "matches" in match_result.match_details["responsibilities_analysis"]:
+                for match in match_result.match_details["responsibilities_analysis"]["matches"]:
+                    responsibilities_assignments.append(AssignmentItem(
+                        type="responsibility",
+                        jd_index=match.get("jd_index", 0),
+                        jd_item=match.get("jd_responsibility", ""),
+                        cv_index=match.get("cv_index", 0),
+                        cv_item=match.get("cv_responsibility", ""),
+                        score=match.get("similarity", 0.0),
+                    ))
+            
+            # Get unmatched skills and responsibilities
+            unmatched_jd_skills = match_result.match_details.get("skills_analysis", {}).get("unmatched_jd_skills", [])
+            unmatched_jd_responsibilities = match_result.match_details.get("responsibilities_analysis", {}).get("unmatched_jd_responsibilities", [])
+            
+            # Create CandidateBreakdown
+            resp_candidates.append(CandidateBreakdown(
+                cv_id=cv_structured["id"],
+                cv_name=cv_structured["name"],
+                cv_job_title=cv_structured["job_title"],
+                cv_years=cv_structured["years_of_experience"],
+                skills_score=match_result.skills_score / 100.0,
+                responsibilities_score=match_result.responsibilities_score / 100.0,
+                job_title_score=match_result.title_score / 100.0,
+                years_score=match_result.experience_score / 100.0,
+                overall_score=match_result.overall_score / 100.0,
+                skills_assignments=skills_assignments,
+                responsibilities_assignments=responsibilities_assignments,
+                unmatched_jd_skills=unmatched_jd_skills,
+                unmatched_jd_responsibilities=unmatched_jd_responsibilities,
+                skills_alternatives=[],  # Not provided by MatchingService
+                responsibilities_alternatives=[]  # Not provided by MatchingService
+            ))
+        
+        return resp_candidates
+        
+    except Exception as e:
+        logger.error(f"❌ Chunk processing failed: {e}")
+        return []
+
+# ----------------------------
 # Real-time text match (no DB)
 # ----------------------------
 # In special_routes.py, update the /match endpoint
@@ -212,94 +393,73 @@ async def match_candidates(req: NewMatchRequest):
             "responsibilities": jd_resps
         }
         
-        # Process each candidate using MatchingService
+        # OPTIMIZED: Process candidates in chunks with parallel processing
         resp_candidates = []
-        for c in candidates_meta:
-            cv_id = c["id"]
-            cv_name = c.get("name") or cv_id
+        chunk_size = 50  # Process 50 CVs at a time
+        total_candidates = len(candidates_meta)
+        total_chunks = (total_candidates + chunk_size - 1) // chunk_size
+        
+        # Initialize progress tracking
+        job_id = jd_structured.get("id", "text_jd")
+        start_time = time.time()
+        update_matching_progress(job_id, 
+            status="processing",
+            total_candidates=total_candidates,
+            total_chunks=total_chunks,
+            start_time=start_time,
+            progress_percent=0,
+            processed_candidates=0,
+            current_chunk=0,
+            results_so_far=0
+        )
+        
+        logger.info(f"🚀 Starting optimized matching: {total_candidates} CVs in {total_chunks} chunks of {chunk_size}")
+        
+        # Process candidates in chunks
+        for chunk_start in range(0, total_candidates, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, total_candidates)
+            chunk_candidates = candidates_meta[chunk_start:chunk_end]
+            chunk_number = chunk_start // chunk_size + 1
             
-            # Parse CV years properly
-            cv_title = c.get("job_title", "")
-            cv_years = safe_parse_years(c.get("years_of_experience"))
-            cv_skills = [s for s in c.get("skills_sentences", []) if s]
-            cv_resps = [r for r in c.get("responsibility_sentences", []) if r]
+            # Update progress
+            update_matching_progress(job_id,
+                current_chunk=chunk_number,
+                progress_percent=(chunk_number / total_chunks) * 100
+            )
             
-            # Prepare CV structured data for MatchingService
-            cv_structured = {
-                "id": cv_id,
-                "name": cv_name,
-                "job_title": cv_title,
-                "years_of_experience": cv_years,  # Use the parsed integer value
-                "skills": cv_skills,
-                "responsibilities": cv_resps
-            }
+            logger.info(f"📦 Processing chunk {chunk_number}/{total_chunks}: CVs {chunk_start+1}-{chunk_end} ({len(chunk_candidates)} candidates)")
             
-            # Use MatchingService to get match result
-            # For stored JDs, use optimized method with stored embeddings
-            # For text JDs, fall back to legacy method
-            if jd_structured.get("id") != "text_jd":
-                # OPTIMIZED: Use stored embeddings for both CV and JD
-                match_result = matching_service.match_by_ids(
-                    cv_id=cv_id,
-                    jd_id=jd_structured.get("id"),
-                    weights=Wn
-                )
-            else:
-                # LEGACY: Generate embeddings for text JD, use stored for CV if available
-                match_result = matching_service.match_structured_data(
-                    cv_structured=cv_structured,
-                    jd_structured=jd_structured,
-                    weights=Wn
-                )
+            # Process chunk candidates in parallel
+            chunk_start_time = time.time()
+            chunk_results = await process_candidates_chunk_parallel(
+                chunk_candidates, jd_structured, matching_service, Wn
+            )
+            chunk_time = time.time() - chunk_start_time
             
-            # Convert MatchResult to CandidateBreakdown
-            # Extract assignments from match_details
-            skills_assignments = []
-            if "skills_analysis" in match_result.match_details and "matches" in match_result.match_details["skills_analysis"]:
-                for match in match_result.match_details["skills_analysis"]["matches"]:
-                    skills_assignments.append(AssignmentItem(
-                        type="skill",
-                        jd_index=match.get("jd_index", 0),
-                        jd_item=match.get("jd_skill", ""),
-                        cv_index=match.get("cv_index", 0),
-                        cv_item=match.get("cv_skill", ""),
-                        score=match.get("similarity", 0.0),
-                    ))
+            resp_candidates.extend(chunk_results)
             
-            responsibilities_assignments = []
-            if "responsibilities_analysis" in match_result.match_details and "matches" in match_result.match_details["responsibilities_analysis"]:
-                for match in match_result.match_details["responsibilities_analysis"]["matches"]:
-                    responsibilities_assignments.append(AssignmentItem(
-                        type="responsibility",
-                        jd_index=match.get("jd_index", 0),
-                        jd_item=match.get("jd_responsibility", ""),
-                        cv_index=match.get("cv_index", 0),
-                        cv_item=match.get("cv_responsibility", ""),
-                        score=match.get("similarity", 0.0),
-                    ))
+            # Memory cleanup between chunks
+            import gc
+            gc.collect()
             
-            # Get unmatched skills and responsibilities
-            unmatched_jd_skills = match_result.match_details.get("skills_analysis", {}).get("unmatched_jd_skills", [])
-            unmatched_jd_responsibilities = match_result.match_details.get("responsibilities_analysis", {}).get("unmatched_jd_responsibilities", [])
+            # Update progress
+            processed_so_far = len(resp_candidates)
+            progress_percent = (chunk_number / total_chunks) * 100
+            update_matching_progress(job_id,
+                processed_candidates=processed_so_far,
+                results_so_far=processed_so_far,
+                progress_percent=progress_percent
+            )
             
-            # Create CandidateBreakdown
-            resp_candidates.append(CandidateBreakdown(
-                cv_id=cv_id,
-                cv_name=cv_name,
-                cv_job_title=cv_title,
-                cv_years=cv_years,  # Use the parsed integer value
-                skills_score=match_result.skills_score / 100.0,  # Convert percentage to 0-1 scale
-                responsibilities_score=match_result.responsibilities_score / 100.0,
-                job_title_score=match_result.title_score / 100.0,
-                years_score=match_result.experience_score / 100.0,
-                overall_score=match_result.overall_score / 100.0,
-                skills_assignments=skills_assignments,
-                responsibilities_assignments=responsibilities_assignments,
-                unmatched_jd_skills=unmatched_jd_skills,
-                unmatched_jd_responsibilities=unmatched_jd_responsibilities,
-                skills_alternatives=[],  # Not provided by MatchingService
-                responsibilities_alternatives=[]  # Not provided by MatchingService
-            ))
+            logger.info(f"✅ Chunk {chunk_number}/{total_chunks} completed in {chunk_time:.2f}s: {len(chunk_results)} results, total: {len(resp_candidates)} ({progress_percent:.1f}%)")
+        
+        # Mark as completed
+        total_time = time.time() - start_time
+        update_matching_progress(job_id,
+            status="completed",
+            progress_percent=100,
+            estimated_completion=time.time()
+        )
         
         # Sort candidates by overall score
         resp_candidates.sort(key=lambda x: x.overall_score, reverse=True)
@@ -521,6 +681,96 @@ async def match_text(request: TextMatchRequest) -> JSONResponse:
 #         raise HTTPException(status_code=500, detail=f"Matching error: {str(e)}")
 
 # ----------------------------
+# Metrics endpoint for Prometheus
+# ----------------------------
+@router.get("/metrics")
+async def get_metrics() -> str:
+    """
+    Prometheus metrics endpoint for monitoring.
+    Returns metrics in Prometheus format.
+    """
+    try:
+        import time
+        import psutil
+        import os
+        
+        # Basic system metrics
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        # Application metrics
+        qdrant_health = get_qdrant_utils().health_check()
+        cache_stats = get_cache_service().get_stats()
+        
+        # Build Prometheus format metrics
+        metrics = []
+        
+        # System metrics
+        metrics.append(f"# HELP system_cpu_percent CPU usage percentage")
+        metrics.append(f"# TYPE system_cpu_percent gauge")
+        metrics.append(f"system_cpu_percent {cpu_percent}")
+        
+        metrics.append(f"# HELP system_memory_used_bytes Memory used in bytes")
+        metrics.append(f"# TYPE system_memory_used_bytes gauge")
+        metrics.append(f"system_memory_used_bytes {memory.used}")
+        
+        metrics.append(f"# HELP system_memory_available_bytes Memory available in bytes")
+        metrics.append(f"# TYPE system_memory_available_bytes gauge")
+        metrics.append(f"system_memory_available_bytes {memory.available}")
+        
+        metrics.append(f"# HELP system_disk_used_bytes Disk used in bytes")
+        metrics.append(f"# TYPE system_disk_used_bytes gauge")
+        metrics.append(f"system_disk_used_bytes {disk.used}")
+        
+        # Application health metrics
+        qdrant_status = 1 if qdrant_health.get("status") == "healthy" else 0
+        metrics.append(f"# HELP qdrant_health_status Qdrant health status (1=healthy, 0=unhealthy)")
+        metrics.append(f"# TYPE qdrant_health_status gauge")
+        metrics.append(f"qdrant_health_status {qdrant_status}")
+        
+        # Cache metrics
+        if isinstance(cache_stats, dict):
+            cache_hits = cache_stats.get("hits", 0)
+            cache_misses = cache_stats.get("misses", 0)
+            cache_size = cache_stats.get("size", 0)
+            
+            metrics.append(f"# HELP cache_hits_total Total cache hits")
+            metrics.append(f"# TYPE cache_hits_total counter")
+            metrics.append(f"cache_hits_total {cache_hits}")
+            
+            metrics.append(f"# HELP cache_misses_total Total cache misses")
+            metrics.append(f"# TYPE cache_misses_total counter")
+            metrics.append(f"cache_misses_total {cache_misses}")
+            
+            metrics.append(f"# HELP cache_size_current Current cache size")
+            metrics.append(f"# TYPE cache_size_current gauge")
+            metrics.append(f"cache_size_current {cache_size}")
+        
+        # Process metrics
+        process = psutil.Process()
+        metrics.append(f"# HELP process_memory_used_bytes Process memory used in bytes")
+        metrics.append(f"# TYPE process_memory_used_bytes gauge")
+        metrics.append(f"process_memory_used_bytes {process.memory_info().rss}")
+        
+        metrics.append(f"# HELP process_cpu_percent Process CPU usage percentage")
+        metrics.append(f"# TYPE process_cpu_percent gauge")
+        metrics.append(f"process_cpu_percent {process.cpu_percent()}")
+        
+        # Environment info
+        environment = os.getenv("ENVIRONMENT", "development")
+        metrics.append(f"# HELP application_environment Application environment")
+        metrics.append(f"# TYPE application_environment gauge")
+        metrics.append(f"application_environment{{env=\"{environment}\"}} 1")
+        
+        return "\n".join(metrics)
+        
+    except Exception as e:
+        logger.error(f"❌ Metrics collection failed: {e}")
+        # Return basic error metric
+        return f"# HELP metrics_error_total Total metrics collection errors\n# TYPE metrics_error_total counter\nmetrics_error_total 1"
+
+# ----------------------------
 # Health & system stats
 # ----------------------------
 @router.get("/health")
@@ -533,6 +783,22 @@ async def health_check() -> JSONResponse:
         try:
             q = get_qdrant_utils()
             status["services"]["qdrant"] = q.health_check()
+            
+            # Add Qdrant pool status if in production
+            import os
+            if os.getenv("ENVIRONMENT") == "production":
+                try:
+                    from app.utils.qdrant_pool import get_qdrant_pool
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        status["services"]["qdrant_pool"] = {"status": "initializing", "message": "Pool will be initialized on first use"}
+                    else:
+                        pool = loop.run_until_complete(get_qdrant_pool())
+                        pool_health = loop.run_until_complete(pool.health_check())
+                        status["services"]["qdrant_pool"] = pool_health
+                except Exception as pool_e:
+                    status["services"]["qdrant_pool"] = {"status": "unhealthy", "error": str(pool_e)}
         except Exception as e:
             status["services"]["qdrant"] = {"status": "unhealthy", "error": str(e)}
             status["status"] = "degraded"

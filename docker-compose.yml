@@ -1,6 +1,8 @@
+version: '3.8'
+
 services:
   # =======================
-  # Backend (FastAPI)
+  # Backend (FastAPI) - Memory Optimized for g4dn.xlarge
   # =======================
   backend:
     build: ./alpha-backend
@@ -8,118 +10,180 @@ services:
       - "8000:8000"
     env_file:
       - ./.env
+    runtime: nvidia
     environment:
-      # Environment detection - will be overridden by .env file
-      NODE_ENV: "${NODE_ENV:-development}"
-      ENVIRONMENT: "${ENVIRONMENT:-development}"
+      NODE_ENV: "production"
+      ENVIRONMENT: "production"
+      CUDA_VISIBLE_DEVICES: "0"
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+      QDRANT_MAX_CONNECTIONS: "50"
+      QDRANT_POOL_SIZE: "10"
+      QDRANT_TIMEOUT: "30"
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_MAXMEMORY: "512mb"
+      REDIS_MAXMEMORY_POLICY: "allkeys-lru"
+      MAX_GLOBAL_CONCURRENT: "150"
+      CIRCUIT_BREAKER_THRESHOLD: "30"
+      CIRCUIT_BREAKER_RECOVERY_TIME: "300"
+      MIN_QUEUE_WORKERS: "2"
+      MAX_QUEUE_WORKERS: "8"
+      QUEUE_SIZE_THRESHOLD: "2000"
+      MEMORY_THRESHOLD_MB: "8192"
+      CPU_THRESHOLD_PERCENT: "70"
+      PYTHON_MEMORY_LIMIT: "8192"
+      UVICORN_WORKERS: "2"
+      ENABLE_PERFORMANCE_MONITORING: "true"
+      LOG_LEVEL: "INFO"
+      ENABLE_REQUEST_LOGGING: "true"
+      ENABLE_GPU_MONITORING: "true"
       
-      # Database connection pooling - Environment-aware
-      QDRANT_MAX_CONNECTIONS: "${QDRANT_MAX_CONNECTIONS:-10}"
-      QDRANT_HOST: "${QDRANT_HOST:-qdrant}"
-      QDRANT_PORT: "${QDRANT_PORT:-6333}"
-      
-      # Rate limiting - Environment-aware
-      MAX_GLOBAL_CONCURRENT: "${MAX_GLOBAL_CONCURRENT:-50}"
-      CIRCUIT_BREAKER_THRESHOLD: "${CIRCUIT_BREAKER_THRESHOLD:-10}"
-      CIRCUIT_BREAKER_RECOVERY_TIME: "${CIRCUIT_BREAKER_RECOVERY_TIME:-300}"
-      
-      # Job queue scaling - Environment-aware
-      MIN_QUEUE_WORKERS: "${MIN_QUEUE_WORKERS:-2}"
-      MAX_QUEUE_WORKERS: "${MAX_QUEUE_WORKERS:-20}"
-      QUEUE_SIZE_THRESHOLD: "${QUEUE_SIZE_THRESHOLD:-1000}"
-      
-      # Memory and performance - Environment-aware
-      MEMORY_THRESHOLD_MB: "${MEMORY_THRESHOLD_MB:-4096}"
-      CPU_THRESHOLD_PERCENT: "${CPU_THRESHOLD_PERCENT:-90}"
-      
-      # Performance monitoring - Environment-aware
-      ENABLE_PERFORMANCE_MONITORING: "${ENABLE_PERFORMANCE_MONITORING:-false}"
-      LOG_LEVEL: "${LOG_LEVEL:-DEBUG}"
-      ENABLE_REQUEST_LOGGING: "${ENABLE_REQUEST_LOGGING:-true}"
-      
-      # Enable local development authentication
-      LOCAL_AUTH: "true"
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
         condition: service_started
       redis:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
     volumes:
       - ./alpha-backend:/app
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
     networks:
       - cv-network
     healthcheck:
-      # no curl in image; use stdlib python to check /api/health
       test: ["CMD", "python", "-c", "import urllib.request, json, sys; resp=urllib.request.urlopen('http://localhost:8000/api/health', timeout=5); data=json.loads(resp.read().decode()); sys.exit(0 if data.get('status') in ('healthy','degraded') else 1)"]
       interval: 30s
       timeout: 8s
       retries: 5
-      start_period: 40s
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   # =======================
-  # Frontend (Next.js)
+  # Frontend (Next.js) - Memory Optimized
   # =======================
   frontend:
-    build: ./cv-analyzer-frontend
+    build: 
+      context: ./cv-analyzer-frontend
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
     env_file:
       - ./.env
     environment:
-      # Expose the backend URL to the browser (through nginx proxy)
-      NEXT_PUBLIC_API_URL: "http://localhost:8000"
-      NEXT_PUBLIC_API_BASE: "http://localhost:8000"
+      NEXT_PUBLIC_API_URL: "https://alphacv.alphadatarecruitment.ae"
+      NEXT_PUBLIC_API_BASE: "https://alphacv.alphadatarecruitment.ae"
       BACKEND_URL: "http://backend:8000"
+      NODE_ENV: "production"
     restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy
     networks:
       - cv-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
 
   # =======================
-  # Postgres
+  # PostgreSQL - Memory Optimized
   # =======================
   postgres:
     image: postgres:15
     environment:
       POSTGRES_DB: cv_database
       POSTGRES_USER: cv_user
-      POSTGRES_PASSWORD: cv_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./postgres-optimized.conf:/etc/postgresql/postgresql.conf:ro
     restart: unless-stopped
     networks:
       - cv-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB || exit 1"]
-      interval: 10s
+      interval: 15s
       timeout: 5s
-      retries: 6
-      start_period: 20s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=1.5GB
+      -c maintenance_work_mem=128MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=8MB
+      -c huge_pages=off
+      -c min_wal_size=512MB
+      -c max_wal_size=2GB
 
   # =======================
-  # Qdrant
+  # Qdrant - Memory Optimized
   # =======================
   qdrant:
-    image: qdrant/qdrant
+    image: qdrant/qdrant:latest
     ports:
       - "6333:6333"
       - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
+      - ./qdrant-optimized.yaml:/qdrant/config/production.yaml:ro
     restart: unless-stopped
     networks:
       - cv-network
-    # (qdrant image doesn't ship curl/wget; rely on service_started here)
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_REQUESTS: 100
+      QDRANT__STORAGE__PERFORMANCE__MAX_OPTIMIZATION_THREADS: 4
+      QDRANT__SERVICE__MAX_REQUEST_SIZE_MB: 64
+      QDRANT__STORAGE__WAL__WAL_CAPACITY_MB: 512
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '1.5'
+        reservations:
+          memory: 1.5G
+          cpus: '0.5'
 
   # =======================
-  # Redis Cache - Local Development
+  # Redis - Added back for caching
   # =======================
   redis:
     image: redis:7-alpine
@@ -127,32 +191,29 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --tcp-keepalive 60
     restart: unless-stopped
     networks:
       - cv-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    environment:
-      # Development Redis settings
-      REDIS_MAXMEMORY: "100mb"
-      REDIS_MAXMEMORY_POLICY: "allkeys-lru"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
 
   # =======================
-  # Nginx
+  # Nginx - Lightweight proxy
   # =======================
   nginx:
     image: nginx:alpine
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./certbot/www:/var/www/certbot:ro
-      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./nginx-cache:/var/cache/nginx
     depends_on:
       backend:
         condition: service_healthy
@@ -163,29 +224,91 @@ services:
       - cv-network
     environment:
       - DOMAIN=alphacv.alphadatarecruitment.ae
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
 
   # =======================
-  # Certbot for Let's Encrypt
+  # Monitoring - Lightweight Prometheus
   # =======================
-  certbot:
-    image: certbot/certbot:latest
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
     volumes:
-      - ./certbot/www:/var/www/certbot:rw
-      - ./certbot/conf:/etc/letsencrypt:rw
-    depends_on:
-      - nginx
-    command: >-
-      sh -c "trap exit TERM;
-      while :; do
-        certbot renew --webroot --webroot-path=/var/www/certbot --quiet --no-self-upgrade;
-        sleep 12h & wait $${!};
-      done;"
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    networks:
+      - cv-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=48h'
+      - '--storage.tsdb.retention.size=512MB'
+      - '--web.enable-lifecycle'
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
 
+  # =======================
+  # Redis Exporter for proper metrics collection
+  # =======================
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+      - REDIS_PASSWORD=""
+    restart: unless-stopped
+    networks:
+      - cv-network
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+          cpus: '0.05'
+
+# =======================
+# Volume Optimizations
+# =======================
 volumes:
   postgres_data:
+    driver: local
   qdrant_data:
+    driver: local
   redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  nginx-cache:
+    driver: local
 
 networks:
   cv-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"

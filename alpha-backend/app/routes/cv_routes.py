@@ -40,11 +40,241 @@ class StandardizeCVRequest(BaseModel):
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
 
+# ----------------------------
+# CV Upload Progress Tracking
+# ----------------------------
+
+# Global progress tracking for CV uploads (in production, use Redis)
+_cv_upload_progress = {}
+
+@router.get("/cv-upload-progress/{cv_id}")
+async def get_cv_upload_progress(cv_id: str):
+    """
+    Get real-time progress of CV upload processing.
+    """
+    try:
+        progress = _cv_upload_progress.get(cv_id, {})
+        return JSONResponse({
+            "cv_id": cv_id,
+            "status": progress.get("status", "not_found"),
+            "progress_percent": progress.get("progress_percent", 0),
+            "current_step": progress.get("current_step", ""),
+            "filename": progress.get("filename", ""),
+            "start_time": progress.get("start_time"),
+            "estimated_completion": progress.get("estimated_completion"),
+            "processing_stats": progress.get("processing_stats", {})
+        })
+    except Exception as e:
+        logger.error(f"❌ Failed to get CV upload progress: {e}")
+        raise HTTPException(status_code=500, detail=f"Progress tracking error: {str(e)}")
+
+def update_cv_upload_progress(cv_id: str, **kwargs):
+    """Update CV upload progress"""
+    if cv_id not in _cv_upload_progress:
+        _cv_upload_progress[cv_id] = {}
+    _cv_upload_progress[cv_id].update(kwargs)
+
+# ----------------------------
+# Optimized CV Processing Functions
+# ----------------------------
+
+async def process_cv_async(cv_data: dict) -> dict:
+    """
+    Process CV asynchronously with parallel operations.
+    This function handles the heavy processing without blocking the main thread.
+    """
+    try:
+        cv_id = cv_data["cv_id"]
+        extracted_text = cv_data["extracted_text"]
+        filename = cv_data["filename"]
+        raw_content = cv_data["raw_content"]
+        extracted_pii = cv_data["extracted_pii"]
+        
+        # Initialize progress tracking
+        import time
+        start_time = time.time()
+        update_cv_upload_progress(cv_id,
+            status="processing",
+            filename=filename,
+            start_time=start_time,
+            progress_percent=0,
+            current_step="Starting processing..."
+        )
+        
+        logger.info(f"🔄 Starting async CV processing for {cv_id}")
+        
+        # Parallel processing: LLM + Embeddings simultaneously
+        import asyncio
+        from app.services.llm_service import get_llm_service
+        from app.services.embedding_service import get_embedding_service
+        
+        llm = get_llm_service()
+        emb_service = get_embedding_service()
+        
+        # Create tasks for parallel processing using thread pool
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        
+        async def standardize_cv():
+            # Run LLM processing in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                return await loop.run_in_executor(executor, llm.standardize_cv, extracted_text, filename)
+        
+        async def generate_embeddings():
+            # We need the standardized data first, so this will be sequential
+            standardized = await standardize_cv()
+            # Run embedding generation in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                embeddings = await loop.run_in_executor(executor, emb_service.generate_document_embeddings, standardized)
+                return embeddings, standardized
+        
+        # Update progress
+        update_cv_upload_progress(cv_id,
+            progress_percent=25,
+            current_step="Generating embeddings and standardizing data..."
+        )
+        
+        # Process in parallel where possible
+        doc_embeddings, standardized = await generate_embeddings()
+        
+        # Update progress
+        update_cv_upload_progress(cv_id,
+            progress_percent=50,
+            current_step="Merging PII data..."
+        )
+        
+        # Merge PII data
+        if "contact_info" not in standardized:
+            standardized["contact_info"] = {}
+        
+        if extracted_pii.get("email") and len(extracted_pii["email"]) > 0:
+            standardized["contact_info"]["email"] = extracted_pii["email"][0]
+        if extracted_pii.get("phone") and len(extracted_pii["phone"]) > 0:
+            standardized["contact_info"]["phone"] = extracted_pii["phone"][0]
+        
+        # Update progress
+        update_cv_upload_progress(cv_id,
+            progress_percent=75,
+            current_step="Storing data in database..."
+        )
+        
+        # Store in Qdrant (parallel operations)
+        qdrant = get_qdrant_utils()
+        
+        # Prepare structured data with job application info if applicable
+        structured_payload = {
+            "document_id": cv_id,
+            "structured_info": standardized
+        }
+        
+        # Add job application specific data if this is a job application
+        if cv_data.get("is_job_application", False):
+            structured_payload.update({
+                "is_job_application": True,
+                "job_id": cv_data.get("job_id"),
+                "applicant_name": cv_data.get("applicant_name"),
+                "applicant_email": cv_data.get("applicant_email"),
+                "applicant_phone": cv_data.get("applicant_phone"),
+                "cover_letter": cv_data.get("cover_letter"),
+                "application_date": _now_iso(),
+                "application_status": "processed"
+            })
+        
+        # Create storage tasks (run in thread pool to avoid blocking)
+        async def store_document():
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                return await loop.run_in_executor(executor, qdrant.store_document,
+                    cv_id, "cv", filename, cv_data.get("file_ext", ".txt").lstrip("."),
+                    raw_content, _now_iso(), cv_data.get("persisted_path"), cv_data.get("mime_type", "text/plain")
+                )
+        
+        async def store_structured():
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                return await loop.run_in_executor(executor, qdrant.store_structured_data,
+                    cv_id, "cv", structured_payload
+                )
+        
+        async def store_embeddings():
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                return await loop.run_in_executor(executor, qdrant.store_embeddings_exact,
+                    cv_id, "cv", doc_embeddings
+                )
+        
+        # Execute storage operations in parallel
+        await asyncio.gather(
+            store_document(),
+            store_structured(),
+            store_embeddings()
+        )
+        
+        # Handle job application linking if this is a job application
+        if cv_data.get("is_job_application", False):
+            try:
+                # Link application to job
+                application_data = {
+                    "applicant_name": cv_data.get("applicant_name"),
+                    "applicant_email": cv_data.get("applicant_email"),
+                    "applicant_phone": cv_data.get("applicant_phone"),
+                    "cover_letter": cv_data.get("cover_letter"),
+                    "public_token": cv_data.get("public_token"),
+                    "job_title": cv_data.get("job_title", "Position"),
+                    "company_name": cv_data.get("company_name", "Alpha Data Recruitment"),
+                    "application_date": _now_iso(),
+                    "application_status": "processed"
+                }
+                
+                qdrant.link_application_to_job(
+                    cv_id, cv_data.get("job_id"), application_data, 
+                    filename, _now_iso()
+                )
+                
+                logger.info(f"✅ Job application linked for {cv_id}")
+            except Exception as e:
+                logger.error(f"❌ Failed to link job application for {cv_id}: {e}")
+        
+        # Mark as completed
+        processing_stats = {
+            "text_length": len(extracted_text),
+            "skills_count": len(standardized.get("skills", [])),
+            "responsibilities_count": len(standardized.get("responsibilities", [])),
+            "embeddings_generated": 32,
+            "pii_extracted": {
+                "emails": len(extracted_pii.get("email", [])),
+                "phones": len(extracted_pii.get("phone", []))
+            }
+        }
+        
+        update_cv_upload_progress(cv_id,
+            status="completed",
+            progress_percent=100,
+            current_step="Processing completed successfully!",
+            estimated_completion=time.time(),
+            processing_stats=processing_stats
+        )
+        
+        logger.info(f"✅ Async CV processing completed for {cv_id}")
+        
+        return {
+            "cv_id": cv_id,
+            "standardized": standardized,
+            "processing_stats": processing_stats
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Async CV processing failed for {cv_data.get('cv_id', 'unknown')}: {e}")
+        raise e
+
 
 @router.post("/upload-cv")
 async def upload_cv(
     file: Optional[UploadFile] = File(None),
-    cv_text: Optional[str] = Form(None)
+    cv_text: Optional[str] = Form(None),
+    background_processing: bool = Form(False)
 ) -> JSONResponse:
     try:
         logger.info("---------- CV UPLOAD START ----------")
@@ -100,18 +330,69 @@ async def upload_cv(
         logger.info(f"✅ Text ready -> length={len(extracted_text)} (pii removed)")
         logger.info(f"📋 Extracted PII -> emails: {len(extracted_pii.get('email', []))}, phones: {len(extracted_pii.get('phone', []))}")
         
-        # ---- LLM standardization ----
+        # Generate CV ID early
+        cv_id = str(uuid.uuid4())
+        
+        if background_processing:
+            # OPTIMIZED: Background processing for better performance
+            logger.info("🚀 Starting background CV processing...")
+            
+            # Prepare CV data for async processing
+            cv_data = {
+                "cv_id": cv_id,
+                "extracted_text": extracted_text,
+                "filename": filename,
+                "raw_content": raw_content,
+                "extracted_pii": extracted_pii,
+                "file_ext": file_ext,
+                "persisted_path": None,  # Will be set below
+                "mime_type": mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            }
+            
+            # Store file immediately
+            try:
+                if file:
+                    dest_filename = f"{cv_id}{file_ext}"
+                    dest_path = os.path.join(STORAGE_DIR, dest_filename)
+                    shutil.copyfile(tmp_path, dest_path)
+                    cv_data["persisted_path"] = dest_path
+                    # cleanup tmp
+                    try:
+                        os.unlink(tmp_path)
+                    except Exception:
+                        pass
+                else:
+                    dest_filename = f"{cv_id}.txt"
+                    dest_path = os.path.join(STORAGE_DIR, dest_filename)
+                    with open(dest_path, "w", encoding="utf-8") as f:
+                        f.write(raw_content or extracted_text or "")
+                    cv_data["persisted_path"] = dest_path
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to persist original file: {e}")
+            
+            # Start background processing
+            import asyncio
+            asyncio.create_task(process_cv_async(cv_data))
+            
+            return JSONResponse({
+                "status": "success",
+                "message": f"CV '{filename}' queued for background processing",
+                "cv_id": cv_id,
+                "filename": filename,
+                "processing_mode": "background",
+                "estimated_completion": "2-5 minutes"
+            })
+        
+        # SYNCHRONOUS PROCESSING: Original logic for immediate results
         logger.info("---------- STEP 1: LLM STANDARDIZATION ----------")
         llm = get_llm_service()
         standardized = llm.standardize_cv(extracted_text, filename)
         
         # Merge extracted PII into standardized data
         logger.info("---------- STEP 1b: MERGING PII ----------")
-        # Ensure contact_info exists in standardized data
         if "contact_info" not in standardized:
             standardized["contact_info"] = {}
         
-        # Add extracted PII to contact_info
         if extracted_pii.get("email") and len(extracted_pii["email"]) > 0:
             standardized["contact_info"]["email"] = extracted_pii["email"][0]
             logger.info(f"✅ Added email to contact_info: {standardized['contact_info']['email']}")
@@ -127,7 +408,6 @@ async def upload_cv(
         # ---- Store across Qdrant collections ----
         logger.info("---------- STEP 3: DATABASE STORAGE ----------")
         qdrant = get_qdrant_utils()
-        cv_id = str(uuid.uuid4())
         
         # Persist the original file (or synthesize a .txt if text input)
         try:

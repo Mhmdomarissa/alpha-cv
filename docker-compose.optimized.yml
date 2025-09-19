@@ -1,0 +1,302 @@
+version: '3.8'
+
+services:
+  # =======================
+  # Backend (FastAPI) - Memory Optimized for g4dn.xlarge
+  # =======================
+  backend:
+    build: ./alpha-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./.env
+    environment:
+      # Environment detection
+      NODE_ENV: "production"
+      ENVIRONMENT: "production"
+      
+      # GPU Configuration
+      CUDA_VISIBLE_DEVICES: "0"
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+      
+      # Database connection pooling - Optimized for 4 cores
+      QDRANT_MAX_CONNECTIONS: "12"  # Reduced from 16
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # Rate limiting - Optimized for memory constraints
+      MAX_GLOBAL_CONCURRENT: "50"   # Reduced from 100
+      CIRCUIT_BREAKER_THRESHOLD: "15"  # Reduced from 20
+      CIRCUIT_BREAKER_RECOVERY_TIME: "180"
+      
+      # Job queue scaling - Memory optimized
+      MIN_QUEUE_WORKERS: "2"
+      MAX_QUEUE_WORKERS: "4"        # Reduced from 8
+      QUEUE_SIZE_THRESHOLD: "1000"  # Reduced from 1500
+      
+      # Memory optimized for 16GB system
+      MEMORY_THRESHOLD_MB: "5120"   # 5GB limit (reduced from 6144)
+      CPU_THRESHOLD_PERCENT: "70"   # Reduced from 75
+      
+      # Performance monitoring
+      ENABLE_PERFORMANCE_MONITORING: "true"
+      LOG_LEVEL: "INFO"
+      ENABLE_REQUEST_LOGGING: "true"
+      ENABLE_GPU_MONITORING: "true"
+      
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    volumes:
+      - ./alpha-backend:/app
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw  # For GPU access
+    networks:
+      - cv-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, json, sys; resp=urllib.request.urlopen('http://localhost:8000/api/health', timeout=5); data=json.loads(resp.read().decode()); sys.exit(0 if data.get('status') in ('healthy','degraded') else 1)"]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 5G       # Reduced from 7G
+          cpus: '2.0'      # Reduced from 3.0
+        reservations:
+          memory: 3G       # Reduced from 4G
+          cpus: '1.0'      # Reduced from 2.0
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+  # =======================
+  # Frontend (Next.js) - Memory Optimized
+  # =======================
+  frontend:
+    build: 
+      context: ./cv-analyzer-frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./.env
+    environment:
+      NEXT_PUBLIC_API_URL: "https://alphacv.alphadatarecruitment.ae"
+      NEXT_PUBLIC_API_BASE: "https://alphacv.alphadatarecruitment.ae"
+      BACKEND_URL: "http://backend:8000"
+      NODE_ENV: "production"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - cv-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G       # Reduced from 1.5G
+          cpus: '0.5'      # Reduced from 1.0
+        reservations:
+          memory: 512M     # Reduced from 768M
+          cpus: '0.25'     # Reduced from 0.5
+
+  # =======================
+  # PostgreSQL - Memory Optimized
+  # =======================
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: cv_database
+      POSTGRES_USER: cv_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      
+      # Optimized for 16GB system
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-optimized.conf:/etc/postgresql/postgresql.conf:ro
+    restart: unless-stopped
+    networks:
+      - cv-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G       # Reduced from 3G
+          cpus: '1.0'      # Reduced from 1.5
+        reservations:
+          memory: 1G       # Reduced from 1.5G
+          cpus: '0.5'
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=1.5GB
+      -c maintenance_work_mem=128MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=8MB
+      -c huge_pages=off
+      -c min_wal_size=512MB
+      -c max_wal_size=2GB
+
+  # =======================
+  # Qdrant - Memory Optimized
+  # =======================
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./qdrant-optimized.yaml:/qdrant/config/production.yaml:ro
+    restart: unless-stopped
+    networks:
+      - cv-network
+    environment:
+      # Production settings optimized for memory constraints
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_REQUESTS: 50  # Reduced from 80
+      QDRANT__STORAGE__PERFORMANCE__MAX_OPTIMIZATION_THREADS: 1  # Reduced from 2
+      QDRANT__SERVICE__MAX_REQUEST_SIZE_MB: 32  # Reduced from 64
+      QDRANT__STORAGE__WAL__WAL_CAPACITY_MB: 128  # Reduced from 256
+    deploy:
+      resources:
+        limits:
+          memory: 3G       # Reduced from 4G
+          cpus: '1.5'      # Reduced from 2.0
+        reservations:
+          memory: 1.5G     # Reduced from 2G
+          cpus: '0.5'      # Reduced from 1.0
+
+  # =======================
+  # Redis - Added back for caching
+  # =======================
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    networks:
+      - cv-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+  # =======================
+  # Nginx - Lightweight proxy
+  # =======================
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.production.conf:/etc/nginx/nginx.conf:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./nginx-cache:/var/cache/nginx
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - cv-network
+    environment:
+      - DOMAIN=alphacv.alphadatarecruitment.ae
+    deploy:
+      resources:
+        limits:
+          memory: 256M     # Reduced from 384M
+          cpus: '0.25'     # Reduced from 0.5
+        reservations:
+          memory: 128M     # Reduced from 192M
+          cpus: '0.1'      # Reduced from 0.25
+
+  # =======================
+  # Monitoring - Lightweight Prometheus
+  # =======================
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    networks:
+      - cv-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=48h'    # Reduced from 72h
+      - '--storage.tsdb.retention.size=512MB'  # Reduced from 1GB
+      - '--web.enable-lifecycle'
+    deploy:
+      resources:
+        limits:
+          memory: 256M     # Reduced from 512M
+          cpus: '0.25'     # Reduced from 0.5
+        reservations:
+          memory: 128M     # Reduced from 256M
+          cpus: '0.1'      # Reduced from 0.25
+
+# =======================
+# Volume Optimizations
+# =======================
+volumes:
+  postgres_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  nginx-cache:
+    driver: local
+
+networks:
+  cv-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"

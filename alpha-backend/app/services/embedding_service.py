@@ -32,14 +32,22 @@ class EmbeddingService:
     
     def __init__(self, model_name: str = "all-mpnet-base-v2"):
         """
-        Initialize the embedding service.
+        Initialize the embedding service with GPU support.
         
         Args:
             model_name: Sentence transformer model to use
         """
         self.model_name = model_name
         self.model = None
-        self.device = None
+        
+        # GPU/CPU device selection
+        if torch.cuda.is_available():
+            self.device = "cuda"
+            logger.info(f"🚀 GPU available! Using CUDA device: {torch.cuda.get_device_name(0)}")
+        else:
+            self.device = "cpu"
+            logger.info("💻 Using CPU for embeddings")
+        
         self._embedding_cache = {}  # Fallback in-memory cache
         
         # Initialize Redis cache
@@ -55,23 +63,31 @@ class EmbeddingService:
         logger.info(f"🔥 EmbeddingService initialized with {model_name}")
     
     def _initialize_model(self) -> None:
-        """Initialize the sentence transformer model."""
+        """Initialize the sentence transformer model with GPU optimization."""
         try:
-            # Determine device
-            if torch.cuda.is_available():
-                self.device = "cuda"
-                logger.info("🚀 Using GPU for embeddings")
-            else:
-                self.device = "cpu"
-                logger.info("💻 Using CPU for embeddings")
-            
-            # Load model
+            # Load model with device specification
             self.model = SentenceTransformer(self.model_name, device=self.device)
-            logger.info(f"✅ Model {self.model_name} loaded successfully on {self.device}")
+            
+            # Move model to GPU if available
+            if self.device == "cuda":
+                self.model = self.model.cuda()
+                logger.info(f"🚀 Model {self.model_name} loaded and moved to GPU: {torch.cuda.get_device_name(0)}")
+                logger.info(f"📊 GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB total")
+            else:
+                logger.info(f"💻 Model {self.model_name} loaded on CPU")
+            
+            logger.info(f"✅ Model {self.model_name} initialized successfully on {self.device}")
             
         except Exception as e:
             logger.error(f"❌ Failed to initialize embedding model: {str(e)}")
-            raise Exception(f"Embedding model initialization failed: {str(e)}")
+            # Fallback to CPU if GPU fails
+            if self.device == "cuda":
+                logger.warning("⚠️ GPU initialization failed, falling back to CPU")
+                self.device = "cpu"
+                self.model = SentenceTransformer(self.model_name, device="cpu")
+                logger.info(f"💻 Model {self.model_name} loaded on CPU (fallback)")
+            else:
+                raise Exception(f"Embedding model initialization failed: {str(e)}")
     
     def generate_document_embeddings(self, structured_data: dict) -> dict:
         """
