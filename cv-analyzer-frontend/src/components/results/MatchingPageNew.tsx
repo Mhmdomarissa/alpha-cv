@@ -24,6 +24,8 @@ import { useCareersStore } from '@/stores/careersStore';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button-enhanced';
 import { MatchWeights } from '@/lib/types';
+import MatchingProgressBar from '@/components/ui/MatchingProgressBar';
+// Queue components removed
 
 type SortKey = 'score' | 'skills' | 'experience';
 
@@ -112,7 +114,9 @@ export default function MatchingPageNew() {
     selectedJD,
     selectedCVs,
     runMatch,
-    loadingStates
+    loadingStates,
+    matchingProgress,
+    // Queue state removed
   } = useAppStore();
   
   const { applications } = useCareersStore();
@@ -136,6 +140,8 @@ export default function MatchingPageNew() {
       setMatchWeights?.({ ...DEFAULT_WEIGHTS });
     }
   }, [matchWeights, setMatchWeights]);
+
+  // Queue handlers removed
 
   // Auto-run matching when we have selected data but no match results
   useEffect(() => {
@@ -413,6 +419,17 @@ export default function MatchingPageNew() {
   
   return (
     <div className="space-y-8">
+      {/* Queue components removed */}
+
+      {/* Progress Bar */}
+      <MatchingProgressBar
+        totalCVs={matchingProgress.totalCVs}
+        processedCVs={matchingProgress.processedCVs}
+        currentStage={matchingProgress.currentStage}
+        estimatedTimeRemaining={matchingProgress.estimatedTimeRemaining}
+        isVisible={matchingProgress.isVisible}
+      />
+      
       {/* Header */}
       <motion.div {...fadeInUp} className="text-center">
         <h1 className="text-3xl font-semibold text-gray-900">AI Matching Results</h1>

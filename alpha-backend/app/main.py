@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from app.routes import cv_routes, jd_routes, special_routes, careers_routes
 from app.routes.auth_routes import router as auth_router
 from app.routes.admin_routes import router as admin_router
+from app.routes.performance_routes import router as performance_router
 
 # Services init
 from app.utils.qdrant_utils import get_qdrant_utils
@@ -190,6 +191,9 @@ app.include_router(admin_router)
 app.include_router(cv_routes.router, prefix="/api/cv", tags=["CV Management"])
 app.include_router(jd_routes.router, prefix="/api/jd", tags=["Job Description Management"])
 app.include_router(special_routes.router, prefix="/api", tags=["Matching & System"])
+
+# Performance monitoring routes
+app.include_router(performance_router, tags=["Performance Monitoring"])
 
 # Careers routes (public job postings & applications)
 app.include_router(careers_routes.router, prefix="/api/careers", tags=["Careers & Public Applications"])

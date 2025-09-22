@@ -18,7 +18,8 @@ import {
   Zap,
   LogOut,
   User,
-  Briefcase
+  Briefcase,
+  Activity
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -60,6 +61,12 @@ const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
       label: 'Match',
       icon: Target,
       description: 'AI matching results',
+    },
+    {
+      id: 'performance',
+      label: 'Performance',
+      icon: Activity,
+      description: 'System monitoring & metrics',
     },
   ];
 
@@ -108,6 +115,8 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         return `${cvs.length} CVs, ${jds.length} JDs`;
       case 'match':
         return matchResult ? `${matchResult.candidates.length} matches` : 'No matches yet';
+      case 'performance':
+        return 'System monitoring';
       case 'careers':
         return 'Job postings & applications';
       default:
@@ -125,6 +134,8 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         return cvs.length > 0 && jds.length > 0;
       case 'match':
         return !!matchResult;
+      case 'performance':
+        return true; // Always available for monitoring
       case 'careers':
         return true; // Always available for admin users
       default:

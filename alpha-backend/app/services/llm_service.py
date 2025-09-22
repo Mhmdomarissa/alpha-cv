@@ -39,6 +39,7 @@ YEARS OF EXPERIENCE (total professional experience by seeing the date the candid
 JOB CATEGORY: Classify the candidate's role as one of (Technical/Management/Sales/Finance/HR/Marketing/Operations/Specialized).
 SENIORITY LEVEL: Determine the seniority as one of (Entry/Junior/Mid/Senior/Lead/Manager/Director/VP/C-Level).
 ROLE FAMILY: Identify the role family such as (Engineering/Management/Sales/Finance/HR/Marketing/Operations/Healthcare/Education/etc).
+CATEGORY: Classify the candidate's primary domain as one of (Software Engineering/AI/ML Engineering/Security Engineering/Cloud/DevOps Engineering/Data Science/General). Base this on their primary skills, experience, and job titles.
 General Rules:
 Output valid JSON only. No markdown, no comments, no trailing commas.
 Use English only.
@@ -63,6 +64,7 @@ Output Format:
   "job_category": string | null,
   "seniority_level": string | null,
   "role_family": string | null,
+  "category": string | null,
   "skills_sentences": [
     "<Skill phrase 1>",
     "... (total 20 items)",
@@ -96,6 +98,7 @@ YEARS OF EXPERIENCE (minimum required). Look for explicit mentions like "5+ year
 JOB CATEGORY: Classify the role as one of (Technical/Management/Sales/Finance/HR/Marketing/Operations/Specialized).
 SENIORITY LEVEL: Determine the seniority as one of (Entry/Junior/Mid/Senior/Lead/Manager/Director/VP/C-Level).
 ROLE FAMILY: Identify the role family such as (Engineering/Management/Sales/Finance/HR/Marketing/Operations/Healthcare/Education/etc).
+CATEGORY: Classify the job's primary domain as one of (Software Engineering/AI/ML Engineering/Security Engineering/Cloud/DevOps Engineering/Data Science/General). Base this on the required skills, technologies, and job responsibilities.
 General Rules:
 Output valid JSON only. No markdown, no comments, no trailing commas.
 Use English only.
@@ -107,7 +110,7 @@ Example: "structured query language database administration"
 Avoid: "Uses Structured Query Language to administer relational databases."
 Remove filler verbs such as develops, implements, provides, generates, manages, responsible for.
 Skills should come from SKILLS/REQUIREMENTS/QUALIFICATIONS sections; also review the full document.
-Responsibilities should come from RESPONSIBILITIES/DUTIES/WHAT YOU’LL DO sections.
+Responsibilities should come from RESPONSIBILITIES/DUTIES/WHAT YOU'LL DO sections.
 Expand acronyms into their full professional terms (e.g., CRM → Customer Relationship Management, API → Application Programming Interface). Apply consistently.
 Ensure skills and responsibilities remain short, embedding-friendly phrases with no generic filler wording.
 Skills and responsibilities must remain distinct, with no overlap.
@@ -119,6 +122,7 @@ Output Format:
   "job_category": string | null,
   "seniority_level": string | null,
   "role_family": string | null,
+  "category": string | null,
   "skills_sentences": [
     "<Skill phrase 1>",
     "... (total 20 items)",
@@ -152,6 +156,7 @@ CV_JSON_SCHEMA: Dict[str, Any] = {
             "name": {"type": ["string", "null"]},
             "job_title": {"type": ["string", "null"]},
             "years_of_experience": {"type": ["number", "integer", "null"]},
+            "category": {"type": ["string", "null"]},
             "skills_sentences": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -187,6 +192,7 @@ JD_JSON_SCHEMA: Dict[str, Any] = {
             "doc_type": {"type": "string", "const": "job_description"},
             "job_title": {"type": ["string", "null"]},
             "years_of_experience": {"type": ["number", "integer", "null"]},
+            "category": {"type": ["string", "null"]},
             "skills_sentences": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -510,6 +516,7 @@ class LLMService:
             "name": data.get("name"),
             "job_title": data.get("job_title"),
             "years_of_experience": data.get("years_of_experience"),
+            "category": data.get("category"),
             "skills_sentences": skills,
             "responsibility_sentences": resps,
             # Back-compat aliases
@@ -533,6 +540,7 @@ class LLMService:
             "doc_type": "job_description",
             "job_title": data.get("job_title"),
             "years_of_experience": data.get("years_of_experience"),
+            "category": data.get("category"),
             "skills_sentences": skills,
             "responsibility_sentences": resps,
             # Back-compat aliases
@@ -758,6 +766,7 @@ async def extract_jd(jd_text: str) -> Dict[str, Any]:
     return {
         "job_title": data.get("job_title", ""),
         "years_of_experience": data.get("years_of_experience", 0),
+        "category": data.get("category", ""),
         "skills_sentences": (data.get("skills_sentences") or data.get("skills") or [])[:20],
         "responsibility_sentences": (data.get("responsibility_sentences") or data.get("responsibilities") or [])[:10],
     }
@@ -775,6 +784,7 @@ async def extract_cv(cv_text: str) -> Dict[str, Any]:
         "name": data.get("name", None),
         "job_title": data.get("job_title", ""),
         "years_of_experience": data.get("years_of_experience", 0),
+        "category": data.get("category", ""),
         "skills_sentences": data.get("skills_sentences", []),
         "responsibility_sentences": data.get("responsibility_sentences", []),
     }

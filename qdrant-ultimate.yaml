@@ -1,0 +1,91 @@
+# ===========================================
+# ULTIMATE QDRANT CONFIGURATION
+# Optimized for 16GB + GPU Setup
+# ===========================================
+
+service:
+  host: 0.0.0.0
+  http_port: 6333
+  grpc_port: 6334
+  enable_cors: true
+  max_request_size_mb: 32
+  max_workers: 4
+
+storage:
+  # ===========================================
+  # PERFORMANCE OPTIMIZATIONS
+  # ===========================================
+  performance:
+    max_connections: 100
+    connection_pool_size: 25
+    batch_size: 500
+    vector_cache_size: 2GB
+    index_cache_size: 1GB
+    payload_cache_size: 512MB
+    search_threads: 4
+    indexing_threads: 2
+
+  # ===========================================
+  # STORAGE OPTIMIZATIONS
+  # ===========================================
+  optimization:
+    quantization: scalar
+    compression: lz4
+    index_type: HNSW
+    ef_construct: 200
+    m: 16
+    ef: 128
+    full_scan_threshold: 10000
+
+  # ===========================================
+  # PERSISTENCE SETTINGS
+  # ===========================================
+  persistence:
+    enabled: true
+    wal_capacity_mb: 32
+    wal_segments_ahead: 0
+    flush_interval_sec: 5
+    snapshot_interval_sec: 3600
+
+  # ===========================================
+  # MEMORY MANAGEMENT
+  # ===========================================
+  memory:
+    max_memory_usage: 3GB
+    memmap_threshold: 100000
+    on_disk_payload: false
+
+  # ===========================================
+  # COLLECTION DEFAULTS
+  # ===========================================
+  default_collection:
+    vector_size: 768
+    distance: Cosine
+    quantization_config:
+      scalar:
+        type: int8
+        quantile: 0.99
+        always_ram: true
+    hnsw_config:
+      m: 16
+      ef_construct: 200
+      full_scan_threshold: 10000
+      max_indexing_threads: 2
+      on_disk: false
+    wal_config:
+      wal_capacity_mb: 32
+      wal_segments_ahead: 0
+
+# ===========================================
+# LOGGING CONFIGURATION
+# ===========================================
+log_level: INFO
+
+# ===========================================
+# CLUSTER CONFIGURATION (Future Scaling)
+# ===========================================
+cluster:
+  enabled: false
+  p2p:
+    port: 6335
+    connection_pool_size: 10

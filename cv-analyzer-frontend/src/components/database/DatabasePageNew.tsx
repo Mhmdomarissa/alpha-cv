@@ -16,7 +16,16 @@ import {
   ChevronDown,
   Search,
   Database,
-  AlertTriangle
+  AlertTriangle,
+  Folder,
+  FolderOpen,
+  Code,
+  Brain,
+  Shield,
+  Cloud,
+  BarChart3,
+  FolderIcon,
+  Activity
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -27,6 +36,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { api } from '@/lib/api';
+import MatchingProgressBar from '@/components/ui/MatchingProgressBar';
 
 /* ----------------------------- Types ---------------------------- */
 interface CVData {
@@ -103,6 +113,26 @@ const safeArrayMap = <T, R>(
   return Array.isArray(array) ? array.map(callback) : [];
 };
 
+// Category icons mapping
+const categoryIcons = {
+  'Software Engineering': <Code className="w-5 h-5" />,
+  'AI/ML Engineering': <Brain className="w-5 h-5" />,
+  'Security Engineering': <Shield className="w-5 h-5" />,
+  'Cloud/DevOps Engineering': <Cloud className="w-5 h-5" />,
+  'Data Science': <BarChart3 className="w-5 h-5" />,
+  'General': <FolderIcon className="w-5 h-5" />
+};
+
+// Category colors mapping
+const categoryColors = {
+  'Software Engineering': 'bg-blue-100 text-blue-600',
+  'AI/ML Engineering': 'bg-purple-100 text-purple-600',
+  'Security Engineering': 'bg-red-100 text-red-600',
+  'Cloud/DevOps Engineering': 'bg-orange-100 text-orange-600',
+  'Data Science': 'bg-green-100 text-green-600',
+  'General': 'bg-gray-100 text-gray-600'
+};
+
 /** Robustly derive name/title/years + counts across shapes */
 export const getCVBasics = (cv: CVData) => {
   const cvData = cv?.cv || cv;
@@ -172,6 +202,7 @@ export default function DatabasePageNew() {
     reprocessJD,
     setCurrentTab,
     runMatch,
+    matchingProgress,
   } = useAppStore();
   
   const { user } = useAuthStore();
@@ -184,10 +215,44 @@ export default function DatabasePageNew() {
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   
+  // Category-related state
+  const [categories, setCategories] = useState<Record<string, number>>({});
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [cvsInCategory, setCvsInCategory] = useState<CVData[]>([]);
+  const [categoryLoading, setCategoryLoading] = useState(false);
+  const [currentView, setCurrentView] = useState<'all' | 'categories'>('all');
+  
   useEffect(() => {
     loadCVs();
     loadJDs();
+    loadCategories();
   }, [loadCVs, loadJDs]);
+
+  // Load categories from API
+  const loadCategories = async () => {
+    try {
+      const response = await api.getCategories();
+      setCategories(response.categories || {});
+      console.log('📊 Categories loaded:', response.categories);
+    } catch (error) {
+      console.error('❌ Failed to load categories:', error);
+    }
+  };
+
+  // Load CVs for specific category
+  const loadCVsForCategory = async (category: string) => {
+    try {
+      setCategoryLoading(true);
+      setSelectedCategory(category);
+      const response = await api.getCVsByCategory(category);
+      setCvsInCategory(response.cvs || []);
+      console.log(`📁 CVs loaded for ${category}:`, response.cvs);
+    } catch (error) {
+      console.error(`❌ Failed to load CVs for ${category}:`, error);
+    } finally {
+      setCategoryLoading(false);
+    }
+  };
   
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -271,11 +336,50 @@ export default function DatabasePageNew() {
       await api.clearDatabase(token, true);
       await loadCVs();
       await loadJDs();
+      await loadCategories();
       setShowClearDialog(false);
     } catch (error: any) {
       console.error('Failed to clear database:', error);
     } finally {
       setIsClearing(false);
+    }
+  };
+
+  // Category selection handlers
+  const handleCategoryClick = (category: string) => {
+    loadCVsForCategory(category);
+    setCurrentView('categories');
+  };
+
+  const handleSelectAllInCategory = () => {
+    if (selectedCategory) {
+      const allCVIds = cvsInCategory.map(cv => cv.id);
+      
+      // If all are selected, deselect all
+      const allSelected = allCVIds.every(id => selectedCVs.includes(id));
+      if (allSelected) {
+        // Deselect all CVs in this category
+        allCVIds.forEach(id => {
+          if (selectedCVs.includes(id)) {
+            deselectCV(id);
+          }
+        });
+      } else {
+        // Select all CVs in this category
+        allCVIds.forEach(id => {
+          if (!selectedCVs.includes(id)) {
+            selectCV(id);
+          }
+        });
+      }
+    }
+  };
+
+  const handleCVSelectionFromCategory = (cvId: string, checked: boolean) => {
+    if (checked) {
+      selectCV(cvId);
+    } else {
+      deselectCV(cvId);
     }
   };
   
@@ -284,6 +388,15 @@ export default function DatabasePageNew() {
   
   return (
     <div className="space-y-6">
+      {/* Progress Bar */}
+      <MatchingProgressBar
+        totalCVs={matchingProgress.totalCVs}
+        processedCVs={matchingProgress.processedCVs}
+        currentStage={matchingProgress.currentStage}
+        estimatedTimeRemaining={matchingProgress.estimatedTimeRemaining}
+        isVisible={matchingProgress.isVisible}
+      />
+      
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -293,6 +406,24 @@ export default function DatabasePageNew() {
           </p>
         </div>
         <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2">
+            <Button
+              variant={currentView === 'all' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setCurrentView('all')}
+            >
+              <Database className="w-4 h-4 mr-2" />
+              All CVs
+            </Button>
+            <Button
+              variant={currentView === 'categories' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setCurrentView('categories')}
+            >
+              <Folder className="w-4 h-4 mr-2" />
+              Categories
+            </Button>
+          </div>
           {isAdmin && (
             <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
               <DialogTrigger asChild>
@@ -400,6 +531,248 @@ export default function DatabasePageNew() {
           </div>
         </Card>
       </div>
+
+      {/* Category View */}
+      {currentView === 'categories' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">CV Categories</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadCategories}
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh Categories
+            </Button>
+          </div>
+          
+          {Object.keys(categories).length === 0 ? (
+            <Card className="p-8 text-center">
+              <AlertCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Categories Found</h3>
+              <p className="text-gray-500">Upload CVs to see them organized by category</p>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Object.entries(categories).map(([category, count]) => (
+                <Card 
+                  key={category}
+                  className="cursor-pointer hover:shadow-lg transition-shadow"
+                  onClick={() => handleCategoryClick(category)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className={`p-2 rounded-lg ${(categoryColors as any)[category] || 'bg-gray-100 text-gray-600'}`}>
+                        {(categoryIcons as any)[category] || <FolderIcon className="w-5 h-5" />}
+                      </div>
+                      <Badge variant="secondary">{count} CVs</Badge>
+                    </div>
+                    <h3 className="font-medium text-gray-900 mb-2">{category}</h3>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCategoryClick(category);
+                        }}
+                        className="flex-1"
+                      >
+                        <Eye className="w-4 h-4 mr-1" />
+                        View
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Get all CVs in this category
+                          const categoryCVs = cvs.filter(cv => {
+                            const cvData = (cv as any)?.cv || cv;
+                            const candidate = cvData?.candidate || {};
+                            const structured = cvData?.structured_info || {};
+                            const cvCategory = candidate?.category || structured?.category || 'General';
+                            return cvCategory === category;
+                          });
+                          const categoryCVIds = categoryCVs.map(cv => cv.id);
+                          
+                          // Check if all CVs in this category are selected
+                          const allSelected = categoryCVIds.every(id => selectedCVs.includes(id));
+                          
+                          if (allSelected) {
+                            // Deselect all CVs in this category
+                            categoryCVIds.forEach(id => {
+                              if (selectedCVs.includes(id)) {
+                                deselectCV(id);
+                              }
+                            });
+                          } else {
+                            // Select all CVs in this category
+                            categoryCVIds.forEach(id => {
+                              if (!selectedCVs.includes(id)) {
+                                selectCV(id);
+                              }
+                            });
+                          }
+                        }}
+                        className="flex-1"
+                      >
+                        <CheckCircle className="w-4 h-4 mr-1" />
+                        {(() => {
+                          const categoryCVs = cvs.filter(cv => {
+                            const cvData = (cv as any)?.cv || cv;
+                            const candidate = cvData?.candidate || {};
+                            const structured = cvData?.structured_info || {};
+                            const cvCategory = candidate?.category || structured?.category || 'General';
+                            return cvCategory === category;
+                          });
+                          const categoryCVIds = categoryCVs.map(cv => cv.id);
+                          const allSelected = categoryCVIds.every(id => selectedCVs.includes(id));
+                          return allSelected ? 'Deselect All' : 'Select All';
+                        })()}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Category CVs View */}
+      {currentView === 'categories' && selectedCategory && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelectedCategory(null);
+                  setCvsInCategory([]);
+                }}
+              >
+                <X className="w-4 h-4 mr-2" />
+                Back to Categories
+              </Button>
+              <h2 className="text-xl font-semibold">
+                {selectedCategory} ({cvsInCategory.length} CVs)
+              </h2>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSelectAllInCategory}
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                {cvsInCategory.every(cv => selectedCVs.includes(cv.id)) ? 'Deselect All' : 'Select All'}
+              </Button>
+            </div>
+          </div>
+
+          {categoryLoading ? (
+            <Card className="p-8 text-center">
+              <Clock className="w-6 h-6 animate-spin mx-auto mb-4" />
+              <p>Loading CVs for {selectedCategory}...</p>
+            </Card>
+          ) : cvsInCategory.length === 0 ? (
+            <Card className="p-8 text-center">
+              <AlertCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No CVs in this category</h3>
+              <p className="text-gray-500">This category doesn't have any CVs yet</p>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {cvsInCategory.map((cv) => {
+                const b = getCVBasics(cv);
+                return (
+                  <div
+                    key={cv.id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedCVs.includes(cv.id)}
+                        onChange={(e) => handleCVSelectionFromCategory(cv.id, e.target.checked)}
+                        className="h-4 w-4 text-blue-600 rounded"
+                        aria-label={`Select CV for ${b.name}`}
+                      />
+                      <div className="p-2 bg-blue-100 rounded-lg">
+                        <Users className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900">{b.name}</h4>
+                        <p className="text-sm text-gray-500">
+                          {b.title} • {b.years} years
+                        </p>
+                        <div className="flex items-center space-x-2 mt-1">
+                          <Badge variant="secondary">{b.skillsCount} skills</Badge>
+                          <Badge variant="outline">{b.respCount} responsibilities</Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {cv?.cv?.candidate?.category || cv?.cv?.structured_info?.category || 'General'}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedCVForDetails(cv.id)}
+                            aria-label={`View details for ${b.name}`}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto bg-white rounded-lg shadow-xl">
+                          <DialogHeader className="flex flex-row items-center justify-between">
+                            <DialogTitle className="text-xl font-semibold">CV Details</DialogTitle>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSelectedCVForDetails(null)}
+                              className="h-6 w-6 rounded-full hover:bg-gray-100"
+                              aria-label="Close CV details"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </DialogHeader>
+                          <CVDetails cvId={cv.id} />
+                        </DialogContent>
+                      </Dialog>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleReprocessCV(cv.id)} 
+                        disabled={isDeleting}
+                        aria-label={`Reprocess CV for ${b.name}`}
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteCV(cv.id)}
+                        disabled={isDeleting}
+                        className="text-red-500 hover:text-red-700"
+                        aria-label={`Delete CV for ${b.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
       
       {/* Search Bar */}
       <Card className="p-4">
@@ -803,6 +1176,12 @@ function CVDetails({ cvId }: { cvId: string }) {
             <p className="text-base font-semibold">{b.years} years</p>
           </div>
           <div>
+            <h4 className="text-sm font-medium text-gray-500">Category</h4>
+            <p className="text-base font-semibold">
+              {cv?.cv?.candidate?.category || cv?.cv?.structured_info?.category || 'General'}
+            </p>
+          </div>
+          <div>
             <h4 className="text-sm font-medium text-gray-500">Upload Date</h4>
             <p className="text-base font-semibold">{formatDate(cv?.cv?.upload_date || cv?.upload_date)}</p>
           </div>
@@ -957,6 +1336,7 @@ function JDDetails({ jdId }: { jdId: string }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Row label="Job Title" value={b.title} />
           <Row label="Experience Required" value={`${b.years} years`} />
+          <Row label="Category" value={jd?.jd?.job_requirements?.category || jd?.jd?.structured_info?.category || 'General'} />
           <Row label="Upload Date" value={formatDate(jd?.jd?.upload_date || jd?.upload_date)} />
           <Row label="Document Type" value={jd?.jd?.document_type || 'jd'} />
         </div>

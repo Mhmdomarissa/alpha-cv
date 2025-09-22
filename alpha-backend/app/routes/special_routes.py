@@ -1003,3 +1003,46 @@ async def view_database() -> JSONResponse:
     except Exception as e:
         logger.error(f"❌ Failed to get database view: {e}")
         raise HTTPException(status_code=500, detail=f"Database view error: {str(e)}")
+
+@router.post("/match/category-based")
+async def match_by_category(request: TopCandidatesRequest):
+    """
+    Match candidates by automatically detecting JD category and filtering CVs by same category.
+    This ensures only relevant CVs are matched against the job description.
+    """
+    try:
+        matching_service = get_matching_service()
+        results = matching_service.find_top_candidates_by_jd_category(
+            jd_id=request.jd_id,
+            limit=request.limit or 10
+        )
+        
+        # Convert MatchResult objects to dictionaries
+        formatted_results = []
+        for result in results:
+            formatted_results.append({
+                "cv_id": result.cv_id,
+                "jd_id": result.jd_id,
+                "overall_score": result.overall_score,
+                "skills_score": result.skills_score,
+                "responsibilities_score": result.responsibilities_score,
+                "title_score": result.title_score,
+                "experience_score": result.experience_score,
+                "explanation": result.explanation,
+                "match_details": result.match_details,
+                "processing_time": result.processing_time
+            })
+        
+        return JSONResponse({
+            "success": True,
+            "data": {
+                "matches": formatted_results,
+                "total_matches": len(formatted_results),
+                "jd_id": request.jd_id,
+                "matching_strategy": "category-based"
+            },
+            "timestamp": time.time()
+        })
+    except Exception as e:
+        logger.error(f"❌ Category-based matching failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Category-based matching failed: {str(e)}")

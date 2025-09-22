@@ -717,13 +717,114 @@ class MatchingService:
             logger.error(f"❌ Bulk matching failed: {e}")
             raise
 
-    def find_top_candidates(self, jd_id: str, limit: int = 10) -> List[MatchResult]:
+    def find_top_candidates(self, jd_id: str, limit: int = 10, category_filter: str = None) -> List[MatchResult]:
         try:
-            cv_ids = self._list_all_cv_ids()
+            cv_ids = self._list_all_cv_ids(category_filter)
             return self.bulk_match(jd_id, cv_ids, top_k=limit)
         except Exception as e:
             logger.error(f"❌ Top candidate search failed: {e}")
             raise
+
+    def find_top_candidates_by_jd_category(self, jd_id: str, limit: int = 10) -> List[MatchResult]:
+        """
+        Find top candidates by automatically detecting JD category and filtering CVs by same category.
+        Enhanced with smart load balancing and performance optimization.
+        """
+        try:
+            # Get JD structured data to extract category
+            jd_structured = self._get_structured(jd_id, "jd")
+            jd_category = jd_structured.get("category", "General")
+            
+            logger.info(f"🎯 JD category detected: {jd_category}")
+            
+            # Find CVs with matching category
+            cv_ids = self._list_all_cv_ids(jd_category)
+            logger.info(f"📊 Found {len(cv_ids)} CVs in category: {jd_category}")
+            
+            # Smart batch processing for large CV sets
+            if len(cv_ids) > 100:
+                return self._smart_bulk_match(jd_id, cv_ids, top_k=limit, category=jd_category)
+            else:
+                return self.bulk_match(jd_id, cv_ids, top_k=limit)
+                
+        except Exception as e:
+            logger.error(f"❌ Category-based candidate search failed: {e}")
+            raise
+
+    def _smart_bulk_match(self, jd_id: str, cv_ids: List[str], top_k: int = 10, category: str = "General") -> List[MatchResult]:
+        """
+        Smart bulk matching with optimized processing for large CV sets.
+        Uses batch processing and parallel execution for better performance.
+        """
+        try:
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor
+            import math
+            
+            # Calculate optimal batch size based on category
+            batch_sizes = {
+                "Software Engineering": 20,
+                "AI/ML Engineering": 15,  # Smaller batches for GPU-intensive processing
+                "Security Engineering": 25,
+                "Cloud/DevOps Engineering": 20,
+                "Data Science": 15,  # Smaller batches for GPU-intensive processing
+                "General": 30
+            }
+            
+            batch_size = batch_sizes.get(category, 20)
+            total_batches = math.ceil(len(cv_ids) / batch_size)
+            
+            logger.info(f"🚀 Smart bulk matching: {len(cv_ids)} CVs in {total_batches} batches of {batch_size}")
+            
+            all_results = []
+            
+            # Process batches in parallel (limited concurrency)
+            max_workers = min(3, total_batches)  # Limit concurrent batches
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                
+                for i in range(0, len(cv_ids), batch_size):
+                    batch_cv_ids = cv_ids[i:i + batch_size]
+                    future = executor.submit(self._process_batch, jd_id, batch_cv_ids)
+                    futures.append(future)
+                
+                # Collect results from all batches
+                for future in futures:
+                    try:
+                        batch_results = future.result(timeout=60)  # 60 second timeout per batch
+                        all_results.extend(batch_results)
+                    except Exception as e:
+                        logger.warning(f"⚠️ Batch processing failed: {e}")
+                        continue
+            
+            # Sort all results by score and return top_k
+            all_results.sort(key=lambda x: x.overall_score, reverse=True)
+            final_results = all_results[:top_k]
+            
+            logger.info(f"✅ Smart bulk matching completed: {len(final_results)} results from {len(cv_ids)} CVs")
+            return final_results
+            
+        except Exception as e:
+            logger.error(f"❌ Smart bulk matching failed: {e}")
+            # Fallback to regular bulk matching
+            return self.bulk_match(jd_id, cv_ids, top_k=top_k)
+
+    def _process_batch(self, jd_id: str, cv_ids: List[str]) -> List[MatchResult]:
+        """Process a batch of CVs for matching."""
+        try:
+            results = []
+            for cv_id in cv_ids:
+                try:
+                    result = self.match_cv_against_jd(cv_id, jd_id)
+                    results.append(result)
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to match CV {cv_id}: {e}")
+                    continue
+            return results
+        except Exception as e:
+            logger.error(f"❌ Batch processing failed: {e}")
+            return []
 
     # ---------- Data access helpers ----------
     def _get_structured(self, doc_id: str, doc_type: str) -> Dict[str, Any]:
@@ -904,15 +1005,25 @@ class MatchingService:
             "experience": exp_vec
         }
 
-    def _list_all_cv_ids(self) -> List[str]:
+    def _list_all_cv_ids(self, category_filter: str = None) -> List[str]:
         """
-        Returns all CV ids from cv_structured.
+        Returns all CV ids from cv_structured, optionally filtered by category.
         """
         ids: List[str] = []
         offset = None
+        
+        # Build filter if category is specified
+        scroll_filter = None
+        if category_filter:
+            from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+            scroll_filter = Filter(
+                must=[FieldCondition(key="structured_info.category", match=MatchValue(value=category_filter))]
+            )
+        
         while True:
             points, next_off = self.qdrant.client.scroll(
                 collection_name="cv_structured",
+                scroll_filter=scroll_filter,
                 limit=500,
                 offset=offset,
                 with_payload=True,

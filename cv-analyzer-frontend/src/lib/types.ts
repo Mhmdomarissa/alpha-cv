@@ -407,3 +407,5 @@ export interface JobApplicationListItem {
   match_score?: number;
   status?: string;
 }
+
+// Queue management types removed

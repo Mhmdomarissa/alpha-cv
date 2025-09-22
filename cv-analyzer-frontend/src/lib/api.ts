@@ -231,7 +231,12 @@ class ApiClient {
 
   // Matching endpoints
   async matchCandidates(request: MatchRequest): Promise<MatchResponse> {
-    const response = await this.client.post<MatchResponse>('/api/match', request);
+    const token = localStorage.getItem('auth_token');
+    const response = await this.client.post<MatchResponse>('/api/match', request, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
     return response.data;
   }
 
@@ -590,6 +595,53 @@ async getPublicJob(token: string): Promise<PublicJobView> {
     );
     return response.data;
   }
+
+  // Category endpoints
+  async getCategories(): Promise<{ categories: Record<string, number> }> {
+    const response = await this.client.get<{ categories: Record<string, number> }>('/api/cv/categories');
+    return response.data;
+  }
+
+  async getCVsByCategory(category: string): Promise<{ cvs: any[]; category: string; count: number }> {
+    const response = await this.client.get<{ cvs: any[]; category: string; count: number }>(`/api/cv/cvs/category/${encodeURIComponent(category)}`);
+    return response.data;
+  }
+
+  async matchByCategory(jdId: string, topK?: number): Promise<any> {
+    const response = await this.client.post('/api/match/category-based', {
+      jd_id: jdId,
+      top_k: topK || 10
+    });
+    return response.data;
+  }
+
+  // Performance monitoring methods
+  async getSystemPerformance(): Promise<any> {
+    const response = await this.client.get('/api/performance/system');
+    return response.data;
+  }
+
+  async getGPUPerformance(): Promise<any> {
+    const response = await this.client.get('/api/performance/gpu');
+    return response.data;
+  }
+
+  async getDockerPerformance(): Promise<any> {
+    const response = await this.client.get('/api/performance/docker');
+    return response.data;
+  }
+
+  async getPerformanceSummary(): Promise<any> {
+    const response = await this.client.get('/api/performance/summary');
+    return response.data;
+  }
+
+  async getPerformanceHealth(): Promise<any> {
+    const response = await this.client.get('/api/performance/health');
+    return response.data;
+  }
+
+  // Queue management methods removed
 }
 
 
@@ -663,6 +715,20 @@ export const api = {
   RequestRetryHandler.withRetry(() => apiClient.matchJobCandidates(jobId, request)),
   deleteJobPosting: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.deleteJobPosting(jobId)),
   deleteAllJobPostings: () => RequestRetryHandler.withRetry(() => apiClient.deleteAllJobPostings()),
+
+  // Category operations
+  getCategories: () => RequestRetryHandler.withRetry(() => apiClient.getCategories()),
+  getCVsByCategory: (category: string) => RequestRetryHandler.withRetry(() => apiClient.getCVsByCategory(category)),
+  matchByCategory: (jdId: string, topK?: number) => RequestRetryHandler.withRetry(() => apiClient.matchByCategory(jdId, topK)),
+
+  // Performance monitoring operations
+  getSystemPerformance: () => RequestRetryHandler.withRetry(() => apiClient.getSystemPerformance()),
+  getGPUPerformance: () => RequestRetryHandler.withRetry(() => apiClient.getGPUPerformance()),
+  getDockerPerformance: () => RequestRetryHandler.withRetry(() => apiClient.getDockerPerformance()),
+  getPerformanceSummary: () => RequestRetryHandler.withRetry(() => apiClient.getPerformanceSummary()),
+  getPerformanceHealth: () => RequestRetryHandler.withRetry(() => apiClient.getPerformanceHealth()),
+
+  // Queue management operations removed
 };
 
 // Re-export types for convenience

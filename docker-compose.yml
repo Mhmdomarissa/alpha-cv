@@ -17,25 +17,37 @@ services:
       CUDA_VISIBLE_DEVICES: "0"
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
-      QDRANT_MAX_CONNECTIONS: "50"
-      QDRANT_POOL_SIZE: "10"
-      QDRANT_TIMEOUT: "30"
+      QDRANT_MAX_CONNECTIONS: "400"
+      QDRANT_POOL_SIZE: "200"
+      QDRANT_TIMEOUT: "120"
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_MAXMEMORY: "512mb"
+      REDIS_MAXMEMORY: "12gb"
       REDIS_MAXMEMORY_POLICY: "allkeys-lru"
-      MAX_GLOBAL_CONCURRENT: "150"
-      CIRCUIT_BREAKER_THRESHOLD: "30"
+      MAX_GLOBAL_CONCURRENT: "1600"
+      CIRCUIT_BREAKER_THRESHOLD: "200"
       CIRCUIT_BREAKER_RECOVERY_TIME: "300"
-      MIN_QUEUE_WORKERS: "2"
-      MAX_QUEUE_WORKERS: "8"
-      QUEUE_SIZE_THRESHOLD: "2000"
-      MEMORY_THRESHOLD_MB: "8192"
-      CPU_THRESHOLD_PERCENT: "70"
-      PYTHON_MEMORY_LIMIT: "8192"
-      UVICORN_WORKERS: "2"
+      MIN_QUEUE_WORKERS: "12"
+      MAX_QUEUE_WORKERS: "40"
+      QUEUE_SIZE_THRESHOLD: "10000"
+      MEMORY_THRESHOLD_MB: "24576"
+      CPU_THRESHOLD_PERCENT: "85"
+      PYTHON_MEMORY_LIMIT: "24576"
+      UVICORN_WORKERS: "20"
+      # Heavy load optimizations for 20 concurrent users
+      WORKER_CONNECTIONS: "4096"
+      KEEPALIVE_TIMEOUT: "65"
+      CLIENT_MAX_BODY_SIZE: "200M"
+      # Advanced performance settings
+      ENABLE_GPU_BATCH_PROCESSING: "true"
+      GPU_BATCH_SIZE: "32"
+      ENABLE_AGGRESSIVE_CACHING: "true"
+      CACHE_TTL_EMBEDDINGS: "86400"
+      CACHE_TTL_MATCHES: "3600"
+      ENABLE_ASYNC_PROCESSING: "true"
+      ASYNC_WORKER_POOL_SIZE: "50"
       ENABLE_PERFORMANCE_MONITORING: "true"
       LOG_LEVEL: "INFO"
       ENABLE_REQUEST_LOGGING: "true"
@@ -63,11 +75,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3G
-          cpus: '1.0'
+          memory: 20G
+          cpus: '7.0'
         reservations:
-          memory: 1G
-          cpus: '0.5'
+          memory: 10G
+          cpus: '5.0'
           devices:
             - driver: nvidia
               count: 1
@@ -132,22 +144,29 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: '1.0'
+          memory: 3G
+          cpus: '1.5'
         reservations:
-          memory: 1G
-          cpus: '0.5'
+          memory: 1.5G
+          cpus: '1.0'
     command: >
       postgres
-      -c shared_buffers=512MB
-      -c effective_cache_size=1.5GB
-      -c maintenance_work_mem=128MB
+      -c shared_buffers=1GB
+      -c effective_cache_size=2GB
+      -c maintenance_work_mem=256MB
+      -c max_connections=100
+      -c work_mem=32MB
       -c checkpoint_completion_target=0.9
-      -c wal_buffers=16MB
+      -c wal_buffers=32MB
       -c default_statistics_target=100
       -c random_page_cost=1.1
       -c effective_io_concurrency=200
-      -c work_mem=8MB
+      -c max_wal_size=4GB
+      -c min_wal_size=1GB
+      -c checkpoint_timeout=15min
+      -c max_worker_processes=8
+      -c max_parallel_workers_per_gather=4
+      -c max_parallel_workers=8
       -c huge_pages=off
       -c min_wal_size=512MB
       -c max_wal_size=2GB
@@ -169,18 +188,22 @@ services:
     environment:
       QDRANT__SERVICE__HTTP_PORT: 6333
       QDRANT__SERVICE__GRPC_PORT: 6334
-      QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_REQUESTS: 100
-      QDRANT__STORAGE__PERFORMANCE__MAX_OPTIMIZATION_THREADS: 4
-      QDRANT__SERVICE__MAX_REQUEST_SIZE_MB: 64
-      QDRANT__STORAGE__WAL__WAL_CAPACITY_MB: 512
+      QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_REQUESTS: 2000
+      QDRANT__STORAGE__PERFORMANCE__MAX_OPTIMIZATION_THREADS: 16
+      QDRANT__SERVICE__MAX_REQUEST_SIZE_MB: 512
+      QDRANT__STORAGE__WAL__WAL_CAPACITY_MB: 4096
+      QDRANT__STORAGE__PERFORMANCE__MAX_PAYLOAD_SIZE_MB: 128
+      QDRANT__STORAGE__PERFORMANCE__MAX_VECTOR_SIZE: 4096
+      QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_RESULTS: 10000
+      QDRANT__STORAGE__PERFORMANCE__MAX_POINTS_PER_SEARCH: 10000
     deploy:
       resources:
         limits:
-          memory: 3G
-          cpus: '1.5'
+          memory: 12G
+          cpus: '5.0'
         reservations:
-          memory: 1.5G
-          cpus: '0.5'
+          memory: 6G
+          cpus: '3.0'
 
   # =======================
   # Redis - Added back for caching
@@ -191,18 +214,18 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --tcp-keepalive 60
+    command: redis-server --appendonly yes --maxmemory 12gb --maxmemory-policy allkeys-lru --tcp-keepalive 60 --timeout 300 --maxclients 2000
     restart: unless-stopped
     networks:
       - cv-network
     deploy:
       resources:
         limits:
-          memory: 1G
-          cpus: '1.0'
+          memory: 12G
+          cpus: '2.5'
         reservations:
-          memory: 256M
-          cpus: '0.5'
+          memory: 3G
+          cpus: '1.5'
 
   # =======================
   # Nginx - Lightweight proxy

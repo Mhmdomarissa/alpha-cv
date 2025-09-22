@@ -14,6 +14,7 @@ from qdrant_client.http.models import (
     Filter,
     FieldCondition,
     MatchValue,
+    MatchAny,
     FilterSelector,
 )
 
@@ -210,81 +211,46 @@ class QdrantUtils:
 
     def store_embeddings_exact(self, doc_id: str, doc_type: str, embeddings_data: Dict[str, Any]) -> bool:
         """
-        Store EXACTLY 32 vectors as INDIVIDUAL POINTS in {doc_type}_embeddings.
+        OPTIMIZED: Store EXACTLY 32 vectors as SINGLE POINT in {doc_type}_embeddings.
         Expected keys in embeddings_data:
           - skill_vectors (20), responsibility_vectors (10), experience_vector (1), job_title_vector (1)
           - plus 'skills', 'responsibilities', 'experience_years', 'job_title' for payload context
         """
         try:
             collection_name = f"{doc_type}_embeddings"
-            points: List[PointStruct] = []
+            
+            # Prepare the structured vector data
+            vector_structure = {
+                "skill_vectors": embeddings_data.get("skill_vectors", [])[:20],
+                "responsibility_vectors": embeddings_data.get("responsibility_vectors", [])[:10],
+                "experience_vector": embeddings_data.get("experience_vector", []),
+                "job_title_vector": embeddings_data.get("job_title_vector", [])
+            }
+            
+            # Create a dummy vector for the point (Qdrant requires a vector field)
+            # We'll store the actual vectors in the payload
+            dummy_vector = [0.0] * 768  # 768-dimensional zero vector
+            
+            # Create single point with all vectors in payload
+            point = PointStruct(
+                id=doc_id,  # Use doc_id as the point ID for direct access
+                vector=dummy_vector,
+                payload={
+                    "document_id": doc_id,
+                    "vector_structure": vector_structure,
+                    "metadata": {
+                        "skills": embeddings_data.get("skills", []),
+                        "responsibilities": embeddings_data.get("responsibilities", []),
+                        "experience_years": embeddings_data.get("experience_years", ""),
+                        "job_title": embeddings_data.get("job_title", ""),
+                        "vector_count": 32,
+                        "storage_version": "optimized_v1"
+                    }
+                }
+            )
 
-            # 20 skills
-            for i, vec in enumerate(embeddings_data.get("skill_vectors", [])[:20]):
-                points.append(
-                    PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector=vec,
-                        payload={
-                            "document_id": doc_id,
-                            "vector_type": "skill",
-                            "vector_index": i,
-                            "content": (embeddings_data.get("skills", []) or [""])[i] if i < len(embeddings_data.get("skills", [])) else "",
-                        },
-                    )
-                )
-
-            # 10 responsibilities
-            for i, vec in enumerate(embeddings_data.get("responsibility_vectors", [])[:10]):
-                points.append(
-                    PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector=vec,
-                        payload={
-                            "document_id": doc_id,
-                            "vector_type": "responsibility",
-                            "vector_index": i,
-                            "content": (embeddings_data.get("responsibilities", []) or [""])[i] if i < len(embeddings_data.get("responsibilities", [])) else "",
-                        },
-                    )
-                )
-
-            # 1 experience
-            if embeddings_data.get("experience_vector"):
-                points.append(
-                    PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector=embeddings_data["experience_vector"][0],
-                        payload={
-                            "document_id": doc_id,
-                            "vector_type": "experience",
-                            "vector_index": 0,
-                            "content": embeddings_data.get("experience_years", ""),
-                        },
-                    )
-                )
-
-            # 1 job title
-            if embeddings_data.get("job_title_vector"):
-                points.append(
-                    PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector=embeddings_data["job_title_vector"][0],
-                        payload={
-                            "document_id": doc_id,
-                            "vector_type": "job_title",
-                            "vector_index": 0,
-                            "content": embeddings_data.get("job_title", ""),
-                        },
-                    )
-                )
-
-            if not points:
-                logger.warning(f"⚠ No vectors to store for {doc_id}")
-                return False
-
-            self.client.upsert(collection_name=collection_name, points=points)
-            logger.info(f"✅ Stored {len(points)} vectors for {doc_id} → {collection_name}")
+            self.client.upsert(collection_name=collection_name, points=[point])
+            logger.info(f"✅ OPTIMIZED: Stored 32 vectors as single point for {doc_id} → {collection_name}")
             return True
         except Exception as e:
             logger.error(f"❌ store_embeddings_exact({doc_id}) failed: {e}")
@@ -314,10 +280,29 @@ class QdrantUtils:
 
     def retrieve_embeddings(self, doc_id: str, doc_type: str) -> Optional[Dict[str, Any]]:
         """
-        Read the EXACT-32 vectors back from {doc_type}_embeddings and return a dict:
+        OPTIMIZED: Read the EXACT-32 vectors back from {doc_type}_embeddings and return a dict:
           { "skill_vectors": [...], "responsibility_vectors": [...], "experience_vector": [...], "job_title_vector": [...] }
         """
         try:
+            # Try optimized single-point retrieval first
+            try:
+                point = self.client.retrieve(
+                    collection_name=f"{doc_type}_embeddings",
+                    ids=[doc_id],
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                if point and len(point) > 0:
+                    payload = point[0].payload
+                    if payload and "vector_structure" in payload:
+                        logger.info(f"✅ OPTIMIZED: Retrieved 32 vectors as single point for {doc_id}")
+                        return payload["vector_structure"]
+            except Exception as e:
+                logger.debug(f"Optimized retrieval failed for {doc_id}, trying legacy method: {e}")
+            
+            # Fallback to legacy method for backward compatibility
+            logger.info(f"🔄 FALLBACK: Using legacy retrieval for {doc_id}")
             points, _ = self.client.scroll(
                 collection_name=f"{doc_type}_embeddings",
                 scroll_filter=Filter(
@@ -386,17 +371,27 @@ class QdrantUtils:
     def delete_document(self, doc_id: str, doc_type: str) -> bool:
         """
         Delete from *_documents, *_structured, and *_embeddings.
+        OPTIMIZED: Handles both single-point and legacy multi-point storage.
         """
         try:
             self.client.delete(collection_name=f"{doc_type}_documents", points_selector=[doc_id])
             self.client.delete(collection_name=f"{doc_type}_structured", points_selector=[doc_id])
 
-            self.client.delete(
-                collection_name=f"{doc_type}_embeddings",
-                points_selector=FilterSelector(
-                    filter=Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=doc_id))])
-                ),
-            )
+            # Try optimized single-point deletion first
+            try:
+                self.client.delete(collection_name=f"{doc_type}_embeddings", points_selector=[doc_id])
+                logger.info(f"✅ OPTIMIZED: Deleted single point {doc_id} from {doc_type}_embeddings")
+            except Exception as e:
+                logger.debug(f"Single-point deletion failed, trying legacy method: {e}")
+                # Fallback to legacy multi-point deletion
+                self.client.delete(
+                    collection_name=f"{doc_type}_embeddings",
+                    points_selector=FilterSelector(
+                        filter=Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=doc_id))])
+                    ),
+                )
+                logger.info(f"✅ LEGACY: Deleted multiple points for {doc_id} from {doc_type}_embeddings")
+            
             logger.info(f"✅ Deleted {doc_id} from all {doc_type} collections")
             return True
         except Exception as e:
@@ -439,16 +434,102 @@ class QdrantUtils:
                 out.append({
                     "id": p.payload.get("document_id", str(p.id)),
                     "name": si.get("full_name", si.get("name", str(p.id))),
+                    "category": si.get("category", "General"),
                 })
             if out:
                 return out
 
             # Fallback to documents if structured is empty
             docs = self.list_documents("cv")
-            return [{"id": d.get("id", ""), "name": d.get("filename", d.get("id", ""))} for d in docs]
+            return [{"id": d.get("id", ""), "name": d.get("filename", d.get("id", "")), "category": "General"} for d in docs]
         except Exception as e:
             logger.error(f"❌ list_all_cvs failed: {e}")
             return []
+
+    def list_cvs_by_category(self, category: str) -> List[Dict[str, Any]]:
+        """
+        List CVs filtered by category with full details.
+        """
+        try:
+            # Get structured CVs filtered by category
+            pts, _ = self.client.scroll(
+                collection_name="cv_structured",
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="structured_info.category", match=MatchValue(value=category))]
+                ),
+                limit=1000,
+                with_payload=True,
+                with_vectors=False,
+            )
+            
+            # Get document metadata for all CVs
+            doc_ids = [p.payload.get("document_id", str(p.id)) for p in pts]
+            docs_map = {}
+            if doc_ids:
+                docs_pts, _ = self.client.scroll(
+                    collection_name="cv_documents",
+                    scroll_filter=Filter(
+                        must=[FieldCondition(key="document_id", match=MatchAny(any=doc_ids))]
+                    ),
+                    limit=1000,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                docs_map = {p.payload.get("document_id", str(p.id)): p.payload for p in docs_pts}
+            
+            # Build enhanced CV list with full details
+            enhanced = []
+            for p in pts:
+                doc_id = p.payload.get("document_id", str(p.id))
+                payload = p.payload
+                structured = payload.get("structured_info", {})
+                doc_meta = docs_map.get(doc_id, {})
+
+                skills = structured.get("skills", [])
+                resps = structured.get("responsibilities", structured.get("responsibility_sentences", []))
+
+                enhanced.append({
+                    "id": doc_id,
+                    "filename": doc_meta.get("filename", "Unknown"),
+                    "upload_date": doc_meta.get("upload_date", "Unknown"),
+                    "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
+                    "job_title": structured.get("job_title", "Not specified"),
+                    "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
+                    "skills_count": len(skills),
+                    "skills": skills,
+                    "responsibilities_count": len(resps),
+                    "text_length": len(doc_meta.get("raw_content", "")),
+                    "has_structured_data": True,
+                    "category": structured.get("category", "General")
+                })
+
+            enhanced.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
+            return enhanced
+            
+        except Exception as e:
+            logger.error(f"❌ list_cvs_by_category({category}) failed: {e}")
+            return []
+
+    def get_categories_with_counts(self) -> Dict[str, int]:
+        """
+        Get all categories with their CV counts.
+        """
+        try:
+            pts, _ = self.client.scroll(
+                collection_name="cv_structured",
+                limit=1000,
+                with_payload=True,
+                with_vectors=False,
+            )
+            categories = {}
+            for p in pts:
+                si = p.payload.get("structured_info", {})
+                category = si.get("category", "General")
+                categories[category] = categories.get(category, 0) + 1
+            return categories
+        except Exception as e:
+            logger.error(f"❌ get_categories_with_counts failed: {e}")
+            return {}
 
     def get_structured_cv(self, cv_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -464,6 +545,7 @@ class QdrantUtils:
                 "name": s.get("full_name", s.get("name", cv_id)),
                 "job_title": s.get("job_title", ""),
                 "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                "category": s.get("category", ""),
                 "skills_sentences": (s.get("skills", []) or [])[:20],
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
             }
@@ -485,6 +567,7 @@ class QdrantUtils:
                     "id": jd_id,
                     "job_title": s.get("job_title", ""),
                     "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                    "category": s.get("category", ""),
                     "skills_sentences": (s.get("skills", []) or [])[:20],  # Matching system expects this field name
                     "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],  # Matching system expects this field name
                     "structured_info": s,  # Keep original structure
@@ -499,6 +582,7 @@ class QdrantUtils:
                 "id": jd_id,
                 "job_title": s.get("job_title", ""),
                 "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                "category": s.get("category", ""),
                 "skills_sentences": (s.get("skills", []) or [])[:20],  # Matching system expects this field name
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],  # Matching system expects this field name
                 "structured_info": s,  # Keep original structure
@@ -521,6 +605,7 @@ class QdrantUtils:
                     "id": jd_id,
                     "job_title": s.get("job_title", ""),
                     "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                    "category": s.get("category", ""),
                     "skills_sentences": (s.get("skills", []) or [])[:20],
                     "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
                     "job_summary": s.get("job_summary", "") or s.get("summary", ""),
@@ -536,6 +621,7 @@ class QdrantUtils:
                 "id": jd_id,
                 "job_title": s.get("job_title", ""),
                 "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                "category": s.get("category", ""),
                 "skills_sentences": (s.get("skills", []) or [])[:20],
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
                 "job_summary": s.get("job_summary", "") or s.get("summary", ""),

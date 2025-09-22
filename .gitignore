@@ -129,4 +129,5 @@ certbot/
 # System process and session files
 *.session
 *.state
-**/accounts/
+**/accounts/.env.backup.*
+backups/

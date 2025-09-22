@@ -8,7 +8,8 @@ import {
   HealthResponse,
   MatchRequest,
   SystemStatsResponse,
-  DatabaseViewResponse
+  DatabaseViewResponse,
+  // Queue types removed
 } from '@/lib/types';
 import { api } from '@/lib/api';
 import { logger } from '@/lib/logger';
@@ -19,9 +20,17 @@ interface LoadingState {
   error?: string | null;
 }
 
+interface MatchingProgress {
+  totalCVs: number;
+  processedCVs: number;
+  currentStage: 'initializing' | 'processing' | 'analyzing' | 'scoring' | 'finalizing';
+  estimatedTimeRemaining?: number;
+  isVisible: boolean;
+}
+
 interface AppState {
   // Current tab
-  currentTab: 'dashboard' | 'upload' | 'database' | 'match' | 'careers' | 'reports' | 'system';
+  currentTab: 'dashboard' | 'upload' | 'database' | 'match' | 'careers' | 'reports' | 'system' | 'performance';
   
   // Data
   cvs: CVListItem[];
@@ -32,6 +41,9 @@ interface AppState {
   // Matching
   matchWeights: MatchWeights;
   matchResult: MatchResponse | null;
+  matchingProgress: MatchingProgress;
+  
+  // Queue management removed
   
   // Health
   systemHealth: HealthResponse | null;
@@ -48,6 +60,7 @@ interface AppState {
     health: LoadingState;
     stats: LoadingState;
     database: LoadingState;
+    // queue: LoadingState; // removed
   };
   
   // Actions
@@ -77,6 +90,10 @@ interface AppState {
   setMatchWeights: (weights: Partial<MatchWeights>) => void;
   runMatch: (request?: Partial<MatchRequest>) => Promise<void>;
   clearMatchResult: () => void;
+  setMatchingProgress: (progress: Partial<MatchingProgress>) => void;
+  hideMatchingProgress: () => void;
+  
+  // Queue management actions removed
   
   // System actions
   loadSystemHealth: () => Promise<void>;
@@ -107,6 +124,13 @@ export const useAppStore = create<AppState>()(
       selectedCVs: [],
       matchWeights: defaultWeights,
       matchResult: null,
+      matchingProgress: {
+        totalCVs: 0,
+        processedCVs: 0,
+        currentStage: 'initializing',
+        isVisible: false,
+      },
+      // Queue state removed
       systemHealth: null,
       systemStats: null,
       databaseView: null,
@@ -120,6 +144,7 @@ export const useAppStore = create<AppState>()(
         health: { isLoading: false, error: null },
         stats: { isLoading: false, error: null },
         database: { isLoading: false, error: null },
+        // queue: { isLoading: false, error: null }, // removed
       },
       
       // Actions
@@ -348,7 +373,15 @@ export const useAppStore = create<AppState>()(
       },
       
       runMatch: async (request = {}) => {
-        const { setLoading, selectedJD, selectedCVs, matchWeights } = get();
+        const { 
+          setLoading, 
+          selectedJD, 
+          selectedCVs, 
+          matchWeights, 
+          setMatchingProgress, 
+          hideMatchingProgress
+        } = get();
+        
         setLoading('matching', true);
         
         try {
@@ -356,6 +389,7 @@ export const useAppStore = create<AppState>()(
             throw new Error('Please select a job description first');
           }
           
+          // Start matching directly
           const matchRequest: MatchRequest = {
             jd_id: selectedJD || undefined,
             cv_ids: selectedCVs.length > 0 ? selectedCVs : undefined,
@@ -364,20 +398,86 @@ export const useAppStore = create<AppState>()(
             ...request,
           };
           
+          // Initialize progress tracking
+          const totalCVs = selectedCVs.length || 0;
+          setMatchingProgress({
+            totalCVs,
+            processedCVs: 0,
+            currentStage: 'initializing',
+            isVisible: true,
+            estimatedTimeRemaining: totalCVs * 2, // Estimate 2 seconds per CV
+          });
+          
           logger.info('Starting candidate matching', matchRequest);
+          
+          // Simulate progress updates during matching
+          const progressInterval = setInterval(() => {
+            const state = get();
+            const currentProgress = state.matchingProgress;
+            
+            if (currentProgress.processedCVs < totalCVs) {
+              const newProcessed = Math.min(
+                currentProgress.processedCVs + Math.ceil(totalCVs / 10),
+                totalCVs
+              );
+              
+              let newStage = currentProgress.currentStage;
+              const progressPercent = (newProcessed / totalCVs) * 100;
+              
+              if (progressPercent < 20) {
+                newStage = 'initializing';
+              } else if (progressPercent < 40) {
+                newStage = 'processing';
+              } else if (progressPercent < 70) {
+                newStage = 'analyzing';
+              } else if (progressPercent < 90) {
+                newStage = 'scoring';
+              } else {
+                newStage = 'finalizing';
+              }
+              
+              setMatchingProgress({
+                processedCVs: newProcessed,
+                currentStage: newStage,
+                estimatedTimeRemaining: Math.max(0, (totalCVs - newProcessed) * 2),
+              });
+            }
+          }, 500);
+          
           const result = await api.matchCandidates(matchRequest);
+          
+          // Clear progress interval and hide progress bar
+          clearInterval(progressInterval);
+          hideMatchingProgress();
+          
+          // Queue session completion removed
           
           set({ matchResult: result });
           setLoading('matching', false);
           logger.info(`Matching completed: ${result.candidates.length} candidates processed`);
         } catch (error: any) {
           logger.error('Failed to run matching', error);
+          hideMatchingProgress();
           setLoading('matching', false, error.message);
+          
+          // Queue session completion removed
         }
       },
       
       clearMatchResult: () => {
         set({ matchResult: null });
+      },
+      
+      setMatchingProgress: (progress) => {
+        set((state) => ({
+          matchingProgress: { ...state.matchingProgress, ...progress },
+        }));
+      },
+      
+      hideMatchingProgress: () => {
+        set((state) => ({
+          matchingProgress: { ...state.matchingProgress, isVisible: false },
+        }));
       },
       
       // System actions
@@ -473,6 +573,8 @@ export const useAppStore = create<AppState>()(
           },
         }));
       },
+      
+      // Queue management actions removed
     }),
     {
       name: 'cv-analyzer-store',

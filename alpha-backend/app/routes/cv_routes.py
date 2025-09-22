@@ -566,6 +566,32 @@ async def list_cvs() -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"Failed to list CVs: {e}")
 
 
+@router.get("/categories")
+async def get_categories():
+    """
+    Get all CV categories with their counts.
+    """
+    try:
+        qdrant = get_qdrant_utils()
+        categories = qdrant.get_categories_with_counts()
+        return JSONResponse(content={"categories": categories})
+    except Exception as e:
+        logger.error(f"❌ Failed to get categories: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get categories: {str(e)}")
+
+@router.get("/cvs/category/{category}")
+async def get_cvs_by_category(category: str):
+    """
+    Get all CVs in a specific category.
+    """
+    try:
+        qdrant = get_qdrant_utils()
+        cvs = qdrant.list_cvs_by_category(category)
+        return JSONResponse(content={"cvs": cvs, "category": category, "count": len(cvs)})
+    except Exception as e:
+        logger.error(f"❌ Failed to get CVs by category {category}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get CVs by category: {str(e)}")
+
 
 @router.get("/{cv_id}")
 async def get_cv_details(cv_id: str) -> JSONResponse:

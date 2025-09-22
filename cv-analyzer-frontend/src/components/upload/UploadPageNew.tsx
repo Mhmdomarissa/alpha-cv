@@ -207,37 +207,6 @@ export default function UploadPageNew() {
     await loadCVs();
     await loadJDs();
   };
-  /* ----------------------------- Start Matching (NEW) ---------------------------- */
-  const handleStartMatching = async () => {
-    // Make sure DB lists are fresh
-    await loadCVs();
-    await loadJDs();
-    // Auto-pick JD if none selected: latest by upload_date (fallback to last)
-    let jdId = selectedJD;
-    if (!jdId && jds.length > 0) {
-      const sorted = [...jds].sort((a: any, b: any) => {
-        const ad = a?.upload_date ? new Date(a.upload_date).getTime() : 0;
-        const bd = b?.upload_date ? new Date(b.upload_date).getTime() : 0;
-        return bd - ad;
-      });
-      jdId = sorted[0]?.id ?? jds[jds.length - 1]?.id;
-      if (jdId) selectJD(jdId);
-    }
-    // Auto-select all CVs if none selected
-    if (selectedCVs.length === 0 && cvs.length > 0) {
-      selectAllCVs();
-    }
-    if (!jdId) {
-      alert('Please upload/select at least one Job Description first.');
-      return;
-    }
-    if (cvs.length === 0) {
-      alert('Please upload at least one CV first.');
-      return;
-    }
-    await runMatch();
-    setCurrentTab('match');
-  };
   /* ----------------------- Match Only Uploaded Files ----------------------- */
   const handleMatchUploadedOnly = async () => {
     console.log("=== handleMatchUploadedOnly called ===");
@@ -704,23 +673,13 @@ export default function UploadPageNew() {
               
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                 <button
-                  onClick={handleStartMatching}
-                  className="btn-primary w-full sm:w-auto"
-                  disabled={loadingStates.matching?.isLoading}
-                  title="Auto-selects latest JD and all CVs if nothing is selected"
-                >
-                  <Play className="w-4 h-4" />
-                  {loadingStates.matching?.isLoading ? 'Matching...' : 'Match All'}
-                </button>
-                
-                <button
                   onClick={handleMatchUploadedOnly}
                   className="btn-primary w-full sm:w-auto"
                   disabled={loadingStates.matching?.isLoading || !(jdItems.some(f => f.status === 'completed') || cvItems.some(f => f.status === 'completed'))}
                   title="Match only the files uploaded in this session"
                 >
                   <Play className="w-4 h-4" />
-                  {loadingStates.matching?.isLoading ? 'Matching...' : 'Match Only Uploaded'}
+                  {loadingStates.matching?.isLoading ? 'Matching...' : 'Match Uploaded Files'}
                 </button>
               </div>
             </div>
