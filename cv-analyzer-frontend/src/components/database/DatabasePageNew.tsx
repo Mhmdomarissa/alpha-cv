@@ -880,19 +880,29 @@ export default function DatabasePageNew() {
         )}
       </Card>
       
-      {/* Enhanced Document Tabs */}
+      {/* Professional Document Tabs with Signature Colors */}
       <Tabs value={databaseActiveTab} onValueChange={(value) => setDatabaseActiveTab(value as 'cvs' | 'jds')} className="w-full">
         <TabsList className="grid w-full grid-cols-2 bg-white/90 backdrop-blur-sm rounded-2xl p-2 border border-white/30 shadow-lg">
           <TabsTrigger 
             value="cvs" 
-            className="flex items-center space-x-2 px-6 py-3 rounded-xl transition-all duration-300 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:shadow-lg hover:-translate-y-0.5"
+            className="flex items-center space-x-2 px-6 py-3 rounded-xl transition-all duration-300 data-[state=active]:text-white data-[state=active]:shadow-lg hover:-translate-y-0.5"
+            style={{
+              background: databaseActiveTab === 'cvs' 
+                ? 'linear-gradient(135deg, rgba(0, 82, 155, 0.9) 0%, rgba(0, 61, 115, 0.9) 100%)'
+                : 'transparent'
+            }}
           >
             <Users className="w-5 h-5" />
             <span className="font-semibold">CVs ({filteredCVs.length})</span>
           </TabsTrigger>
           <TabsTrigger 
             value="jds" 
-            className="flex items-center space-x-2 px-6 py-3 rounded-xl transition-all duration-300 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:shadow-lg hover:-translate-y-0.5"
+            className="flex items-center space-x-2 px-6 py-3 rounded-xl transition-all duration-300 data-[state=active]:text-white data-[state=active]:shadow-lg hover:-translate-y-0.5"
+            style={{
+              background: databaseActiveTab === 'jds' 
+                ? 'linear-gradient(135deg, rgba(0, 82, 155, 0.9) 0%, rgba(0, 61, 115, 0.9) 100%)'
+                : 'transparent'
+            }}
           >
             <FileText className="w-5 h-5" />
             <span className="font-semibold">Job Descriptions ({filteredJDs.length})</span>
