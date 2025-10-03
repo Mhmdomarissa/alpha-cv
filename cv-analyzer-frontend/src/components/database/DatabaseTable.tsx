@@ -16,6 +16,20 @@ import {
   Play,
   ChevronDown,
   Search,
+  User,
+  Mail,
+  Phone,
+  Calendar,
+  Briefcase,
+  Award,
+  Star,
+  MapPin,
+  GraduationCap,
+  Zap,
+  TrendingUp,
+  FileCheck,
+  Settings,
+  Brain
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-enhanced';
@@ -369,7 +383,7 @@ export default function DatabasePageNew() {
                                 <Eye className="w-4 h-4" />
                               </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto bg-white rounded-lg shadow-xl">
+                            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl">
                               <DialogHeader className="flex flex-row items-center justify-between">
                                 <DialogTitle className="text-xl font-semibold">CV Details</DialogTitle>
                                 <Button
@@ -535,139 +549,247 @@ function CVDetails({ cvId }: { cvId: string }) {
     };
     loadCV();
   }, [cvId]);
-  if (loading) return <div className="flex items-center justify-center py-8">Loading CV details...</div>;
-  if (error)
+  if (loading) {
     return (
-      <div className="text-center py-8">
-        <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
-        <h3 className="text-lg font-medium text-red-900 mb-2">Error Loading CV</h3>
-        <p className="text-red-500 mb-4">{error}</p>
+      <div className="flex items-center justify-center py-12">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="text-gray-600">Loading CV details...</p>
+        </div>
       </div>
     );
-  if (!cv) return <div className="text-center py-8">CV not found</div>;
-  const b = getCVBasics(cv);
-  return (
-    <div className="space-y-4">
-      {/* Candidate Info */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-        <h3 className="text-lg font-semibold mb-3">Candidate Information</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <h4 className="text-sm font-medium text-gray-500">Full Name</h4>
-            <p className="text-base font-semibold">{b.name}</p>
-          </div>
-          <div>
-            <h4 className="text-sm font-medium text-gray-500">Job Title</h4>
-            <p className="text-base font-semibold">{b.title}</p>
-          </div>
-          <div>
-            <h4 className="text-sm font-medium text-gray-500">Experience</h4>
-            <p className="text-base font-semibold">{b.years} years</p>
-          </div>
-          <div>
-            <h4 className="text-sm font-medium text-gray-500">Upload Date</h4>
-            <p className="text-base font-semibold">{formatDate(cv?.cv?.upload_date || cv?.upload_date)}</p>
-          </div>
+  }
+  
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <div className="bg-red-50 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+          <AlertCircle className="w-8 h-8 text-red-500" />
         </div>
-        {/* Contact Information - Show PII extracted from CV */}
-        <div className="mt-4">
-          <h4 className="text-sm font-medium text-gray-500 mb-2">Contact Information (PII Extracted)</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <p className="text-sm text-gray-600">Email</p>
-              <p className="font-medium">
-                {cv.structured_info?.contact_info?.email || cv.structured_info?.email || cv.candidate?.contact_info?.email || 'not provided'}
-              </p>
+        <h3 className="text-lg font-semibold text-red-900 mb-2">Error Loading CV</h3>
+        <p className="text-red-600 mb-4">{error}</p>
+      </div>
+    );
+  }
+  
+  if (!cv) {
+    return (
+      <div className="text-center py-12">
+        <div className="bg-gray-50 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+          <FileText className="w-8 h-8 text-gray-500" />
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">CV Not Found</h3>
+        <p className="text-gray-600">The requested CV could not be found.</p>
+      </div>
+    );
+  }
+  
+  const b = getCVBasics(cv);
+  
+  return (
+    <div className="space-y-6">
+      {/* Header Section */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="bg-white rounded-full p-3 shadow-sm">
+              <User className="w-8 h-8 text-blue-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">Phone</p>
-              <p className="font-medium">
-                {cv.structured_info?.contact_info?.phone || cv.structured_info?.phone || cv.candidate?.contact_info?.phone || 'not provided'}
-              </p>
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{b.name}</h2>
+              <div className="flex items-center space-x-2 mb-2">
+                <Briefcase className="w-4 h-4 text-gray-500" />
+                <span className="text-lg font-semibold text-gray-700">{b.title}</span>
+              </div>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-1">
+                  <TrendingUp className="w-4 h-4 text-green-600" />
+                  <span className="text-sm font-medium text-gray-600">{b.years} years experience</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="flex items-center space-x-1 text-sm text-gray-500 mb-1">
+              <Calendar className="w-4 h-4" />
+              <span>Uploaded {formatDate(cv?.cv?.upload_date || cv?.upload_date)}</span>
+            </div>
+            <div className="flex items-center space-x-1 text-sm text-gray-500">
+              <FileCheck className="w-4 h-4" />
+              <span>CV #{cvId.slice(-8)}</span>
             </div>
           </div>
         </div>
       </div>
-      {/* Skills */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold">Skills</h3>
-          <Badge className="ml-2">{b.skillsCount}</Badge>
+
+      {/* Contact Information */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <div className="flex items-center space-x-2 mb-4">
+          <div className="bg-green-100 rounded-full p-2">
+            <Mail className="w-5 h-5 text-green-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900">Contact Information</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
+            <Mail className="w-5 h-5 text-blue-600" />
+            <div>
+              <p className="text-sm font-medium text-gray-500">Email</p>
+              <p className="font-semibold text-blue-600 break-all">{cv.structured_info?.contact_info?.email || cv.structured_info?.email || cv.candidate?.contact_info?.email || 'Not available'}</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
+            <Phone className="w-5 h-5 text-green-600" />
+            <div>
+              <p className="text-sm font-medium text-gray-500">Phone</p>
+              <p className="font-semibold text-green-600">{cv.structured_info?.contact_info?.phone || cv.structured_info?.phone || cv.candidate?.contact_info?.phone || 'Not available'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* Skills Section */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-2">
+            <div className="bg-purple-100 rounded-full p-2">
+              <Zap className="w-5 h-5 text-purple-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">Technical Skills</h3>
+          </div>
+          <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200">
+            {b.skillsCount} skills
+          </Badge>
         </div>
         {(() => {
           const skills = cv?.cv?.candidate?.skills || cv?.candidate?.skills || cv?.cv?.skills || cv?.skills || [];
           return skills.length ? (
-            <ul className="space-y-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               {skills.map((skill: string, i: number) => (
-                <li key={i} className="text-gray-700">{skill}</li>
+                <div key={i} className="bg-gradient-to-r from-orange-50 to-yellow-50 border border-orange-200 rounded-lg p-3 text-center hover:shadow-md transition-shadow">
+                  <span className="text-sm font-medium text-gray-800">{skill}</span>
+                </div>
               ))}
-            </ul>
+            </div>
           ) : (
-            <p className="text-gray-500">No skills information available</p>
+            <div className="text-center py-8">
+              <Award className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500">No skills information available</p>
+            </div>
           );
         })()}
       </div>
-      {/* Responsibilities */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold">Responsibilities</h3>
-          <Badge className="ml-2">{b.respCount}</Badge>
+      {/* Experience & Responsibilities */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-2">
+            <div className="bg-orange-100 rounded-full p-2">
+              <Briefcase className="w-5 h-5 text-orange-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">Experience & Responsibilities</h3>
+          </div>
+          <Badge variant="secondary" className="bg-orange-100 text-orange-700 border-orange-200">
+            {b.respCount} items
+          </Badge>
         </div>
         {(() => {
           const responsibilities = cv?.cv?.candidate?.responsibilities || cv?.candidate?.responsibilities || cv?.cv?.responsibilities || cv?.responsibilities || [];
           return responsibilities.length ? (
-            <ul className="space-y-2">
+            <div className="space-y-4">
               {responsibilities.map((resp: string, i: number) => (
-                <li key={i} className="text-gray-700">{resp}</li>
+                <div key={i} className="flex items-start space-x-3 p-4 bg-gradient-to-r from-orange-50 to-yellow-50 border border-orange-200 rounded-lg hover:shadow-sm transition-shadow">
+                  <div className="bg-orange-500 rounded-full p-1 mt-1">
+                    <Star className="w-3 h-3 text-white" />
+                  </div>
+                  <p className="text-gray-700 leading-relaxed">{resp}</p>
+                </div>
               ))}
-            </ul>
+            </div>
           ) : (
-            <p className="text-gray-500">No responsibilities information available</p>
+            <div className="text-center py-8">
+              <Briefcase className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500">No responsibilities information available</p>
+            </div>
           );
         })()}
       </div>
-      {/* Text Preview */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-        <h3 className="text-lg font-semibold mb-3">Text Preview</h3>
-        <div className="bg-gray-50 p-3 rounded max-h-40 overflow-y-auto">
-          <p className="text-sm text-gray-700 whitespace-pre-line">
+      {/* Document Preview */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <div className="flex items-center space-x-2 mb-4">
+          <div className="bg-blue-100 rounded-full p-2">
+            <FileText className="w-5 h-5 text-blue-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900">Document Preview</h3>
+        </div>
+        <div className="bg-gray-50 rounded-lg p-4 max-h-48 overflow-y-auto border">
+          <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
             {cv?.cv?.text_info?.extracted_text_preview || cv?.text_info?.extracted_text_preview || cv?.extracted_text_preview || 'No text preview available'}
           </p>
         </div>
-        <div className="mt-2 text-sm text-gray-500">
-          Text length: {cv?.cv?.text_info?.extracted_text_length || cv?.text_info?.extracted_text_length || cv?.extracted_text_length || 0} characters
+        <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
+          <span>Document length: {cv?.cv?.text_info?.extracted_text_length || cv?.text_info?.extracted_text_length || cv?.extracted_text_length || 0} characters</span>
         </div>
       </div>
-      {/* Processing / Embeddings */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-          <h3 className="text-lg font-semibold mb-3">Embeddings Information</h3>
-          <div className="space-y-2">
-            <Row label="Skills Embeddings" value={cv?.cv?.embeddings_info?.skills_embeddings || cv?.embeddings_info?.skills_embeddings || cv?.skills_embeddings || 0} />
-            <Row label="Responsibilities Embeddings" value={cv?.cv?.embeddings_info?.responsibilities_embeddings || cv?.embeddings_info?.responsibilities_embeddings || cv?.responsibilities_embeddings || 0} />
-            <Row label="Title Embedding" value={(cv?.cv?.embeddings_info?.has_title_embedding || cv?.embeddings_info?.has_title_embedding || cv?.has_title_embedding) ? 'Yes' : 'No'} />
-            <Row label="Experience Embedding" value={(cv?.cv?.embeddings_info?.has_experience_embedding || cv?.embeddings_info?.has_experience_embedding || cv?.has_experience_embedding) ? 'Yes' : 'No'} />
-            <Row label="Embedding Dimension" value={cv?.cv?.embeddings_info?.embedding_dimension || cv?.embeddings_info?.embedding_dimension || cv?.embedding_dimension || 'N/A'} />
+      {/* Technical Information */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center space-x-2 mb-4">
+            <div className="bg-indigo-100 rounded-full p-2">
+              <Brain className="w-5 h-5 text-indigo-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">AI Processing</h3>
+          </div>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+              <span className="text-sm font-medium text-gray-600">Skills Embeddings</span>
+              <Badge variant="outline" className="bg-white">{cv?.cv?.embeddings_info?.skills_embeddings || cv?.embeddings_info?.skills_embeddings || cv?.skills_embeddings || 0}</Badge>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+              <span className="text-sm font-medium text-gray-600">Responsibilities Embeddings</span>
+              <Badge variant="outline" className="bg-white">{cv?.cv?.embeddings_info?.responsibilities_embeddings || cv?.embeddings_info?.responsibilities_embeddings || cv?.responsibilities_embeddings || 0}</Badge>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+              <span className="text-sm font-medium text-gray-600">Model Used</span>
+              <span className="text-sm font-semibold text-gray-800">{cv?.cv?.processing_metadata?.model_used || cv?.processing_metadata?.model_used || cv?.model_used || 'N/A'}</span>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+              <span className="text-sm font-medium text-gray-600">Processing Time</span>
+              <span className="text-sm font-semibold text-gray-800">
+                {cv?.cv?.processing_metadata?.processing_time || cv?.processing_metadata?.processing_time || cv?.processing_time
+                  ? `${((cv?.cv?.processing_metadata?.processing_time ?? cv?.processing_metadata?.processing_time ?? cv?.processing_time) as number).toFixed(2)}s`
+                  : 'N/A'}
+              </span>
+            </div>
           </div>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-          <h3 className="text-lg font-semibold mb-3">Processing Information</h3>
-          <div className="space-y-2">
-            <Row label="Filename" value={cv?.cv?.processing_metadata?.filename || cv?.processing_metadata?.filename || cv?.cv?.filename || cv?.filename || 'N/A'} mono />
-            <Row label="Model Used" value={cv?.cv?.processing_metadata?.model_used || cv?.processing_metadata?.model_used || cv?.model_used || 'N/A'} />
-            <Row
-  label="Processing Time"
-  value={
-    cv?.cv?.processing_metadata?.processing_time || cv?.processing_metadata?.processing_time || cv?.processing_time
-      ? `${(
-          (cv?.cv?.processing_metadata?.processing_time ??
-            cv?.processing_metadata?.processing_time ??
-            cv?.processing_time) as number
-        ).toFixed(2)}s`
-      : 'N/A'
-  }
-/>
-            <Row label="Text Length" value={cv?.cv?.processing_metadata?.text_length || cv?.cv?.text_info?.extracted_text_length || cv?.processing_metadata?.text_length || cv?.text_info?.extracted_text_length || cv?.text_length || 0} />
+        
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center space-x-2 mb-4">
+            <div className="bg-green-100 rounded-full p-2">
+              <Settings className="w-5 h-5 text-green-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">System Information</h3>
+          </div>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+              <span className="text-sm font-medium text-gray-600">Title Embedding</span>
+              <Badge variant={(cv?.cv?.embeddings_info?.has_title_embedding || cv?.embeddings_info?.has_title_embedding || cv?.has_title_embedding) ? "success" : "outline"}>
+                {(cv?.cv?.embeddings_info?.has_title_embedding || cv?.embeddings_info?.has_title_embedding || cv?.has_title_embedding) ? 'Yes' : 'No'}
+              </Badge>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+              <span className="text-sm font-medium text-gray-600">Experience Embedding</span>
+              <Badge variant={(cv?.cv?.embeddings_info?.has_experience_embedding || cv?.embeddings_info?.has_experience_embedding || cv?.has_experience_embedding) ? "success" : "outline"}>
+                {(cv?.cv?.embeddings_info?.has_experience_embedding || cv?.embeddings_info?.has_experience_embedding || cv?.has_experience_embedding) ? 'Yes' : 'No'}
+              </Badge>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+              <span className="text-sm font-medium text-gray-600">Embedding Dimension</span>
+              <span className="text-sm font-semibold text-gray-800">{cv?.cv?.embeddings_info?.embedding_dimension || cv?.embeddings_info?.embedding_dimension || cv?.embedding_dimension || 'N/A'}</span>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+              <span className="text-sm font-medium text-gray-600">Text Length</span>
+              <span className="text-sm font-semibold text-gray-800">{cv?.cv?.processing_metadata?.text_length || cv?.cv?.text_info?.extracted_text_length || cv?.processing_metadata?.text_length || cv?.text_info?.extracted_text_length || cv?.text_length || 0}</span>
+            </div>
           </div>
         </div>
       </div>

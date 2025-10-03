@@ -19,7 +19,8 @@ import {
   LogOut,
   User,
   Briefcase,
-  Activity
+  Activity,
+  BookOpen
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -62,13 +63,18 @@ const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
       icon: Target,
       description: 'AI matching results',
     },
-    {
+  ];
+
+  // Add performance tab only for admin users
+  if (userRole === 'admin') {
+    console.log('DEBUG: Adding performance tab for admin user');
+    baseTabs.push({
       id: 'performance',
       label: 'Performance',
       icon: Activity,
       description: 'System monitoring & metrics',
-    },
-  ];
+    });
+  }
 
   // Add careers tab for all authenticated users (HR and admin)
   console.log('DEBUG getNavigationTabs - userRole:', userRole, 'type:', typeof userRole);
@@ -144,29 +150,37 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--gray-50)' }}>
-      {/* Top Navigation Bar */}
-      <header className="bg-white border-b" style={{ borderColor: 'var(--gray-200)' }}>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/50 to-indigo-50/40">
+      {/* Top Navigation Bar - Modern SaaS Design */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/90 border-b border-white/30 shadow-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* Logo & Brand */}
+            {/* Logo & Brand - Enhanced */}
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3">
-                <div 
-                  className="w-8 h-8 rounded-lg flex items-center justify-center"
-                  style={{ background: 'var(--gradient-primary)' }}
-                >
-                  <Zap className="w-5 h-5 text-white" />
+              <div className="flex items-center space-x-3 group">
+                <div className="w-8 h-8 rounded-lg group-hover:scale-105 transition-all duration-300 shadow-md">
+                  <svg 
+                    width="32" 
+                    height="32" 
+                    viewBox="0 0 200 200" 
+                    fill="none" 
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <g transform="translate(0,200) scale(0.1,-0.1)" fill="#00529b">
+                      <path d="M0 1000 l0 -1000 1000 0 1000 0 0 1000 0 1000 -1000 0 -1000 0 0 -1000z m925 779 c-153 -31 -275 -94 -275 -142 0 -11 -20 -62 -44 -111 -25 -50 -50 -118 -57 -151 -11 -53 -10 -65 6 -99 26 -54 21 -90 -21 -159 -27 -46 -37 -74 -38 -107 l-1 -45 53 -3 52 -3 0 -38 c0 -23 6 -44 15 -51 11 -9 13 -16 5 -24 -16 -16 -12 -44 9 -56 17 -9 19 -18 14 -85 -5 -63 -3 -75 11 -81 31 -12 5 -24 -52 -24 -37 0 -66 6 -81 16 -22 16 -23 22 -18 91 5 66 4 74 -15 84 -16 9 -19 17 -14 44 4 19 2 36 -4 40 -5 3 -10 21 -10 40 0 36 -13 46 -53 38 -69 -13 -74 46 -12 163 25 46 45 91 45 98 0 7 -9 34 -20 58 -17 40 -18 53 -9 104 5 33 30 100 55 150 24 49 44 100 44 111 0 22 42 63 89 87 82 42 230 74 346 74 l70 0 -90 -19z m55 -1181 c27 -29 38 -73 45 -188 5 -72 4 -99 -7 -111 -14 -18 -119 -91 -123 -87 -2 2 2 27 8 56 9 43 8 64 -6 116 -9 36 -17 79 -17 98 -1 40 -25 111 -40 116 -5 2 -10 8 -10 13 0 5 29 9 65 9 53 0 68 -4 85 -22z"/>
+                    </g>
+                  </svg>
                 </div>
                 <div>
-                  <h1 className="heading-sm" style={{ color: 'var(--gray-900)' }}>Alpha CV</h1>
-                  <p className="text-xs" style={{ color: 'var(--gray-500)' }}>AI-Powered Matching</p>
+                  <h1 className="text-lg font-bold bg-gradient-to-r from-blue-800 to-blue-600 bg-clip-text text-transparent">
+                    Alpha CV
+                  </h1>
                 </div>
               </div>
             </div>
 
-            {/* Navigation Tabs - Desktop */}
-            <nav className="hidden md:flex items-center space-x-1">
+            {/* Navigation Tabs - Modern SaaS Style */}
+            <nav className="hidden md:flex items-center space-x-1 bg-white/80 backdrop-blur-sm rounded-2xl p-1.5 border border-white/30 shadow-lg">
               {(() => {
                 console.log('DEBUG: Current user:', user);
                 console.log('DEBUG: User role:', user?.role);
@@ -182,75 +196,81 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                   <button
                     key={tab.id}
                     onClick={() => setCurrentTab(tab.id as any)}
-                    className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200 group"
-                    style={{
-                      backgroundColor: isActive ? 'var(--primary-50)' : 'transparent',
-                      color: isActive ? 'var(--primary-600)' : 'var(--gray-600)',
-                      border: isActive ? '1px solid var(--primary-200)' : '1px solid transparent',
-                    }}
+                    className={`relative flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all duration-300 group ${
+                      isActive 
+                        ? 'shadow-lg' 
+                        : 'text-slate-600 hover:text-slate-800 hover:bg-white/90'
+                    }`}
+                    style={isActive ? {
+                      background: 'rgba(0, 82, 155, 0.8)',
+                      boxShadow: '0 4px 16px rgba(0, 82, 155, 0.3)',
+                      color: '#ffffff'
+                    } : {}}
                   >
-                    <IconComponent className="w-4 h-4" />
-                    <span className="font-medium text-sm">{tab.label}</span>
+                    <IconComponent className={`w-4 h-4 transition-transform duration-200 ${isActive ? 'scale-110 text-white' : 'group-hover:scale-105'}`} />
+                    <span className="font-medium text-sm" style={isActive ? { color: '#ffffff' } : {}}>{tab.label}</span>
                     {isCompleted && (
-                      <CheckCircle className="w-3 h-3" style={{ color: 'var(--green-500)' }} />
+                      <div className={`w-2 h-2 rounded-full transition-all duration-200 ${isActive ? 'bg-white/80' : 'bg-green-500'}`} />
+                    )}
+                    {isActive && (
+                      <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 opacity-0 group-hover:opacity-20 transition-opacity duration-200" />
                     )}
                   </button>
                 );
               })}
             </nav>
 
-            {/* User Info & Logout */}
+            {/* User Info & Actions - Enhanced */}
             <div className="flex items-center space-x-4">
+              {/* Guide Button */}
+              <button
+                onClick={() => window.open('/guide', '_blank')}
+                className="hidden sm:flex items-center space-x-2 px-3 py-2 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+                style={{ 
+                  background: 'rgba(0, 82, 155, 0.8)',
+                  color: '#ffffff'
+                }}
+                title="User Guide"
+              >
+                <BookOpen className="w-4 h-4" style={{ color: '#ffffff' }} />
+                <span className="text-sm font-medium" style={{ color: '#ffffff' }}>Guide</span>
+              </button>
+
               {user && (
                 <div className="hidden sm:flex items-center space-x-3">
-                  <div className="flex items-center space-x-2">
-                    <User className="w-4 h-4" style={{ color: 'var(--gray-500)' }} />
-                    <span className="text-sm" style={{ color: 'var(--gray-700)' }}>
-                      {user.username}
-                    </span>
-                    <span 
-                      className="text-xs px-2 py-1 rounded-full"
-                      style={{ 
-                        backgroundColor: user.role === 'admin' ? 'var(--red-100)' : 'var(--blue-100)',
-                        color: user.role === 'admin' ? 'var(--red-800)' : 'var(--blue-800)'
-                      }}
-                    >
-                      {user.role}
-                    </span>
+                  <div className="flex items-center space-x-3 bg-white/80 backdrop-blur-sm rounded-xl px-3 py-2 border border-white/30 shadow-sm">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 flex items-center justify-center">
+                      <User className="w-4 h-4 text-white" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-slate-700">
+                        {user.username}
+                      </span>
+                      <span 
+                        className="text-xs px-2 py-0.5 rounded-full font-medium"
+                        style={{ 
+                          backgroundColor: user.role === 'admin' ? '#fef2f2' : '#eff6ff',
+                          color: user.role === 'admin' ? '#dc2626' : '#2563eb'
+                        }}
+                      >
+                        {user.role}
+                      </span>
+                    </div>
                   </div>
                   <button
                     onClick={handleLogout}
-                    className="flex items-center space-x-1 px-3 py-1 rounded-lg transition-colors"
-                    style={{ 
-                      color: 'var(--gray-600)',
-                      backgroundColor: 'transparent'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--gray-100)'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    className="flex items-center space-x-2 px-3 py-2 rounded-xl transition-all duration-200 text-slate-600 hover:text-slate-800 hover:bg-white/80 backdrop-blur-sm border border-transparent hover:border-white/30"
                   >
                     <LogOut className="w-4 h-4" />
-                    <span className="text-sm">Logout</span>
+                    <span className="text-sm font-medium">Logout</span>
                   </button>
                 </div>
               )}
 
-              {/* System Status */}
-              <div className="hidden sm:flex items-center space-x-2">
-                <div 
-                  className="w-2 h-2 rounded-full"
-                  style={{ 
-                    backgroundColor: systemHealth?.status === 'healthy' ? 'var(--green-500)' : 'var(--yellow-500)' 
-                  }}
-                />
-                <span className="text-sm" style={{ color: 'var(--gray-600)' }}>
-                  {systemHealth?.status === 'healthy' ? 'System Online' : 'Checking...'}
-                </span>
-              </div>
               
-              {/* Mobile Menu Button */}
+              {/* Mobile Menu Button - Enhanced */}
               <button
-                className="md:hidden p-2 rounded-lg"
-                style={{ color: 'var(--gray-600)' }}
+                className="md:hidden p-2.5 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 shadow-sm text-slate-600 hover:text-slate-800 hover:bg-white/90 transition-all duration-200"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               >
                 {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -260,9 +280,9 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         </div>
       </header>
 
-      {/* Mobile Menu */}
+      {/* Mobile Menu - Enhanced */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-white border-b" style={{ borderColor: 'var(--gray-200)' }}>
+        <div className="md:hidden bg-white/95 backdrop-blur-xl border-b border-white/30 shadow-lg">
           <div className="container mx-auto px-4 py-4">
             <nav className="space-y-2">
               {getNavigationTabs(user?.role).map((tab) => {
@@ -277,26 +297,31 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                       setCurrentTab(tab.id as any);
                       setMobileMenuOpen(false);
                     }}
-                    className="w-full flex items-center justify-between p-3 rounded-lg transition-all duration-200"
-                    style={{
-                      backgroundColor: isActive ? 'var(--primary-50)' : 'transparent',
-                      color: isActive ? 'var(--primary-600)' : 'var(--gray-600)',
-                    }}
+                    className={`w-full flex items-center justify-between p-4 rounded-xl transition-all duration-300 group ${
+                      isActive 
+                        ? 'shadow-lg' 
+                        : 'bg-white/80 backdrop-blur-sm border border-white/30 text-slate-600 hover:bg-white/90 hover:text-slate-800'
+                    }`}
+                    style={isActive ? {
+                      background: 'rgba(0, 82, 155, 0.8)',
+                      boxShadow: '0 4px 16px rgba(0, 82, 155, 0.3)',
+                      color: '#ffffff'
+                    } : {}}
                   >
                     <div className="flex items-center space-x-3">
-                      <IconComponent className="w-5 h-5" />
+                      <IconComponent className={`w-5 h-5 transition-transform duration-200 ${isActive ? 'scale-110 text-white' : 'group-hover:scale-105'}`} />
                       <div className="text-left">
-                        <div className="font-medium">{tab.label}</div>
-                        <div className="text-xs" style={{ color: 'var(--gray-500)' }}>
+                        <div className="font-medium" style={isActive ? { color: '#ffffff' } : {}}>{tab.label}</div>
+                        <div className={`text-xs ${isActive ? 'text-white/80' : 'text-slate-500'}`} style={isActive ? { color: 'rgba(255, 255, 255, 0.8)' } : {}}>
                           {getTabStats(tab.id)}
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
                       {isCompleted && (
-                        <CheckCircle className="w-4 h-4" style={{ color: 'var(--green-500)' }} />
+                        <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/80' : 'bg-green-500'}`} />
                       )}
-                      <ChevronRight className="w-4 h-4" />
+                      <ChevronRight className={`w-4 h-4 transition-transform duration-200 group-hover:translate-x-1 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                     </div>
                   </button>
                 );
@@ -306,76 +331,6 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         </div>
       )}
 
-      {/* Workflow Steps Indicator */}
-      <div className="bg-white border-b" style={{ borderColor: 'var(--gray-200)' }}>
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-3">
-          <div className="flex items-center justify-center space-x-8">
-            <div className="flex items-center space-x-2">
-              <div 
-                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium"
-                style={{
-                  backgroundColor: cvs.length > 0 || jds.length > 0 ? 'var(--green-500)' : 'var(--gray-300)',
-                  color: cvs.length > 0 || jds.length > 0 ? 'white' : 'var(--gray-600)',
-                }}
-              >
-                1
-              </div>
-              <span 
-                className="text-sm font-medium"
-                style={{ 
-                  color: cvs.length > 0 || jds.length > 0 ? 'var(--green-600)' : 'var(--gray-500)' 
-                }}
-              >
-                Upload Files
-              </span>
-            </div>
-
-            <ChevronRight className="w-4 h-4" style={{ color: 'var(--gray-400)' }} />
-
-            <div className="flex items-center space-x-2">
-              <div 
-                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium"
-                style={{
-                  backgroundColor: cvs.length > 0 && jds.length > 0 ? 'var(--green-500)' : 'var(--gray-300)',
-                  color: cvs.length > 0 && jds.length > 0 ? 'white' : 'var(--gray-600)',
-                }}
-              >
-                2
-              </div>
-              <span 
-                className="text-sm font-medium"
-                style={{ 
-                  color: cvs.length > 0 && jds.length > 0 ? 'var(--green-600)' : 'var(--gray-500)' 
-                }}
-              >
-                Review Data
-              </span>
-            </div>
-
-            <ChevronRight className="w-4 h-4" style={{ color: 'var(--gray-400)' }} />
-
-            <div className="flex items-center space-x-2">
-              <div 
-                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium"
-                style={{
-                  backgroundColor: matchResult ? 'var(--green-500)' : 'var(--gray-300)',
-                  color: matchResult ? 'white' : 'var(--gray-600)',
-                }}
-              >
-                3
-              </div>
-              <span 
-                className="text-sm font-medium"
-                style={{ 
-                  color: matchResult ? 'var(--green-600)' : 'var(--gray-500)' 
-                }}
-              >
-                Run Match
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Main Content */}
       <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">

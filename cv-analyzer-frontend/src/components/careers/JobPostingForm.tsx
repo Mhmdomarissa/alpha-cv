@@ -87,7 +87,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
     }
   }, [jobId, initialData, publicToken]);
   
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = async (file: File) => {
     const allowedTypes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -106,16 +106,20 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
     
     setSelectedFile(file);
     clearError();
+    
+    // Automatically start the extraction process
+    await handleUploadJD(file);
   };
   
   // Phase 1: Upload JD for matching (existing pipeline)
-  const handleUploadJD = async () => {
-    if (!selectedFile) return;
+  const handleUploadJD = async (file?: File) => {
+    const fileToProcess = file || selectedFile;
+    if (!fileToProcess) return;
     
     setIsUploading(true);
     try {
       // Use existing upload endpoint that processes for matching
-      const response = await api.uploadJD(selectedFile);
+      const response = await api.uploadJD(fileToProcess);
       
       if (response.status === 'success' && response.jd_id) {
         setJdId(response.jd_id);
@@ -126,6 +130,12 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
           'JD Successfully Processed!', 
           'Your job description has been sent to LLM and saved to database for candidate matching.'
         );
+        
+        // Automatically proceed to auto-fill phase
+        setTimeout(() => {
+          handleAutoFillForm();
+        }, 1000); // Small delay to show the success message
+        
       } else {
         showError('Upload Failed', 'Please try again or contact support.');
       }
@@ -201,13 +211,13 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
     }));
   };
   
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setDragActive(false);
     
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      handleFileSelect(files[0]);
+      await handleFileSelect(files[0]);
     }
   };
   
@@ -453,7 +463,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
                  'Auto-fill Complete'}
               </span>
               <p className="text-sm text-gray-600 font-normal">
-                {uploadPhase === 'idle' ? 'Upload your job description for automatic processing' :
+                {uploadPhase === 'idle' ? 'Select a file and it will be automatically processed and extracted' :
                  uploadPhase === 'uploaded' ? 'Ready for form auto-fill' : 
                  'Form data extracted and ready to edit'}
               </p>
@@ -496,43 +506,63 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
               </div>
             ) : selectedFile ? (
               <div className="space-y-3">
-                <div className="w-16 h-16 bg-green-200 rounded-full mx-auto flex items-center justify-center">
-                  <FileText className="w-8 h-8 text-green-700" />
+                <div className={`w-16 h-16 rounded-full mx-auto flex items-center justify-center ${
+                  isUploading ? 'bg-blue-200' : uploadPhase === 'uploaded' ? 'bg-green-200' : 'bg-green-200'
+                }`}>
+                  {isUploading ? (
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700" />
+                  ) : uploadPhase === 'uploaded' ? (
+                    <CheckCircle className="w-8 h-8 text-green-700" />
+                  ) : (
+                    <FileText className="w-8 h-8 text-green-700" />
+                  )}
                 </div>
                 <div>
                   <p className="font-semibold text-green-900">{selectedFile.name}</p>
                   <p className="text-sm text-green-700">
                     {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                   </p>
+                  {isUploading && (
+                    <p className="text-sm text-blue-600 font-medium mt-1">
+                      Automatically processing...
+                    </p>
+                  )}
+                  {uploadPhase === 'uploaded' && (
+                    <p className="text-sm text-green-600 font-medium mt-1">
+                      ✓ Processed successfully
+                    </p>
+                  )}
                 </div>
-                <div className="flex space-x-2 justify-center">
-                  <Button
-                    onClick={handleUploadJD}
-                    disabled={isUploading}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    {isUploading ? 'Processing...' : 'Upload JD'}
-                  </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                    onClick={() => {
-                      setSelectedFile(null);
-                      setShowForm(false);
-                      setFormData({
-                        jobTitle: '',
-                        jobLocation: '',
-                        jobSummary: '',
-                        keyResponsibilities: '',
-                        qualifications: ''
-                      });
-                    }}
-                  className="text-green-700 hover:bg-green-200"
-                >
-                  Remove file
-                </Button>
-                </div>
+                {!isUploading && uploadPhase !== 'uploaded' && (
+                  <div className="flex space-x-2 justify-center">
+                    <Button
+                      onClick={() => handleUploadJD()}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      Upload JD
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedFile(null);
+                        setShowForm(false);
+                        setUploadPhase('idle');
+                        setFormData({
+                          jobTitle: '',
+                          jobLocation: '',
+                          jobSummary: '',
+                          keyResponsibilities: '',
+                          qualifications: ''
+                        });
+                      }}
+                      className="text-green-700 hover:bg-green-200"
+                    >
+                      Remove file
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-6">
@@ -544,7 +574,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
                     Upload Job Description
                   </h3>
                   <p className="text-gray-600 text-lg">
-                    Drag & drop or click to select a file for auto-fill
+                    Drag & drop or click to select a file - it will be automatically processed
                   </p>
                   <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
                     <span className="bg-gray-100 px-2 py-1 rounded">PDF</span>
@@ -558,9 +588,9 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
                 <input
                   type="file"
                   accept=".pdf,.doc,.docx,.txt"
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const file = e.target.files?.[0];
-                    if (file) handleFileSelect(file);
+                    if (file) await handleFileSelect(file);
                   }}
                   className="hidden"
                   id="file-upload"
@@ -579,7 +609,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
         </CardContent>
       </Card>
       
-      {/* Phase 2: Auto-fill Section */}
+      {/* Phase 2: Auto-fill Section - Show extracted data */}
       {uploadPhase === 'uploaded' && (
         <Card className="border-green-200 shadow-sm">
           <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-100">
@@ -589,41 +619,130 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
               </div>
               <div>
                 <span className="text-lg font-semibold text-green-900">JD Successfully Processed</span>
-                <p className="text-sm text-green-700 font-normal">Ready for form auto-fill</p>
+                <p className="text-sm text-green-700 font-normal">Review and edit the extracted job details below</p>
               </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-6">
-            <div className="text-center space-y-6">
-              <div className="w-20 h-20 bg-gradient-to-br from-green-100 to-emerald-100 rounded-full mx-auto flex items-center justify-center shadow-lg">
-                <CheckCircle className="w-10 h-10 text-green-600" />
-              </div>
-              <div className="space-y-3">
-                <h3 className="text-xl font-bold text-green-900">
-                  JD Successfully Processed
+            <div className="space-y-6">
+              <div className="text-center space-y-3">
+                <div className="w-16 h-16 bg-gradient-to-br from-green-100 to-emerald-100 rounded-full mx-auto flex items-center justify-center shadow-lg">
+                  <CheckCircle className="w-8 h-8 text-green-600" />
+                </div>
+                <h3 className="text-lg font-bold text-green-900">
+                  Job Details Extracted Successfully
                 </h3>
-                <p className="text-gray-600 text-lg">
-                  Your job description has been processed and is ready for form auto-fill
+                <p className="text-gray-600">
+                  Review the extracted information below and make any necessary edits before posting
                 </p>
               </div>
               
-              <Button 
-                onClick={handleAutoFillForm}
-                disabled={isAutoFilling}
-                className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-200"
-              >
+              <div className="flex justify-center">
+                <Button 
+                  onClick={handleAutoFillForm}
+                  disabled={isAutoFilling}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 font-semibold shadow-lg hover:shadow-xl transition-all duration-200"
+                >
                 {isAutoFilling ? (
                   <>
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" />
-                    Auto-filling...
+                    Extracting...
                   </>
                 ) : (
                   <>
                     <Wand2 className="w-5 h-5 mr-2" />
-                    Auto-fill Form
+                    Extract Details
                   </>
                 )}
-              </Button>
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Extracted Data Preview - Show when auto-filled */}
+      {uploadPhase === 'autofilled' && showForm && (
+        <Card className="border-blue-200 shadow-sm">
+          <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100">
+            <CardTitle className="flex items-center space-x-3 text-gray-800">
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                <Wand2 className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <span className="text-lg font-semibold text-blue-900">Extracted Job Details</span>
+                <p className="text-sm text-blue-700 font-normal">Review what will be shown to candidates</p>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Job Title & Location */}
+              <div className="space-y-4">
+                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                  <h4 className="font-semibold text-gray-800 mb-2">Job Title</h4>
+                  <p className="text-gray-600">{formData.jobTitle || 'Not specified'}</p>
+                </div>
+                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                  <h4 className="font-semibold text-gray-800 mb-2">Location</h4>
+                  <p className="text-gray-600">{formData.jobLocation || 'Not specified'}</p>
+                </div>
+              </div>
+              
+              {/* Summary */}
+              <div className="space-y-4">
+                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                  <h4 className="font-semibold text-gray-800 mb-2">Job Summary</h4>
+                  <p className="text-gray-600 text-sm leading-relaxed">
+                    {formData.jobSummary || 'No summary provided'}
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Responsibilities & Qualifications */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+              <div className="bg-white p-4 rounded-lg border border-gray-200">
+                <h4 className="font-semibold text-gray-800 mb-3">Key Responsibilities</h4>
+                <div className="text-gray-600 text-sm leading-relaxed">
+                  {formData.keyResponsibilities ? (
+                    <ul className="space-y-1">
+                      {formData.keyResponsibilities.split('\n').filter(item => item.trim()).map((item, index) => (
+                        <li key={index} className="flex items-start">
+                          <span className="text-blue-500 mr-2">•</span>
+                          <span>{item.replace(/^•\s*/, '').trim()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No responsibilities specified</p>
+                  )}
+                </div>
+              </div>
+              
+              <div className="bg-white p-4 rounded-lg border border-gray-200">
+                <h4 className="font-semibold text-gray-800 mb-3">Qualifications & Requirements</h4>
+                <div className="text-gray-600 text-sm leading-relaxed">
+                  {formData.qualifications ? (
+                    <ul className="space-y-1">
+                      {formData.qualifications.split('\n').filter(item => item.trim()).map((item, index) => (
+                        <li key={index} className="flex items-start">
+                          <span className="text-green-500 mr-2">•</span>
+                          <span>{item.replace(/^•\s*/, '').trim()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No qualifications specified</p>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800">
+                <strong>💡 Tip:</strong> You can edit any of these details in the form below before posting the job.
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -757,11 +876,22 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
           {!success && !jobId && (
         <Button
           onClick={handleSubmit}
-              disabled={(!selectedFile && !showForm) || (showForm && !formData.jobTitle.trim()) || isCreatingJob || isUploading || isAutoFilling}
+              disabled={
+                (!selectedFile && !showForm) || 
+                (showForm && !formData.jobTitle.trim()) || 
+                (uploadPhase === 'uploaded' && !showForm) || // Disable if file uploaded but form not auto-filled yet
+                isCreatingJob || 
+                isUploading || 
+                isAutoFilling
+              }
               className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
         >
               <Briefcase className="w-5 h-5 mr-2" />
-              {isCreatingJob ? 'Creating...' : isUploading ? 'Uploading...' : isAutoFilling ? 'Auto-filling...' : 'Post Job'}
+              {isCreatingJob ? 'Creating...' : 
+               isUploading ? 'Uploading...' : 
+               isAutoFilling ? 'Auto-filling...' : 
+               (uploadPhase === 'uploaded' && !showForm) ? 'Extract Job Details First' :
+               'Post Job'}
         </Button>
           )}
         </div>

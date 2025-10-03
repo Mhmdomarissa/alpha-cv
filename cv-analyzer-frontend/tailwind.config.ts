@@ -18,6 +18,13 @@ const config: Config = {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
         },
+        signature: {
+          50: '#f0f4ff',
+          100: '#e0e7ff',
+          500: 'rgba(0, 82, 155, 0.8)',
+          600: 'rgba(0, 61, 115, 0.8)',
+          700: 'rgba(0, 41, 82, 0.8)',
+        },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",

@@ -6,8 +6,13 @@ import AuthInitializer from "@/components/auth/AuthInitializer";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "CV Analyzer - AI-Powered Resume Matching",
+  title: "Alpha CV - AI-Powered Resume Matching",
   description: "Advanced CV-JD matching system with explainable AI results",
+  icons: {
+    icon: '/alphadatalogo.svg',
+    shortcut: '/alphadatalogo.svg',
+    apple: '/alphadatalogo.svg',
+  },
 };
 
 export default function RootLayout({
