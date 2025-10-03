@@ -518,6 +518,7 @@ async getPublicJob(token: string): Promise<PublicJobView> {
     key_responsibilities: string;
     qualifications: string;
     company_name: string;
+    jd_id?: string;  // Include jd_id for matching
   }> {
     const response = await this.client.get<{
       job_title: string;
@@ -526,6 +527,7 @@ async getPublicJob(token: string): Promise<PublicJobView> {
       key_responsibilities: string;
       qualifications: string;
       company_name: string;
+      jd_id?: string;  // Include jd_id for matching
     }>(`/api/careers/admin/jobs/${jobId}/edit-data`, {
       headers: {
         Authorization: `Bearer ${localStorage.getItem('auth_token')}`,

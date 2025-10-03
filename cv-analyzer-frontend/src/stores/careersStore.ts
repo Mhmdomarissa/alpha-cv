@@ -265,12 +265,14 @@ loadJobPostings: async () => {
       const jobData = await api.getJobForEdit(jobId);
       let originalJdId = (jobData as any).jd_id || jobId; // Use jd_id if available, fallback to jobId
       
-      // If the job posting doesn't have a linked JD, try to find a matching JD by title
+      // If the job posting doesn't have a linked JD, this is a legacy job posting
       if (!(jobData as any).jd_id) {
-        logger.warn('Job posting has no linked JD, attempting to find matching JD by title', { jobId, jobTitle: jobData.job_title });
+        logger.warn('Legacy job posting has no linked JD - this should be fixed by updating the job posting', { 
+          jobId, 
+          jobTitle: jobData.job_title 
+        });
         
-        // For now, we'll use a hardcoded mapping or try to find the best matching JD
-        // This is a temporary solution - ideally job postings should be created with proper JD links
+        // For legacy job postings, try to find a matching JD by title
         const availableJds = await api.listJDs();
         
         // Try multiple matching strategies
@@ -294,7 +296,7 @@ loadJobPostings: async () => {
         // Strategy 3: If only one JD available, use it (fallback for test data)
         if (!matchingJd && availableJds.jds?.length === 1) {
           matchingJd = availableJds.jds[0];
-          logger.warn('Using only available JD as fallback', { 
+          logger.warn('Using only available JD as fallback for legacy job', { 
             jobId, 
             jobTitle: jobData.job_title, 
             fallbackJdTitle: matchingJd.job_title 
@@ -304,7 +306,7 @@ loadJobPostings: async () => {
         // Strategy 4: If multiple JDs available but no match, use the first one (fallback)
         if (!matchingJd && availableJds.jds?.length > 0) {
           matchingJd = availableJds.jds[0];
-          logger.warn('Using first available JD as fallback (no title match found)', { 
+          logger.warn('Using first available JD as fallback for legacy job (no title match found)', { 
             jobId, 
             jobTitle: jobData.job_title, 
             fallbackJdTitle: matchingJd.job_title,
@@ -314,7 +316,7 @@ loadJobPostings: async () => {
         
         if (matchingJd) {
           originalJdId = matchingJd.id;
-          logger.info('Found matching JD', { 
+          logger.info('Found matching JD for legacy job', { 
             jobId, 
             originalJdId, 
             jobTitle: jobData.job_title,
@@ -322,7 +324,7 @@ loadJobPostings: async () => {
           });
         } else {
           const availableTitles = availableJds.jds?.map((jd: any) => jd.job_title) || [];
-          logger.error('No matching JD found for job posting', { 
+          logger.error('No matching JD found for legacy job posting', { 
             jobId, 
             jobTitle: jobData.job_title,
             availableJds: availableTitles,
@@ -330,6 +332,12 @@ loadJobPostings: async () => {
           });
           throw new Error(`No matching job description found for "${jobData.job_title}". Available JDs (${availableJds.jds?.length || 0}): ${availableTitles.join(', ')}`);
         }
+      } else {
+        logger.info('Using linked JD for matching', { 
+          jobId, 
+          originalJdId, 
+          jobTitle: jobData.job_title 
+        });
       }
       
       logger.info('Using JD ID for matching', { jobId, originalJdId });

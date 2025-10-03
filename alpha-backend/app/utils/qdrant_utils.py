@@ -640,7 +640,8 @@ class QdrantUtils:
         company_name: Optional[str] = None,
         additional_info: Optional[str] = None,
         posted_by_user: Optional[str] = None,
-        posted_by_role: Optional[str] = None
+        posted_by_role: Optional[str] = None,
+        jd_id: Optional[str] = None
     ) -> bool:
         """
         Store job posting metadata in job_postings_structured collection
@@ -656,6 +657,7 @@ class QdrantUtils:
                 "additional_info": additional_info,
                 "posted_by_user": posted_by_user,
                 "posted_by_role": posted_by_role,
+                "jd_id": jd_id,  # Link to the original JD
                 "is_active": True,
                 "created_date": datetime.utcnow().isoformat(),
                 "document_type": "job_posting_metadata"

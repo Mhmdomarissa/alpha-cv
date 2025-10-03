@@ -505,7 +505,8 @@ async def post_job(
             qdrant.store_job_posting_metadata(
                 job_id, public_token, company_name, additional_info,
                 posted_by_user=current_user.username,
-                posted_by_role=current_user.role
+                posted_by_role=current_user.role,
+                jd_id=job_id  # Link job posting to its JD
             )
         )
         
@@ -637,7 +638,8 @@ Additional Information:
             qdrant.store_job_posting_metadata(
                 job_id, public_token, company_name, additional_info,
                 posted_by_user=current_user.username,
-                posted_by_role=current_user.role
+                posted_by_role=current_user.role,
+                jd_id=job_id  # Link job posting to its JD
             )
         )
         
@@ -833,7 +835,8 @@ async def get_job_for_edit(job_id: str, current_user: User = Depends(require_use
             "job_summary": job_summary,
             "key_responsibilities": key_responsibilities,
             "qualifications": qualifications,
-            "company_name": company_name
+            "company_name": company_name,
+            "jd_id": job_data.get("jd_id")  # Include jd_id for frontend matching
         }
         
     except HTTPException:
