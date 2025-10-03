@@ -32,6 +32,9 @@ interface AppState {
   // Current tab
   currentTab: 'dashboard' | 'upload' | 'database' | 'match' | 'careers' | 'reports' | 'system' | 'performance';
   
+  // Database tab state
+  databaseActiveTab: 'cvs' | 'jds';
+  
   // Data
   cvs: CVListItem[];
   jds: JDListItem[];
@@ -65,6 +68,7 @@ interface AppState {
   
   // Actions
   setCurrentTab: (tab: AppState['currentTab']) => void;
+  setDatabaseActiveTab: (tab: AppState['databaseActiveTab']) => void;
   setCareersMatchResult: (matchResult: MatchResponse) => void;
   setCareersMatchData: (data: { jobId: string; jobTitle: string; cvIds: string[] }) => void;
   
@@ -118,6 +122,7 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       // Initial state
       currentTab: 'dashboard',
+      databaseActiveTab: 'cvs',
       cvs: [],
       jds: [],
       selectedJD: null,
@@ -161,6 +166,10 @@ export const useAppStore = create<AppState>()(
           state.loadSystemStats();
           state.loadDatabaseView();
         }
+      },
+      
+      setDatabaseActiveTab: (tab) => {
+        set({ databaseActiveTab: tab });
       },
 
       setCareersMatchResult: (matchResult) => {

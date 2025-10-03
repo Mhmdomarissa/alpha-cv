@@ -201,6 +201,7 @@ export default function DatabasePageNew() {
     jds,
     selectedCVs,
     selectedJD,
+    databaseActiveTab,
     loadingStates,
     loadCVs,
     loadJDs,
@@ -214,6 +215,7 @@ export default function DatabasePageNew() {
     reprocessCV,
     reprocessJD,
     setCurrentTab,
+    setDatabaseActiveTab,
     runMatch,
     matchingProgress,
   } = useAppStore();
@@ -400,7 +402,7 @@ export default function DatabasePageNew() {
   const isAdmin = user?.role === 'admin';
   
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Progress Bar */}
       <MatchingProgressBar
         totalCVs={matchingProgress.totalCVs}
@@ -410,20 +412,49 @@ export default function DatabasePageNew() {
         isVisible={matchingProgress.isVisible}
       />
       
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="heading-lg">Document Database</h1>
-          <p className="text-lg mt-1" style={{ color: 'var(--gray-600)' }}>
-            Manage your CVs and job descriptions
-          </p>
+      {/* Enhanced Header */}
+      <div className="text-center space-y-6">
+        <div className="flex justify-center">
+          <div className="w-20 h-20 rounded-3xl group hover:scale-105 transition-all duration-300 shadow-2xl">
+            <div 
+              className="w-full h-full rounded-3xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300"
+              style={{ 
+                background: 'linear-gradient(135deg, rgba(0, 82, 155, 0.8) 0%, rgba(0, 61, 115, 0.8) 100%)',
+                boxShadow: '0 8px 32px rgba(0, 82, 155, 0.3)'
+              }}
+            >
+              <Database className="w-10 h-10 text-white" />
+            </div>
+          </div>
         </div>
-        <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2">
+        <div className="space-y-3">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-slate-700 to-slate-600 bg-clip-text text-transparent">
+            Document Database
+          </h1>
+          <p className="text-xl text-slate-600 font-medium max-w-2xl mx-auto">
+            Manage and organize your CVs and job descriptions with intelligent insights
+          </p>
+          <div className="flex justify-center space-x-2 mt-4">
+            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+            <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+            <div className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex justify-center md:justify-start">
+          <div className="flex items-center space-x-3">
             <Button
               variant={currentView === 'all' ? 'primary' : 'outline'}
               size="sm"
               onClick={() => setCurrentView('all')}
+              className={`px-4 py-2 rounded-xl transition-all duration-300 ${
+                currentView === 'all' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'border-2 border-slate-200 hover:border-slate-300 hover:-translate-y-0.5'
+              }`}
             >
               <Database className="w-4 h-4 mr-2" />
               All CVs
@@ -432,11 +463,19 @@ export default function DatabasePageNew() {
               variant={currentView === 'categories' ? 'primary' : 'outline'}
               size="sm"
               onClick={() => setCurrentView('categories')}
+              className={`px-4 py-2 rounded-xl transition-all duration-300 ${
+                currentView === 'categories' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'border-2 border-slate-200 hover:border-slate-300 hover:-translate-y-0.5'
+              }`}
             >
               <Folder className="w-4 h-4 mr-2" />
               Categories
             </Button>
           </div>
+        </div>
+        <div className="flex justify-center md:justify-end">
+          <div className="flex items-center space-x-3">
           {isAdmin && (
             <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
               <DialogTrigger asChild>
@@ -490,8 +529,9 @@ export default function DatabasePageNew() {
             }}
             disabled={isLoadingCVs || isLoadingJDs}
             aria-label="Refresh database content"
+            className="px-4 py-2 rounded-xl border-2 border-slate-200 hover:border-slate-300 transition-all duration-300 hover:-translate-y-0.5"
           >
-            <RefreshCw className="w-4 h-4 mr-2" />
+            <RefreshCw className={`w-4 h-4 mr-2 ${(isLoadingCVs || isLoadingJDs) ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
           {canStartMatching && (
@@ -500,49 +540,71 @@ export default function DatabasePageNew() {
               onClick={handleStartMatching}
               disabled={loadingStates.matching.isLoading}
               aria-label="Start matching selected CVs with job description"
+              className="px-6 py-2 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5"
             >
               <Play className="w-4 h-4 mr-2" />
               {loadingStates.matching.isLoading ? 'Matching...' : 'Match Selected'}
             </Button>
           )}
+          </div>
         </div>
       </div>
       
-      {/* Stats Cards */}
+      {/* Enhanced Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="p-6">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Users className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Total CVs</p>
-              <p className="text-2xl font-bold text-gray-900">{cvs.length}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-6">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <FileText className="w-6 h-6 text-green-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Job Descriptions</p>
-              <p className="text-2xl font-bold text-gray-900">{jds.length}</p>
+        <div className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+          <div className="flex justify-center mb-4">
+            <div 
+              className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-110"
+              style={{ 
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                boxShadow: '0 8px 32px rgba(16, 185, 129, 0.3)'
+              }}
+            >
+              <Users className="w-7 h-7 text-white" />
             </div>
           </div>
-        </Card>
-        <Card className="p-6">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <Target className="w-6 h-6 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Ready to Match</p>
-              <p className="text-2xl font-bold text-gray-900">{canStartMatching ? 'Yes' : 'No'}</p>
+          <div className="text-3xl font-bold text-slate-800 mb-2 text-center">{cvs.length}</div>
+          <p className="text-sm font-medium text-slate-600 mb-1 text-center">Total CVs</p>
+          <p className="text-xs text-slate-500 text-center">Ready for matching</p>
+          <div className="absolute top-4 right-4 w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+        </div>
+        
+        <div className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+          <div className="flex justify-center mb-4">
+            <div 
+              className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-110"
+              style={{ 
+                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                boxShadow: '0 8px 32px rgba(245, 158, 11, 0.3)'
+              }}
+            >
+              <FileText className="w-7 h-7 text-white" />
             </div>
           </div>
-        </Card>
+          <div className="text-3xl font-bold text-slate-800 mb-2 text-center">{jds.length}</div>
+          <p className="text-sm font-medium text-slate-600 mb-1 text-center">Job Descriptions</p>
+          <p className="text-xs text-slate-500 text-center">Available for matching</p>
+          <div className="absolute top-4 right-4 w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></div>
+        </div>
+        
+        <div className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+          <div className="flex justify-center mb-4">
+            <div 
+              className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-110"
+              style={{ 
+                background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                boxShadow: '0 8px 32px rgba(139, 92, 246, 0.3)'
+              }}
+            >
+              <Target className="w-7 h-7 text-white" />
+            </div>
+          </div>
+          <div className="text-3xl font-bold text-slate-800 mb-2 text-center">{canStartMatching ? 'Yes' : 'No'}</div>
+          <p className="text-sm font-medium text-slate-600 mb-1 text-center">Ready to Match</p>
+          <p className="text-xs text-slate-500 text-center">Selected CVs & JD</p>
+          <div className="absolute top-4 right-4 w-2 h-2 rounded-full bg-purple-500 animate-pulse"></div>
+        </div>
       </div>
 
       {/* Category View */}
@@ -704,7 +766,7 @@ export default function DatabasePageNew() {
                 return (
                   <div
                     key={cv.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                    className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
                   >
                     <div className="flex items-center space-x-3">
                       <input
@@ -818,16 +880,22 @@ export default function DatabasePageNew() {
         )}
       </Card>
       
-      {/* Document Tabs */}
-      <Tabs defaultValue="cvs" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="cvs" className="flex items-center space-x-2">
-            <Users className="w-4 h-4" />
-            <span>CVs ({filteredCVs.length})</span>
+      {/* Enhanced Document Tabs */}
+      <Tabs value={databaseActiveTab} onValueChange={(value) => setDatabaseActiveTab(value as 'cvs' | 'jds')} className="w-full">
+        <TabsList className="grid w-full grid-cols-2 bg-white/90 backdrop-blur-sm rounded-2xl p-2 border border-white/30 shadow-lg">
+          <TabsTrigger 
+            value="cvs" 
+            className="flex items-center space-x-2 px-6 py-3 rounded-xl transition-all duration-300 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:shadow-lg hover:-translate-y-0.5"
+          >
+            <Users className="w-5 h-5" />
+            <span className="font-semibold">CVs ({filteredCVs.length})</span>
           </TabsTrigger>
-          <TabsTrigger value="jds" className="flex items-center space-x-2">
-            <FileText className="w-4 h-4" />
-            <span>Job Descriptions ({filteredJDs.length})</span>
+          <TabsTrigger 
+            value="jds" 
+            className="flex items-center space-x-2 px-6 py-3 rounded-xl transition-all duration-300 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:shadow-lg hover:-translate-y-0.5"
+          >
+            <FileText className="w-5 h-5" />
+            <span className="font-semibold">Job Descriptions ({filteredJDs.length})</span>
           </TabsTrigger>
         </TabsList>
         
@@ -875,7 +943,7 @@ export default function DatabasePageNew() {
                     return (
                       <div
                         key={cv.id}
-                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                        className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
                       >
                         <div className="flex items-center space-x-3">
                           <input
@@ -996,8 +1064,8 @@ export default function DatabasePageNew() {
                     return (
                       <div
                         key={jd.id}
-                        className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 ${
-                          selectedJD === jd.id ? 'border-blue-500 bg-blue-50' : ''
+                        className={`group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 ${
+                          selectedJD === jd.id ? 'ring-2 ring-blue-500 bg-blue-50/50' : ''
                         }`}
                       >
                         <div className="flex items-center space-x-3">
@@ -1084,6 +1152,7 @@ export default function DatabasePageNew() {
 
 /* ---------------------------- CV Details (modal) --------------------------- */
 function CVDetails({ cvId }: { cvId: string }) {
+  const { user } = useAuthStore();
   const [cv, setCV] = useState<CVData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1197,19 +1266,25 @@ function CVDetails({ cvId }: { cvId: string }) {
   const categoryColor = categoryColors[category as keyof typeof categoryColors] || categoryColors['General'];
   
   return (
-    <div className="space-y-6">
-      {/* Header Section */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
+    <div className="space-y-8">
+      {/* Enhanced Header Section */}
+      <div className="bg-gradient-to-r from-blue-50/90 to-indigo-50/90 backdrop-blur-sm rounded-2xl p-8 border border-blue-100/50 shadow-lg">
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-4">
-            <div className="bg-white rounded-full p-3 shadow-sm">
-              <User className="w-8 h-8 text-blue-600" />
+            <div 
+              className="bg-white rounded-full p-4 shadow-lg group-hover:shadow-xl transition-all duration-300"
+              style={{ 
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                boxShadow: '0 8px 32px rgba(16, 185, 129, 0.3)'
+              }}
+            >
+              <User className="w-10 h-10 text-white" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-1">{b.name}</h2>
-              <div className="flex items-center space-x-2 mb-2">
-                <Briefcase className="w-4 h-4 text-gray-500" />
-                <span className="text-lg font-semibold text-gray-700">{b.title}</span>
+              <h2 className="text-3xl font-bold bg-gradient-to-r from-slate-800 via-slate-700 to-slate-600 bg-clip-text text-transparent mb-2">{b.name}</h2>
+              <div className="flex items-center space-x-2 mb-3">
+                <Briefcase className="w-5 h-5 text-slate-500" />
+                <span className="text-xl font-semibold text-slate-700">{b.title}</span>
               </div>
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-1">
@@ -1238,13 +1313,19 @@ function CVDetails({ cvId }: { cvId: string }) {
         </div>
       </div>
 
-      {/* Contact Information */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+      {/* Enhanced Contact Information */}
+      <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-white/30 p-6 shadow-lg hover:shadow-xl transition-all duration-300">
         <div className="flex items-center space-x-2 mb-4">
-          <div className="bg-green-100 rounded-full p-2">
-            <Mail className="w-5 h-5 text-green-600" />
+          <div 
+            className="bg-green-100 rounded-full p-3 shadow-lg"
+            style={{ 
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              boxShadow: '0 8px 32px rgba(16, 185, 129, 0.3)'
+            }}
+          >
+            <Mail className="w-6 h-6 text-white" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900">Contact Information</h3>
+          <h3 className="text-xl font-bold text-slate-800">Contact Information</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
@@ -1325,95 +1406,103 @@ function CVDetails({ cvId }: { cvId: string }) {
         )}
       </div>
       
-      {/* Document Preview */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <div className="flex items-center space-x-2 mb-4">
-          <div className="bg-blue-100 rounded-full p-2">
-            <FileText className="w-5 h-5 text-blue-600" />
+      {/* Admin-only sections */}
+      {user?.role === 'admin' && (
+        <>
+          {/* Document Preview */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center space-x-2 mb-4">
+              <div className="bg-blue-100 rounded-full p-2">
+                <FileText className="w-5 h-5 text-blue-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Document Preview</h3>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4 max-h-48 overflow-y-auto border">
+              <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
+                {cv?.cv?.text_info?.extracted_text_preview || cv?.text_info?.extracted_text_preview || 'No text preview available'}
+              </p>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
+              <span>Document length: {cv?.cv?.text_info?.extracted_text_length || cv?.text_info?.extracted_text_length || 0} characters</span>
+              <span>Filename: {cv?.cv?.processing_metadata?.filename || cv?.processing_metadata?.filename || cv?.cv?.filename || cv?.filename || 'N/A'}</span>
+            </div>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900">Document Preview</h3>
-        </div>
-        <div className="bg-gray-50 rounded-lg p-4 max-h-48 overflow-y-auto border">
-          <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
-            {cv?.cv?.text_info?.extracted_text_preview || cv?.text_info?.extracted_text_preview || 'No text preview available'}
-          </p>
-        </div>
-        <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
-          <span>Document length: {cv?.cv?.text_info?.extracted_text_length || cv?.text_info?.extracted_text_length || 0} characters</span>
-          <span>Filename: {cv?.cv?.processing_metadata?.filename || cv?.processing_metadata?.filename || cv?.cv?.filename || cv?.filename || 'N/A'}</span>
-        </div>
-      </div>
+        </>
+      )}
       
-      {/* Technical Information */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <div className="flex items-center space-x-2 mb-4">
-            <div className="bg-indigo-100 rounded-full p-2">
-              <Brain className="w-5 h-5 text-indigo-600" />
+      {/* Admin-only Technical Information */}
+      {user?.role === 'admin' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center space-x-2 mb-4">
+              <div className="bg-indigo-100 rounded-full p-2">
+                <Brain className="w-5 h-5 text-indigo-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">AI Processing</h3>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900">AI Processing</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Skills Embeddings</span>
+                <Badge variant="outline" className="bg-white">{cv?.cv?.embeddings_info?.skills_embeddings || cv?.embeddings_info?.skills_embeddings || 0}</Badge>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Responsibilities Embeddings</span>
+                <Badge variant="outline" className="bg-white">{cv?.cv?.embeddings_info?.responsibilities_embeddings || cv?.embeddings_info?.responsibilities_embeddings || 0}</Badge>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Model Used</span>
+                <span className="text-sm font-semibold text-gray-800">{cv?.cv?.processing_metadata?.model_used || cv?.processing_metadata?.model_used || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Processing Time</span>
+                <span className="text-sm font-semibold text-gray-800">
+                  {cv?.cv?.processing_metadata?.processing_time || cv?.processing_metadata?.processing_time
+                    ? `${((cv?.cv?.processing_metadata?.processing_time ?? cv?.processing_metadata?.processing_time) as number).toFixed(2)}s`
+                    : 'N/A'}
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Skills Embeddings</span>
-              <Badge variant="outline" className="bg-white">{cv?.cv?.embeddings_info?.skills_embeddings || cv?.embeddings_info?.skills_embeddings || 0}</Badge>
+          
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center space-x-2 mb-4">
+              <div className="bg-green-100 rounded-full p-2">
+                <Settings className="w-5 h-5 text-green-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">System Information</h3>
             </div>
-            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Responsibilities Embeddings</span>
-              <Badge variant="outline" className="bg-white">{cv?.cv?.embeddings_info?.responsibilities_embeddings || cv?.embeddings_info?.responsibilities_embeddings || 0}</Badge>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Model Used</span>
-              <span className="text-sm font-semibold text-gray-800">{cv?.cv?.processing_metadata?.model_used || cv?.processing_metadata?.model_used || 'N/A'}</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Processing Time</span>
-              <span className="text-sm font-semibold text-gray-800">
-                {cv?.cv?.processing_metadata?.processing_time || cv?.processing_metadata?.processing_time
-                  ? `${((cv?.cv?.processing_metadata?.processing_time ?? cv?.processing_metadata?.processing_time) as number).toFixed(2)}s`
-                  : 'N/A'}
-              </span>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Title Embedding</span>
+                <Badge variant={cv?.cv?.embeddings_info?.has_title_embedding || cv?.embeddings_info?.has_title_embedding ? "success" : "outline"}>
+                  {(cv?.cv?.embeddings_info?.has_title_embedding || cv?.embeddings_info?.has_title_embedding) ? 'Yes' : 'No'}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Experience Embedding</span>
+                <Badge variant={cv?.cv?.embeddings_info?.has_experience_embedding || cv?.embeddings_info?.has_experience_embedding ? "success" : "outline"}>
+                  {(cv?.cv?.embeddings_info?.has_experience_embedding || cv?.embeddings_info?.has_experience_embedding) ? 'Yes' : 'No'}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Embedding Dimension</span>
+                <span className="text-sm font-semibold text-gray-800">{cv?.cv?.embeddings_info?.embedding_dimension || cv?.embeddings_info?.embedding_dimension || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Text Length</span>
+                <span className="text-sm font-semibold text-gray-800">{cv?.cv?.processing_metadata?.text_length || cv?.cv?.text_info?.extracted_text_length || cv?.processing_metadata?.text_length || cv?.text_info?.extracted_text_length || 0}</span>
+              </div>
             </div>
           </div>
         </div>
-        
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <div className="flex items-center space-x-2 mb-4">
-            <div className="bg-green-100 rounded-full p-2">
-              <Settings className="w-5 h-5 text-green-600" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900">System Information</h3>
-          </div>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Title Embedding</span>
-              <Badge variant={cv?.cv?.embeddings_info?.has_title_embedding || cv?.embeddings_info?.has_title_embedding ? "success" : "outline"}>
-                {(cv?.cv?.embeddings_info?.has_title_embedding || cv?.embeddings_info?.has_title_embedding) ? 'Yes' : 'No'}
-              </Badge>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Experience Embedding</span>
-              <Badge variant={cv?.cv?.embeddings_info?.has_experience_embedding || cv?.embeddings_info?.has_experience_embedding ? "success" : "outline"}>
-                {(cv?.cv?.embeddings_info?.has_experience_embedding || cv?.embeddings_info?.has_experience_embedding) ? 'Yes' : 'No'}
-              </Badge>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Embedding Dimension</span>
-              <span className="text-sm font-semibold text-gray-800">{cv?.cv?.embeddings_info?.embedding_dimension || cv?.embeddings_info?.embedding_dimension || 'N/A'}</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Text Length</span>
-              <span className="text-sm font-semibold text-gray-800">{cv?.cv?.processing_metadata?.text_length || cv?.cv?.text_info?.extracted_text_length || cv?.processing_metadata?.text_length || cv?.text_info?.extracted_text_length || 0}</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
 
 /* ---------------------------- JD Details (modal) --------------------------- */
 function JDDetails({ jdId }: { jdId: string }) {
+  const { user } = useAuthStore();
   const [jd, setJD] = useState<JDData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1611,110 +1700,119 @@ function JDDetails({ jdId }: { jdId: string }) {
         )}
       </div>
       
-      {/* Document Preview */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <div className="flex items-center space-x-2 mb-4">
-          <div className="bg-blue-100 rounded-full p-2">
-            <FileText className="w-5 h-5 text-blue-600" />
+      {/* Admin-only sections */}
+      {user?.role === 'admin' && (
+        <>
+          {/* Document Preview */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center space-x-2 mb-4">
+              <div className="bg-blue-100 rounded-full p-2">
+                <FileText className="w-5 h-5 text-blue-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Document Preview</h3>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4 max-h-48 overflow-y-auto border">
+              <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
+                {jd?.jd?.text_info?.extracted_text_preview || jd?.text_info?.extracted_text_preview || 'No text preview available'}
+              </p>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
+              <span>Document length: {jd?.jd?.text_info?.extracted_text_length || jd?.text_info?.extracted_text_length || 0} characters</span>
+              <span>Filename: {jd?.jd?.processing_metadata?.filename || jd?.processing_metadata?.filename || jd?.jd?.filename || jd?.filename || 'N/A'}</span>
+            </div>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900">Document Preview</h3>
-        </div>
-        <div className="bg-gray-50 rounded-lg p-4 max-h-48 overflow-y-auto border">
-          <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
-            {jd?.jd?.text_info?.extracted_text_preview || jd?.text_info?.extracted_text_preview || 'No text preview available'}
-          </p>
-        </div>
-        <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
-          <span>Document length: {jd?.jd?.text_info?.extracted_text_length || jd?.text_info?.extracted_text_length || 0} characters</span>
-          <span>Filename: {jd?.jd?.processing_metadata?.filename || jd?.processing_metadata?.filename || jd?.jd?.filename || jd?.filename || 'N/A'}</span>
-        </div>
-      </div>
+        </>
+      )}
       
-      {/* Technical Information */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <div className="flex items-center space-x-2 mb-4">
-            <div className="bg-indigo-100 rounded-full p-2">
-              <Brain className="w-5 h-5 text-indigo-600" />
+      {/* Admin-only Technical Information */}
+      {user?.role === 'admin' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center space-x-2 mb-4">
+              <div className="bg-indigo-100 rounded-full p-2">
+                <Brain className="w-5 h-5 text-indigo-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">AI Processing</h3>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900">AI Processing</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Skills Embeddings</span>
+                <Badge variant="outline" className="bg-white">{jd?.jd?.embeddings_info?.skills_embeddings || jd?.embeddings_info?.skills_embeddings || 0}</Badge>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Responsibilities Embeddings</span>
+                <Badge variant="outline" className="bg-white">{jd?.jd?.embeddings_info?.responsibilities_embeddings || jd?.embeddings_info?.responsibilities_embeddings || 0}</Badge>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Model Used</span>
+                <span className="text-sm font-semibold text-gray-800">{jd?.jd?.processing_metadata?.model_used || jd?.processing_metadata?.model_used || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Processing Time</span>
+                <span className="text-sm font-semibold text-gray-800">
+                  {jd?.jd?.processing_metadata?.processing_time || jd?.processing_metadata?.processing_time
+                    ? `${((jd?.jd?.processing_metadata?.processing_time ?? jd?.processing_metadata?.processing_time) as number).toFixed(2)}s`
+                    : 'N/A'}
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Skills Embeddings</span>
-              <Badge variant="outline" className="bg-white">{jd?.jd?.embeddings_info?.skills_embeddings || jd?.embeddings_info?.skills_embeddings || 0}</Badge>
+          
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center space-x-2 mb-4">
+              <div className="bg-green-100 rounded-full p-2">
+                <Settings className="w-5 h-5 text-green-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">System Information</h3>
             </div>
-            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Responsibilities Embeddings</span>
-              <Badge variant="outline" className="bg-white">{jd?.jd?.embeddings_info?.responsibilities_embeddings || jd?.embeddings_info?.responsibilities_embeddings || 0}</Badge>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Model Used</span>
-              <span className="text-sm font-semibold text-gray-800">{jd?.jd?.processing_metadata?.model_used || jd?.processing_metadata?.model_used || 'N/A'}</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Processing Time</span>
-              <span className="text-sm font-semibold text-gray-800">
-                {jd?.jd?.processing_metadata?.processing_time || jd?.processing_metadata?.processing_time
-                  ? `${((jd?.jd?.processing_metadata?.processing_time ?? jd?.processing_metadata?.processing_time) as number).toFixed(2)}s`
-                  : 'N/A'}
-              </span>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Title Embedding</span>
+                <Badge variant={jd?.jd?.embeddings_info?.has_title_embedding || jd?.embeddings_info?.has_title_embedding ? "success" : "outline"}>
+                  {(jd?.jd?.embeddings_info?.has_title_embedding || jd?.embeddings_info?.has_title_embedding) ? 'Yes' : 'No'}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Experience Embedding</span>
+                <Badge variant={jd?.jd?.embeddings_info?.has_experience_embedding || jd?.embeddings_info?.has_experience_embedding ? "success" : "outline"}>
+                  {(jd?.jd?.embeddings_info?.has_experience_embedding || jd?.embeddings_info?.has_experience_embedding) ? 'Yes' : 'No'}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Embedding Dimension</span>
+                <span className="text-sm font-semibold text-gray-800">{jd?.jd?.embeddings_info?.embedding_dimension || jd?.embeddings_info?.embedding_dimension || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Text Length</span>
+                <span className="text-sm font-semibold text-gray-800">{jd?.jd?.processing_metadata?.text_length || jd?.jd?.text_info?.extracted_text_length || jd?.processing_metadata?.text_length || jd?.text_info?.extracted_text_length || 0}</span>
+              </div>
             </div>
           </div>
         </div>
-        
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <div className="flex items-center space-x-2 mb-4">
-            <div className="bg-green-100 rounded-full p-2">
-              <Settings className="w-5 h-5 text-green-600" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900">System Information</h3>
-          </div>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Title Embedding</span>
-              <Badge variant={jd?.jd?.embeddings_info?.has_title_embedding || jd?.embeddings_info?.has_title_embedding ? "success" : "outline"}>
-                {(jd?.jd?.embeddings_info?.has_title_embedding || jd?.embeddings_info?.has_title_embedding) ? 'Yes' : 'No'}
-              </Badge>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Experience Embedding</span>
-              <Badge variant={jd?.jd?.embeddings_info?.has_experience_embedding || jd?.embeddings_info?.has_experience_embedding ? "success" : "outline"}>
-                {(jd?.jd?.embeddings_info?.has_experience_embedding || jd?.embeddings_info?.has_experience_embedding) ? 'Yes' : 'No'}
-              </Badge>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Embedding Dimension</span>
-              <span className="text-sm font-semibold text-gray-800">{jd?.jd?.embeddings_info?.embedding_dimension || jd?.embeddings_info?.embedding_dimension || 'N/A'}</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Text Length</span>
-              <span className="text-sm font-semibold text-gray-800">{jd?.jd?.processing_metadata?.text_length || jd?.jd?.text_info?.extracted_text_length || jd?.processing_metadata?.text_length || jd?.text_info?.extracted_text_length || 0}</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
       
-      {/* Optional: collapsible raw JSON for debugging */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <button
-          className="inline-flex items-center text-sm text-gray-600 hover:text-gray-800 font-medium"
-          onClick={() => setShowJSON((s) => !s)}
-          aria-label={showJSON ? 'Hide raw JSON data' : 'Show raw JSON data'}
-        >
-          <ChevronDown className={`w-4 h-4 mr-2 transition-transform ${showJSON ? 'rotate-180' : ''}`} />
-          {showJSON ? 'Hide Raw Data' : 'Show Raw Data'}
-        </button>
-        {showJSON && (
-          <div className="mt-4">
-            <div className="bg-gray-50 rounded-lg p-4 border">
-              <pre className="text-xs text-gray-700 overflow-auto max-h-60">
-                {JSON.stringify(jd, null, 2)}
-              </pre>
+      {/* Admin-only: collapsible raw JSON for debugging */}
+      {user?.role === 'admin' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <button
+            className="inline-flex items-center text-sm text-gray-600 hover:text-gray-800 font-medium"
+            onClick={() => setShowJSON((s) => !s)}
+            aria-label={showJSON ? 'Hide raw JSON data' : 'Show raw JSON data'}
+          >
+            <ChevronDown className={`w-4 h-4 mr-2 transition-transform ${showJSON ? 'rotate-180' : ''}`} />
+            {showJSON ? 'Hide Raw Data' : 'Show Raw Data'}
+          </button>
+          {showJSON && (
+            <div className="mt-4">
+              <div className="bg-gray-50 rounded-lg p-4 border">
+                <pre className="text-xs text-gray-700 overflow-auto max-h-60">
+                  {JSON.stringify(jd, null, 2)}
+                </pre>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

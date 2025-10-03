@@ -26,6 +26,7 @@ export default function DashboardPage() {
     jds, 
     matchResult, 
     setCurrentTab, 
+    setDatabaseActiveTab,
     loadCVs, 
     loadJDs
   } = useAppStore();
@@ -99,7 +100,13 @@ export default function DashboardPage() {
           <div className="absolute top-4 right-4 w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
         </div>
         
-        <div className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+        <button 
+          onClick={() => {
+            setDatabaseActiveTab('cvs');
+            setCurrentTab('database');
+          }}
+          className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 w-full text-left cursor-pointer"
+        >
           <div className="flex justify-center mb-4">
             <div 
               className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-110"
@@ -117,9 +124,15 @@ export default function DashboardPage() {
             Ready for matching
           </p>
           <div className="absolute top-4 right-4 w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-        </div>
+        </button>
         
-        <div className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+        <button 
+          onClick={() => {
+            setDatabaseActiveTab('jds');
+            setCurrentTab('database');
+          }}
+          className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 w-full text-left cursor-pointer"
+        >
           <div className="flex justify-center mb-4">
             <div 
               className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-110"
@@ -137,7 +150,7 @@ export default function DashboardPage() {
             Available for matching
           </p>
           <div className="absolute top-4 right-4 w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></div>
-        </div>
+        </button>
         
         <div className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
           <div className="flex justify-center mb-4">
