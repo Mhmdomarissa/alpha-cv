@@ -16,7 +16,7 @@ import {
   User,
   RefreshCw,
   Target,
-  X
+  ChevronUp
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -511,9 +511,9 @@ export default function CareersPage() {
                           handleCloseJobDetails();
                         }}
                         className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-2"
-                        title="Close job details"
+                        title="Collapse job details"
                       >
-                        <X className="w-4 h-4" />
+                        <ChevronUp className="w-4 h-4" />
                       </Button>
                     </div>
                     <ApplicationsList />
