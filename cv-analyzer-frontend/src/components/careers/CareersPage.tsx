@@ -15,7 +15,8 @@ import {
   Trash2,
   User,
   RefreshCw,
-  Target
+  Target,
+  X
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -86,6 +87,11 @@ export default function CareersPage() {
 
   const handleSelectJob = (job: JobPostingListItem) => {
     selectJob(job);
+  };
+
+  const handleCloseJobDetails = () => {
+    console.log('Close button clicked, clearing selected job');
+    selectJob(null);
   };
 
   const handleDeleteAllJobPostings = async () => {
@@ -495,6 +501,21 @@ export default function CareersPage() {
               
                 {selectedJob?.job_id === job.job_id && (
                   <CardContent>
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">Job Applications</h3>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCloseJobDetails();
+                        }}
+                        className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-2"
+                        title="Close job details"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
                     <ApplicationsList />
                   </CardContent>
                 )}

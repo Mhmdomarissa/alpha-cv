@@ -39,7 +39,7 @@ interface CareersActions {
   createJobPostingWithFormData: (file: File | null, formData: any) => Promise<JobPostingResponse | null>;
   createManualJobPosting: (formData: any) => Promise<JobPostingResponse | null>;
   loadJobPostings: () => Promise<void>;
-  selectJob: (job: JobPostingListItem) => void;
+  selectJob: (job: JobPostingListItem | null) => void;
   updateJobStatus: (jobId: string, isActive: boolean) => Promise<boolean>;
   
   // Application management
@@ -189,11 +189,16 @@ loadJobPostings: async () => {
   }
 },
   
-  selectJob: (job: JobPostingListItem) => {
-    logger.info('Selected job', { jobId: job.job_id, title: job.job_title });
-    set({ selectedJob: job });
-    // Auto-load applications when job is selected
-    get().loadJobApplications(job.job_id);
+  selectJob: (job: JobPostingListItem | null) => {
+    if (job) {
+      logger.info('Selected job', { jobId: job.job_id, title: job.job_title });
+      set({ selectedJob: job });
+      // Auto-load applications when job is selected
+      get().loadJobApplications(job.job_id);
+    } else {
+      logger.info('Cleared selected job');
+      set({ selectedJob: null });
+    }
   },
   
   updateJobStatus: async (jobId: string, isActive: boolean) => {
