@@ -394,6 +394,8 @@ export interface JobPostingListItem {
   public_token: string; // Already present
   posted_by_user?: string;
   posted_by_role?: string;
+  can_edit?: boolean;
+  can_delete?: boolean;
 }
 
 export interface JobApplicationListItem {

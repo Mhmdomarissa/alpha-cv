@@ -92,6 +92,8 @@ class JobPostingSummary(BaseModel):
     public_token: str = Field(..., description="Public access token for the job")
     posted_by_user: Optional[str] = Field(None, description="Username of the user who posted this job")
     posted_by_role: Optional[str] = Field(None, description="Role of the user who posted this job (admin/user)")
+    can_edit: bool = Field(False, description="Whether current user can edit this job")
+    can_delete: bool = Field(False, description="Whether current user can delete this job")
 
 class JobPostingUpdate(BaseModel):
     """Request model for updating job posting details"""

@@ -685,7 +685,7 @@ async def list_job_postings(
         qdrant = get_qdrant_utils()
         job_postings = qdrant.get_all_job_postings(
             include_inactive=include_inactive,
-            posted_by_user=current_user.username,
+            posted_by_user=None,  # Remove user filtering to show all jobs
             user_role=current_user.role
         )
         
@@ -738,6 +738,13 @@ async def list_job_postings(
             if skills_list and isinstance(skills_list, list):
                 qualifications = "\n".join([f"• {skill}" for skill in skills_list])
             
+            # Calculate permissions: user can edit/delete if they posted the job OR if they are admin
+            job_poster = job.get("posted_by_user")
+            is_owner = job_poster == current_user.username
+            is_admin = current_user.role == "admin"
+            can_edit = is_owner or is_admin
+            can_delete = is_owner or is_admin
+            
             summary = JobPostingSummary(
                 job_id=job["id"],
                 job_title=job_title,
@@ -752,7 +759,9 @@ async def list_job_postings(
                 application_count=len(applications),
                 public_token=job.get("public_token") or "unknown",
                 posted_by_user=job.get("posted_by_user"),
-                posted_by_role=job.get("posted_by_role")
+                posted_by_role=job.get("posted_by_role"),
+                can_edit=can_edit,
+                can_delete=can_delete
             )
             summaries.append(summary)
         
@@ -762,6 +771,71 @@ async def list_job_postings(
     except Exception as e:
         logger.error(f"❌ Failed to list job postings: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve job postings")
+
+@router.get("/admin/jobs/{job_id}/match-data", response_model=dict)
+async def get_job_for_matching(job_id: str, current_user: User = Depends(require_user)) -> dict:
+    """Get job data for matching - all users can access any job for matching purposes"""
+    try:
+        logger.info(f"📝 Getting job data for matching: {job_id} by user: {current_user.username}")
+        
+        qdrant = get_qdrant_utils()
+        
+        # Verify job exists
+        job_data = qdrant.get_job_posting_by_id(job_id)
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job posting not found")
+        
+        # No authorization check needed - all users can match any job
+        
+        # Get structured data
+        client = qdrant.client
+        structured_data = None
+        try:
+            res = client.retrieve("job_postings_structured", ids=[job_id], with_payload=True, with_vectors=False)
+            if res:
+                structured_data = res[0].payload
+        except Exception as e:
+            logger.warning(f"⚠️ Could not retrieve structured data for job {job_id}: {e}")
+        
+        # Extract job details
+        job_title = "Position Available"
+        job_location = ""
+        job_summary = ""
+        key_responsibilities = ""
+        qualifications = ""
+        
+        if structured_data:
+            structured_info = structured_data.get("structured_info", {})
+            
+            # Use job posting's own data first (this is the edited data)
+            job_title = structured_info.get("job_title", "") or structured_data.get("job_title", job_title)
+            job_location = structured_info.get("job_location", "") or structured_info.get("location", "")
+            job_summary = structured_info.get("job_summary", "") or structured_info.get("summary", "")
+            
+            # Use job posting's own responsibilities and skills (edited data)
+            responsibilities_list = structured_info.get("responsibilities", [])
+            if responsibilities_list and isinstance(responsibilities_list, list):
+                key_responsibilities = "\n".join([f"• {resp}" for resp in responsibilities_list])
+            
+            skills_list = structured_info.get("skills", []) or structured_info.get("requirements", [])
+            if skills_list and isinstance(skills_list, list):
+                qualifications = "\n".join([f"• {skill}" for skill in skills_list])
+        
+        return {
+            "job_title": job_title,
+            "job_location": job_location,
+            "job_summary": job_summary,
+            "key_responsibilities": key_responsibilities,
+            "qualifications": qualifications,
+            "company_name": job_data.get("company_name"),
+            "jd_id": job_data.get("jd_id")  # Include jd_id for frontend matching
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to get job data for matching: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve job data")
 
 @router.get("/admin/jobs/{job_id}/edit-data", response_model=dict)
 async def get_job_for_edit(job_id: str, current_user: User = Depends(require_user)) -> dict:

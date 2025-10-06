@@ -398,8 +398,8 @@ export default function CareersPage() {
                       </Button>
                     )}
                     
-                    {/* Edit button - only show if user can edit (admin or own job) */}
-                    {(user.role === 'admin' || job.posted_by_user === user.username) && (
+                    {/* Edit button - only show if user can edit */}
+                    {job.can_edit && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -416,8 +416,8 @@ export default function CareersPage() {
                     )}
                     
                     
-                    {/* Toggle status button - only show if user can toggle (admin or own job) */}
-                    {(user.role === 'admin' || job.posted_by_user === user.username) && (
+                    {/* Toggle status button - only show if user can edit */}
+                    {job.can_edit && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -439,8 +439,8 @@ export default function CareersPage() {
                       </Button>
                     )}
                     
-                    {/* Delete button - only show if user can delete (admin or own job) */}
-                    {(user.role === 'admin' || job.posted_by_user === user.username) && (
+                    {/* Delete button - only show if user can delete */}
+                    {job.can_delete && (
                       <Button
                         variant="ghost"
                         size="sm"

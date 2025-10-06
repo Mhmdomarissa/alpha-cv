@@ -1174,9 +1174,8 @@ class QdrantUtils:
     def get_all_job_postings(self, include_inactive: bool = False, posted_by_user: Optional[str] = None, user_role: Optional[str] = None) -> List[Dict]:
         """
         Get job postings (for HR dashboard)
-        - If posted_by_user is provided: only show jobs posted by that user
-        - If user_role is 'admin': show all jobs (admin can see everything)
-        - If user_role is 'user': only show jobs posted by that user
+        - All users can see all job postings (no filtering by posted_by_user)
+        - Permission fields (can_edit, can_delete) are calculated based on ownership and role
         """
         try:
             collection_name = "job_postings_structured"
@@ -1194,13 +1193,8 @@ class QdrantUtils:
                 FieldCondition(key="is_deleted", match=MatchValue(value=True))
             )
             
-            # Role-based filtering
-            if posted_by_user and user_role != "admin":
-                # Regular users can only see their own job postings
-                filter_conditions.append(
-                    FieldCondition(key="posted_by_user", match=MatchValue(value=posted_by_user))
-                )
-            # Admins can see all jobs (no additional filter needed)
+            # All users can see all job postings (no filtering by user)
+            # Permission calculation will be done in the API layer
             
             filter_obj = Filter(
                 must=filter_conditions if filter_conditions else None,

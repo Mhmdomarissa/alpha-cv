@@ -511,6 +511,37 @@ async getPublicJob(token: string): Promise<PublicJobView> {
     return response.data;
   }
 
+  async getJobForMatching(jobId: string): Promise<{
+    job_title: string;
+    job_location: string;
+    job_summary: string;
+    key_responsibilities: string;
+    qualifications: string;
+    company_name: string;
+    jd_id?: string;  // Include jd_id for matching
+  }> {
+    const response = await this.client.get<{
+      job_title: string;
+      job_location: string;
+      job_summary: string;
+      key_responsibilities: string;
+      qualifications: string;
+      company_name: string;
+      jd_id?: string;  // Include jd_id for matching
+    }>(`/api/careers/admin/jobs/${jobId}/match-data`, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      },
+      params: {
+        _t: Date.now() // Cache busting parameter
+      }
+    });
+    return response.data;
+  }
+
   async getJobForEdit(jobId: string): Promise<{
     job_title: string;
     job_location: string;
@@ -710,6 +741,7 @@ export const api = {
   getJobApplications: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobApplications(jobId)),
 
   
+  getJobForMatching: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobForMatching(jobId)),
   getJobForEdit: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobForEdit(jobId)),
   updateJobStatus: (jobId: string, status: { is_active: boolean }) => 
   RequestRetryHandler.withRetry(() => apiClient.updateJobStatus(jobId, status)),

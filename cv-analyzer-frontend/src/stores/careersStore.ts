@@ -262,7 +262,7 @@ loadJobPostings: async () => {
       }
       
       // Get the job posting details to find the original JD ID
-      const jobData = await api.getJobForEdit(jobId);
+      const jobData = await api.getJobForMatching(jobId);
       let originalJdId = (jobData as any).jd_id || jobId; // Use jd_id if available, fallback to jobId
       
       // If the job posting doesn't have a linked JD, this is a legacy job posting
