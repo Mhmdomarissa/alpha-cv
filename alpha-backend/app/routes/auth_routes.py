@@ -26,7 +26,10 @@ def login(data: LoginRequest, session: Session = Depends(get_session)):
     
     # Continue with existing server-side authentication flow
     user = session.exec(select(User).where(User.username == data.username)).first()
-    if not user or not verify_password(data.password, user.password_hash):
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    
+    if not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     token = create_access_token(sub=user.username, role=user.role)
     return TokenResponse(access_token=token, token_type="bearer", username=user.username, role=user.role)

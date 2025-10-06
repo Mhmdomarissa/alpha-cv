@@ -3,7 +3,9 @@ import jwt
 from datetime import datetime, timedelta
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use only argon2 to avoid bcrypt initialization issues
+# We'll handle bcrypt password migration through a separate migration process
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 ALGO = "HS256"
 
 def hash_password(pw: str) -> str:
