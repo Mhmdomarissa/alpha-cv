@@ -69,8 +69,8 @@ def safe_parse_years(years_value) -> int:
     """Safely parse years of experience, handling string values like 'Not specified' or '5-8'."""
     if not years_value:
         return 0
-    if isinstance(years_value, int):
-        return years_value
+    if isinstance(years_value, (int, float)):
+        return int(years_value)
     if isinstance(years_value, str):
         s = years_value.strip()
         if not s or s.lower() in {"not specified", "x years", "not applicable", "n/a"}:
@@ -116,7 +116,7 @@ def _get_structured_cv(cv_id: str) -> Optional[Dict[str, Any]]:
         "id": cv_id,
         "name": info.get("full_name", info.get("name", cv_id)),
         "job_title": info.get("job_title", ""),
-        "years_of_experience": info.get("experience_years", info.get("years_of_experience", 0)),
+        "years_of_experience": info.get("years_of_experience", info.get("experience_years", 0)),
         "skills": info.get("skills", []),
         "responsibilities": info.get("responsibilities", info.get("responsibility_sentences", [])),
         "structured_info": info,
@@ -132,7 +132,7 @@ def _get_structured_jd(jd_id: str) -> Optional[Dict[str, Any]]:
     return {
         "id": jd_id,
         "job_title": info.get("job_title", ""),
-        "years_of_experience": info.get("experience_years", info.get("years_of_experience", 0)),
+        "years_of_experience": info.get("years_of_experience", info.get("experience_years", 0)),
         "skills": info.get("skills", []),
         "responsibilities": info.get("responsibilities", info.get("responsibility_sentences", [])),
         "structured_info": info,

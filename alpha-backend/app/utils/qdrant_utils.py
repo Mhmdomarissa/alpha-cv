@@ -493,8 +493,7 @@ class QdrantUtils:
                     "filename": doc_meta.get("filename", "Unknown"),
                     "upload_date": doc_meta.get("upload_date", "Unknown"),
                     "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
-                    "job_title": structured.get("job_title", "Not specified"),
-                    "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
+                    "job_title": structured.get("job_title", "Not specified"),                    "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
                     "skills_count": len(skills),
                     "skills": skills,
                     "responsibilities_count": len(resps),
@@ -544,7 +543,7 @@ class QdrantUtils:
                 "id": cv_id,
                 "name": s.get("full_name", s.get("name", cv_id)),
                 "job_title": s.get("job_title", ""),
-                "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
                 "category": s.get("category", ""),
                 "skills_sentences": (s.get("skills", []) or [])[:20],
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
@@ -566,7 +565,7 @@ class QdrantUtils:
                 return {
                     "id": jd_id,
                     "job_title": s.get("job_title", ""),
-                    "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                    "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
                     "category": s.get("category", ""),
                     "skills_sentences": (s.get("skills", []) or [])[:20],  # Matching system expects this field name
                     "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],  # Matching system expects this field name
@@ -581,7 +580,7 @@ class QdrantUtils:
             return {
                 "id": jd_id,
                 "job_title": s.get("job_title", ""),
-                "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
                 "category": s.get("category", ""),
                 "skills_sentences": (s.get("skills", []) or [])[:20],  # Matching system expects this field name
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],  # Matching system expects this field name
@@ -604,7 +603,7 @@ class QdrantUtils:
                 return {
                     "id": jd_id,
                     "job_title": s.get("job_title", ""),
-                    "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                    "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
                     "category": s.get("category", ""),
                     "skills_sentences": (s.get("skills", []) or [])[:20],
                     "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
@@ -620,7 +619,7 @@ class QdrantUtils:
             return {
                 "id": jd_id,
                 "job_title": s.get("job_title", ""),
-                "years_of_experience": s.get("experience_years", s.get("years_of_experience", 0)),
+                "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
                 "category": s.get("category", ""),
                 "skills_sentences": (s.get("skills", []) or [])[:20],
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
@@ -1748,5 +1747,8 @@ _qdrant_utils: Optional[QdrantUtils] = None
 def get_qdrant_utils() -> QdrantUtils:
     global _qdrant_utils
     if _qdrant_utils is None:
-        _qdrant_utils = QdrantUtils()
+        import os
+        host = os.getenv("QDRANT_HOST", "qdrant")
+        port = int(os.getenv("QDRANT_PORT", "6333"))
+        _qdrant_utils = QdrantUtils(host=host, port=port)
     return _qdrant_utils

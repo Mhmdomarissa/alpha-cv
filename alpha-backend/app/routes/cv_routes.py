@@ -555,7 +555,7 @@ async def list_cvs() -> JSONResponse:
                 "upload_date": doc_meta.get("upload_date", "Unknown"),
                 "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
                 "job_title": structured.get("job_title", "Not specified"),
-                "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
+                "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
                 "skills_count": len(skills),
                 "skills": skills,
                 "responsibilities_count": len(resps),
@@ -663,7 +663,7 @@ async def get_cv_details(cv_id: str) -> JSONResponse:
             "candidate": {
                 "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
                 "job_title": structured.get("job_title", "Not specified"),
-                "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
+                "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
                 "skills": structured.get("skills", []),
                 "responsibilities": responsibilities,
                 "skills_count": len(structured.get("skills", [])),

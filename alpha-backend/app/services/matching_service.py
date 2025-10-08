@@ -426,8 +426,8 @@ class MatchingService:
             title_sim = self.get_enhanced_title_similarity(jd_title, cv_title)
             
             meets, exp_score_pct = self._experience_match(
-                jd_std.get("experience_years", "") or jd_std.get("years_of_experience", ""),
-                cv_std.get("experience_years", "") or cv_std.get("years_of_experience", "")
+                jd_std.get("years_of_experience", "") or jd_std.get("experience_years", ""),
+                cv_std.get("years_of_experience", "") or cv_std.get("experience_years", "")
             )
             
             # ---- Calculate base scores ----
@@ -1223,8 +1223,8 @@ class MatchingService:
                 "match_quality": self.embedding_service.get_match_quality(title_sim, "skills"),
             },
             "experience_analysis": {
-                "jd_requirement": jd_std.get("experience_years", "") or jd_std.get("years_of_experience", ""),
-                "cv_experience": cv_std.get("experience_years", "") or cv_std.get("years_of_experience", ""),
+                "jd_requirement": jd_std.get("years_of_experience", "") or jd_std.get("experience_years", ""),
+                "cv_experience": cv_std.get("years_of_experience", "") or cv_std.get("experience_years", ""),
                 "meets_requirement": exp_score >= 75.0,
                 "score": exp_score,
             },

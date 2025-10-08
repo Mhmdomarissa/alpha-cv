@@ -116,7 +116,10 @@ app = FastAPI(
 # CORS
 # --------------------
 # Environment-specific origins
-dev_origins = ["http://localhost:3000", "http://localhost:3001", "http://localhost:8000", "http://localhost"]
+dev_origins = [
+    "http://localhost:3000", "http://localhost:3001", "http://localhost:8000", "http://localhost",
+    "http://13.62.91.25:3001", "http://13.62.91.25:8001", "http://13.62.91.25:3000"
+]
 prod_origins = ["https://alphacv.alphadatarecruitment.ae"]
 
 # Check if in development mode

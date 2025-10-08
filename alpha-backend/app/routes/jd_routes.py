@@ -239,7 +239,7 @@ async def list_jds() -> JSONResponse:
                 "filename": doc_meta.get("filename", "Unknown"),
                 "upload_date": doc_meta.get("upload_date", "Unknown"),
                 "job_title": structured.get("job_title", "Not specified"),
-                "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
+                "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
                 "skills_count": len(skills),
                 "skills": skills,
                 "responsibilities_count": len(resps),
@@ -304,7 +304,7 @@ async def get_jd_details(jd_id: str) -> JSONResponse:
             "document_type": "jd",
             "job_requirements": {
                 "job_title": structured.get("job_title", "Not specified"),
-                "years_of_experience": structured.get("experience_years", structured.get("years_of_experience", "Not specified")),
+                "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
                 "skills": structured.get("skills", []),
                 "responsibilities": responsibilities,
                 "skills_count": len(structured.get("skills", [])),
