@@ -16,7 +16,8 @@ import {
   User,
   RefreshCw,
   Target,
-  ChevronUp
+  ChevronUp,
+  Filter
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -67,6 +68,7 @@ export default function CareersPage() {
   const [isMatching, setIsMatching] = useState(false);
   const [isDeletingJob, setIsDeletingJob] = useState<string | null>(null);
   const [showJobDeleteConfirm, setShowJobDeleteConfirm] = useState<JobPostingListItem | null>(null);
+  const [jobFilter, setJobFilter] = useState<'all' | 'yours' | 'others'>('all');
 
   useEffect(() => {
     // Use user session store for request queuing
@@ -196,6 +198,14 @@ export default function CareersPage() {
     return new Date(dateString).toLocaleDateString();
   };
 
+  // Filter jobs based on selected filter
+  const filteredJobs = jobPostings.filter(job => {
+    if (jobFilter === 'all') return true;
+    if (jobFilter === 'yours') return job.posted_by_user === user?.username;
+    if (jobFilter === 'others') return job.posted_by_user !== user?.username;
+    return true;
+  });
+
   if (!user) {
     return (
       <div className="p-6">
@@ -296,12 +306,32 @@ export default function CareersPage() {
 
       {/* Role-based information banner */}
       {user.role === 'admin' && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
-            <p className="text-blue-800 text-sm">
-              <strong>Admin View:</strong> You can see and manage all job postings in the system.
-            </p>
+        <div className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-center">
+              <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
+              <p className="text-blue-800 text-sm">
+                <strong>Admin View:</strong> You can see and manage all job postings in the system.
+              </p>
+            </div>
+          </div>
+          
+          {/* Filter Dropdown for Admin */}
+          <div className="flex items-center space-x-3">
+            <Filter className="w-4 h-4 text-gray-500" />
+            <label className="text-sm font-medium text-gray-700">Filter jobs:</label>
+            <select
+              value={jobFilter}
+              onChange={(e) => setJobFilter(e.target.value as 'all' | 'yours' | 'others')}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="all">All Jobs</option>
+              <option value="yours">Your Jobs</option>
+              <option value="others">Others' Jobs</option>
+            </select>
+            <span className="text-xs text-gray-500">
+              Showing {filteredJobs.length} of {jobPostings.length} jobs
+            </span>
           </div>
         </div>
       )}
@@ -319,12 +349,22 @@ export default function CareersPage() {
 
       {/* Job Postings List */}
       <div className="grid gap-6">
-        {jobPostings.length === 0 ? (
+        {filteredJobs.length === 0 ? (
         <Card>
             <CardContent className="p-12 text-center">
               <Briefcase className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">No job postings yet</h3>
-              <p className="text-gray-600 mb-6">Create your first job posting to get started.</p>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                {jobPostings.length === 0 
+                  ? "No job postings yet" 
+                  : `No jobs found for "${jobFilter === 'all' ? 'All Jobs' : jobFilter === 'yours' ? 'Your Jobs' : 'Others\' Jobs'}" filter`
+                }
+              </h3>
+              <p className="text-gray-600 mb-6">
+                {jobPostings.length === 0 
+                  ? "Create your first job posting to get started." 
+                  : "Try changing the filter or create a new job posting."
+                }
+              </p>
               <div className="flex justify-center space-x-3">
                 <Button
                   onClick={() => setShowCreateForm(true)}
@@ -337,7 +377,7 @@ export default function CareersPage() {
             </CardContent>
           </Card>
         ) : (
-          jobPostings.map((job) => (
+          filteredJobs.map((job) => (
             <div key={job.job_id} className="space-y-4">
               <Card 
                 className={`hover:shadow-md transition-shadow cursor-pointer ${
