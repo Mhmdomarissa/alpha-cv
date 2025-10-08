@@ -178,6 +178,9 @@ async def process_cv_async(cv_data: dict) -> dict:
                 "applicant_email": cv_data.get("applicant_email"),
                 "applicant_phone": cv_data.get("applicant_phone"),
                 "cover_letter": cv_data.get("cover_letter"),
+                "expected_salary": cv_data.get("expected_salary"),
+                "years_of_experience": cv_data.get("years_of_experience"),
+                "experience_warning": cv_data.get("experience_warning"),
                 "application_date": _now_iso(),
                 "application_status": "processed"
             })
@@ -221,6 +224,9 @@ async def process_cv_async(cv_data: dict) -> dict:
                     "applicant_email": cv_data.get("applicant_email"),
                     "applicant_phone": cv_data.get("applicant_phone"),
                     "cover_letter": cv_data.get("cover_letter"),
+                    "expected_salary": cv_data.get("expected_salary"),
+                    "years_of_experience": cv_data.get("years_of_experience"),
+                    "experience_warning": cv_data.get("experience_warning"),
                     "public_token": cv_data.get("public_token"),
                     "job_title": cv_data.get("job_title", "Position"),
                     "company_name": cv_data.get("company_name", "Alpha Data Recruitment"),
@@ -689,7 +695,9 @@ async def get_cv_details(cv_id: str) -> JSONResponse:
                 "application_date": structured_payload.get("application_date"),
                 "application_status": structured_payload.get("application_status"),
                 "cover_letter": structured_payload.get("cover_letter"),
-                "cv_filename": structured_payload.get("cv_filename")
+                "cv_filename": structured_payload.get("cv_filename"),
+                "expected_salary": structured_payload.get("expected_salary"),
+                "years_of_experience": structured_payload.get("years_of_experience")
             }
 
         return JSONResponse({"status": "success", "cv": response})
@@ -965,15 +973,60 @@ async def download_cv(cv_id: str):
 
     # Serve the persisted file if we have it
     if filepath and os.path.exists(filepath):
-        guessed = mimetypes.guess_type(filepath)[0] or payload.get("mime_type") or "application/octet-stream"
-        return FileResponse(filepath, media_type=guessed, filename=os.path.basename(filepath))
+        # Get the original filename from structured data if available
+        original_filename = filename
+        structured_res = q.retrieve("cv_structured", ids=[cv_id], with_payload=True, with_vectors=False)
+        if structured_res and structured_res[0].payload:
+            structured_payload = structured_res[0].payload
+            if structured_payload.get("is_job_application"):
+                # Use the original CV filename for job applications
+                cv_filename = structured_payload.get("cv_filename")
+                if cv_filename:
+                    original_filename = cv_filename
+            else:
+                # For regular CVs, use the filename from structured data
+                structured_filename = structured_payload.get("filename")
+                if structured_filename:
+                    original_filename = structured_filename
+        
+        # Determine MIME type
+        mime_type = payload.get("mime_type") or mimetypes.guess_type(filepath)[0] or "application/octet-stream"
+        
+        return FileResponse(
+            filepath, 
+            media_type=mime_type, 
+            filename=original_filename
+        )
 
     # Fallback: stream raw_content as a .txt download (helps older records)
     raw = payload.get("raw_content")
     if raw:
+        # Try to preserve original filename extension if available
+        fallback_filename = filename
+        structured_res = q.retrieve("cv_structured", ids=[cv_id], with_payload=True, with_vectors=False)
+        if structured_res and structured_res[0].payload:
+            structured_payload = structured_res[0].payload
+            if structured_payload.get("is_job_application"):
+                cv_filename = structured_payload.get("cv_filename")
+                if cv_filename:
+                    # Keep original extension if it's a text-based format, otherwise convert to .txt
+                    original_ext = os.path.splitext(cv_filename)[1].lower()
+                    if original_ext in ['.txt', '.md']:
+                        fallback_filename = cv_filename
+                    else:
+                        fallback_filename = f"{os.path.splitext(cv_filename)[0]}.txt"
+            else:
+                structured_filename = structured_payload.get("filename")
+                if structured_filename:
+                    original_ext = os.path.splitext(structured_filename)[1].lower()
+                    if original_ext in ['.txt', '.md']:
+                        fallback_filename = structured_filename
+                    else:
+                        fallback_filename = f"{os.path.splitext(structured_filename)[0]}.txt"
+        
         bytes_io = BytesIO(raw.encode("utf-8"))
         headers = {
-            "Content-Disposition": f'attachment; filename="{os.path.splitext(filename)[0]}.txt"'
+            "Content-Disposition": f'attachment; filename="{fallback_filename}"'
         }
         return StreamingResponse(bytes_io, media_type="text/plain; charset=utf-8", headers=headers)
 

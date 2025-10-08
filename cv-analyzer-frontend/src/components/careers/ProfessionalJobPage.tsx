@@ -254,6 +254,10 @@ export default function ProfessionalJobPage({ token }: ProfessionalJobPageProps)
               
               <JobApplicationForm
                 jobToken={token}
+                jobData={{
+                  years_of_experience: publicJob.experience_required,
+                  job_title: publicJob.job_title
+                }}
                 onSuccess={() => setShowApplicationForm(false)}
                 onCancel={() => setShowApplicationForm(false)}
               />

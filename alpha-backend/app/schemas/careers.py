@@ -72,6 +72,8 @@ class JobApplicationSummary(BaseModel):
     applicant_email: str = Field(..., description="Email of the applicant")
     application_date: str = Field(..., description="When the application was submitted")
     cv_filename: str = Field(..., description="Original filename of submitted CV")
+    expected_salary: Optional[float] = Field(None, description="Expected salary in AED")
+    years_of_experience: Optional[float] = Field(None, description="Years of experience")
     match_score: Optional[float] = Field(None, description="AI-calculated match score if available")
     status: str = Field("pending", description="Application status (pending, reviewed, etc.)")
 

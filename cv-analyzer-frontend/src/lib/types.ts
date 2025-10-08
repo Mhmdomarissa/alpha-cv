@@ -406,6 +406,8 @@ export interface JobApplicationListItem {
   applicant_phone?: string;
   cv_filename: string;
   application_date: string;
+  expected_salary?: number;
+  years_of_experience?: number;
   match_score?: number;
   status?: string;
 }

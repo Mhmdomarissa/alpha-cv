@@ -111,7 +111,10 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
         cv_structured_payload.update({
             "name": applicant_name,
             "email": applicant_email,
-            "document_type": "cv"
+            "document_type": "cv",
+            "expected_salary": application_data.get("expected_salary"),
+            "years_of_experience": application_data.get("years_of_experience"),
+            "experience_warning": application_data.get("experience_warning")
         })
         
         await asyncio.to_thread(
@@ -173,6 +176,9 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
             "applicant_email": applicant_email,
             "applicant_phone": applicant_phone,
             "cover_letter": cover_letter,
+            "expected_salary": application_data.get("expected_salary"),
+            "years_of_experience": application_data.get("years_of_experience"),
+            "experience_warning": application_data.get("experience_warning"),
             "match_percentage": getattr(match_result, "overall_score", 0),
             "match_analysis": {
                 "overall_score": getattr(match_result, "overall_score", 0),

@@ -122,9 +122,16 @@ export default function ApplicationsList() {
                     <User className="w-5 h-5 text-blue-600" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-neutral-900">
-                      {application.applicant_name}
-                    </h3>
+                    <div className="flex items-center space-x-2">
+                      <h3 className="font-semibold text-neutral-900">
+                        {application.applicant_name}
+                      </h3>
+                      {application.expected_salary && (
+                        <Badge variant="secondary" className="bg-green-100 text-green-800">
+                          AED {application.expected_salary.toLocaleString()}
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-sm text-neutral-600">
                       Applied {formatDate(application.application_date)}
                     </p>
@@ -267,6 +274,14 @@ export default function ApplicationsList() {
                               <div>
                                 <label className="text-sm font-medium text-gray-500">Application Status</label>
                                 <p className="text-gray-900 capitalize">{jobApplication?.application_status || 'N/A'}</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-500">Expected Salary</label>
+                                <p className="text-gray-900">{jobApplication?.expected_salary ? `AED ${jobApplication.expected_salary.toLocaleString()}` : 'N/A'}</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-500">Years of Experience</label>
+                                <p className="text-gray-900">{jobApplication?.years_of_experience ? `${jobApplication.years_of_experience} years` : 'N/A'}</p>
                               </div>
                             </div>
                           </div>

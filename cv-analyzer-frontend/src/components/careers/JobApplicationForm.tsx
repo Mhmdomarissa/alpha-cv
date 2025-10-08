@@ -18,12 +18,17 @@ import { Card, CardContent } from '@/components/ui/card-enhanced';
 
 interface JobApplicationFormProps {
   jobToken: string;
+  jobData?: {
+    years_of_experience?: string | number;
+    job_title?: string;
+  };
   onSuccess: () => void;
   onCancel: () => void;
 }
 
 export default function JobApplicationForm({ 
   jobToken, 
+  jobData,
   onSuccess, 
   onCancel 
 }: JobApplicationFormProps) {
@@ -32,13 +37,21 @@ export default function JobApplicationForm({
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    phone: ''
+    phone: '',
+    expectedSalary: '',
+    yearsOfExperience: ''
   });
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [success, setSuccess] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [experienceWarning, setExperienceWarning] = useState<{
+    show: boolean;
+    required: number;
+    candidate: number;
+    message: string;
+  } | null>(null);
   
   // Create a ref for the file input
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -138,6 +151,26 @@ export default function JobApplicationForm({
       }
     }
     
+    // Expected salary validation
+    if (!formData.expectedSalary.trim()) {
+      errors.expectedSalary = 'Expected salary is required';
+    } else {
+      const salary = parseFloat(formData.expectedSalary);
+      if (isNaN(salary) || salary <= 0) {
+        errors.expectedSalary = 'Expected salary must be a positive number';
+      }
+    }
+    
+    // Years of experience validation
+    if (!formData.yearsOfExperience.trim()) {
+      errors.yearsOfExperience = 'Years of experience is required';
+    } else {
+      const experience = parseFloat(formData.yearsOfExperience);
+      if (isNaN(experience) || experience < 0) {
+        errors.yearsOfExperience = 'Years of experience must be a non-negative number';
+      }
+    }
+    
     if (!selectedFile) {
       errors.file = 'CV file is required';
     }
@@ -152,6 +185,41 @@ export default function JobApplicationForm({
       setFormErrors(prev => ({ ...prev, [field]: '' }));
     }
     clearError();
+    
+    // Check experience requirements when years of experience changes
+    if (field === 'yearsOfExperience' && jobData?.years_of_experience) {
+      checkExperienceRequirements(value);
+    }
+  };
+
+  const checkExperienceRequirements = (experienceValue: string) => {
+    if (!jobData?.years_of_experience || !experienceValue) return;
+    
+    const candidateExperience = parseFloat(experienceValue);
+    if (isNaN(candidateExperience)) return;
+    
+    // Extract required experience from job data
+    let requiredExperience = 0;
+    if (typeof jobData.years_of_experience === 'number') {
+      requiredExperience = jobData.years_of_experience;
+    } else if (typeof jobData.years_of_experience === 'string') {
+      // Extract number from string like "5 years" or "3-5 years"
+      const numbers = jobData.years_of_experience.match(/\d+(?:\.\d+)?/);
+      if (numbers) {
+        requiredExperience = parseFloat(numbers[0]);
+      }
+    }
+    
+    if (candidateExperience < requiredExperience) {
+      setExperienceWarning({
+        show: true,
+        required: requiredExperience,
+        candidate: candidateExperience,
+        message: `This job requires ${requiredExperience} years of experience, but you have ${candidateExperience} years.`
+      });
+    } else {
+      setExperienceWarning(null);
+    }
   };
 
   const handleFileSelect = (file: File) => {
@@ -209,6 +277,8 @@ export default function JobApplicationForm({
       formData.name,
       formData.email,
       formData.phone,
+      parseFloat(formData.expectedSalary),
+      parseFloat(formData.yearsOfExperience),
       selectedFile!
     );
     
@@ -302,6 +372,42 @@ export default function JobApplicationForm({
             <p className="text-sm text-red-600 mt-1">{formErrors.phone}</p>
           )}
         </div>
+        
+        <div>
+          <div className="relative">
+            <span className="absolute left-3 top-3 text-neutral-500 font-semibold">AED</span>
+            <Input
+              type="number"
+              placeholder="Expected Salary per month"
+              value={formData.expectedSalary}
+              onChange={(e) => handleInputChange('expectedSalary', e.target.value)}
+              className={`pl-12 ${formErrors.expectedSalary ? 'border-red-500' : ''}`}
+              min="0"
+              step="0.01"
+            />
+          </div>
+          {formErrors.expectedSalary && (
+            <p className="text-sm text-red-600 mt-1">{formErrors.expectedSalary}</p>
+          )}
+        </div>
+        
+        <div>
+          <div className="relative">
+            <span className="absolute left-3 top-3 text-neutral-500 font-semibold">Yrs</span>
+            <Input
+              type="number"
+              placeholder="Years of Experience"
+              value={formData.yearsOfExperience}
+              onChange={(e) => handleInputChange('yearsOfExperience', e.target.value)}
+              className={`pl-12 ${formErrors.yearsOfExperience ? 'border-red-500' : ''}`}
+              min="0"
+              step="0.1"
+            />
+          </div>
+          {formErrors.yearsOfExperience && (
+            <p className="text-sm text-red-600 mt-1">{formErrors.yearsOfExperience}</p>
+          )}
+        </div>
       </div>
       
       {/* CV Upload */}
@@ -390,6 +496,41 @@ export default function JobApplicationForm({
           <p className="text-sm text-red-600">{formErrors.file}</p>
         )}
       </div>
+      
+      {/* Experience Warning Popup */}
+      {experienceWarning && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <AlertCircle className="w-6 h-6 text-amber-600" />
+              <h3 className="text-lg font-semibold text-gray-900">Experience Requirement Notice</h3>
+            </div>
+            <p className="text-gray-700 mb-6">
+              {experienceWarning.message}
+            </p>
+            <div className="flex space-x-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setExperienceWarning(null)}
+                className="flex-1"
+              >
+                Edit Experience
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setExperienceWarning(null);
+                  // Continue with application despite warning
+                }}
+                className="flex-1 bg-amber-600 hover:bg-amber-700"
+              >
+                Apply Anyway
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Submit Buttons */}
       <div className="flex space-x-3">

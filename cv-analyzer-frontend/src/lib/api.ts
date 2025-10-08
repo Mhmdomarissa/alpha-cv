@@ -479,12 +479,16 @@ async getPublicJob(token: string): Promise<PublicJobView> {
     applicantName: string,
     applicantEmail: string, 
     applicantPhone: string | undefined,
+    expectedSalary: number,
+    yearsOfExperience: number,
     cvFile: File
   ): Promise<JobApplicationResponse> {
     const formData = new FormData();
     formData.append('applicant_name', applicantName);
     formData.append('applicant_email', applicantEmail);
     if (applicantPhone) formData.append('applicant_phone', applicantPhone);
+    formData.append('expected_salary', expectedSalary.toString());
+    formData.append('years_of_experience', yearsOfExperience.toString());
     formData.append('cv_file', cvFile);
     
     const response = await this.client.post<JobApplicationResponse>(
@@ -736,8 +740,8 @@ export const api = {
   listJobPostings: (includeInactive: boolean = false) => 
   RequestRetryHandler.withRetry(() => apiClient.listJobPostings(includeInactive)),
   getPublicJob: (token: string) => RequestRetryHandler.withRetry(() => apiClient.getPublicJob(token)),
-  submitJobApplication: (token: string, name: string, email: string, phone: string | undefined, cvFile: File) => 
-    RequestRetryHandler.withRetry(() => apiClient.submitJobApplication(token, name, email, phone, cvFile)),
+  submitJobApplication: (token: string, name: string, email: string, phone: string | undefined, expectedSalary: number, yearsOfExperience: number, cvFile: File) => 
+    RequestRetryHandler.withRetry(() => apiClient.submitJobApplication(token, name, email, phone, expectedSalary, yearsOfExperience, cvFile)),
   getJobApplications: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobApplications(jobId)),
 
   

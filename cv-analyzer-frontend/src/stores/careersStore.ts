@@ -54,6 +54,8 @@ interface CareersActions {
     name: string, 
     email: string, 
     phone: string | undefined, 
+    expectedSalary: number,
+    yearsOfExperience: number,
     cvFile: File
   ) => Promise<JobApplicationResponse | null>;
   
@@ -464,7 +466,7 @@ loadPublicJob: async (token: string) => {
     });
   }
 },
-  submitApplication: async (token: string, name: string, email: string, phone: string | undefined, cvFile: File) => {
+  submitApplication: async (token: string, name: string, email: string, phone: string | undefined, expectedSalary: number, yearsOfExperience: number, cvFile: File) => {
     set({ isSubmittingApplication: true, error: null });
     try {
       logger.info('Submitting job application', { 
@@ -474,7 +476,7 @@ loadPublicJob: async (token: string) => {
         cvFileName: cvFile.name
       });
       
-      const result = await api.submitJobApplication(token, name, email, phone, cvFile);
+      const result = await api.submitJobApplication(token, name, email, phone, expectedSalary, yearsOfExperience, cvFile);
       
       logger.info('Application submitted successfully', { 
         applicationId: result.application_id 

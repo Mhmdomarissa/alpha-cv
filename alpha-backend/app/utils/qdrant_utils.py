@@ -1125,6 +1125,9 @@ class QdrantUtils:
                 "application_date": application_date,
                 "application_status": "pending",
                 "cover_letter": applicant_data.get("cover_letter"),
+                "expected_salary": applicant_data.get("expected_salary"),
+                "years_of_experience": applicant_data.get("years_of_experience"),
+                "experience_warning": applicant_data.get("experience_warning"),
                 "is_job_application": True
             })
             

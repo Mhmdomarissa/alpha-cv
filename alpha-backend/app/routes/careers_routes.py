@@ -16,7 +16,7 @@ import tempfile
 import shutil
 import mimetypes
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends, status
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends, status, BackgroundTasks
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.requests import Request
 import os
@@ -41,6 +41,7 @@ from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils
 from app.deps.auth import require_admin, require_user
 from app.models.user import User
+from app.routes.cv_routes import process_cv_async
 
 # Storage directory for job application CVs
 STORAGE_DIR = os.getenv("CV_UPLOAD_DIR", "/data/uploads/cv")
@@ -180,10 +181,13 @@ async def get_public_job(public_token: str) -> PublicJobView:
 @router.post("/jobs/{public_token}/apply", response_model=JobApplicationResponse)
 async def apply_to_job(
     public_token: str,
+    background_tasks: BackgroundTasks,
     applicant_name: str = Form(..., min_length=2, max_length=100),
     applicant_email: str = Form(...),
     applicant_phone: Optional[str] = Form(None),
     cover_letter: Optional[str] = Form(None),
+    expected_salary: float = Form(..., description="Expected salary in AED"),
+    years_of_experience: float = Form(..., description="Years of experience"),
     cv_file: UploadFile = File(...),
     background_processing: bool = Form(True)  # Enable async processing by default
 ) -> JobApplicationResponse:
@@ -233,11 +237,45 @@ async def apply_to_job(
             dest_filename = f"{application_id}{file_ext}"
             dest_path = os.path.join(STORAGE_DIR, dest_filename)
             
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            
             with open(dest_path, 'wb') as f:
                 f.write(file_content)
             persisted_path = dest_path
             logger.info(f"✅ Stored CV file: {dest_path}")
+            
+            # Verify the file was saved correctly
+            if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
+                logger.info(f"✅ Verified CV file saved: {dest_path} ({os.path.getsize(dest_path)} bytes)")
+            else:
+                logger.error(f"❌ Failed to save CV file: {dest_path}")
+                persisted_path = None
         
+        # Check experience requirements and create warning if needed
+        experience_warning = None
+        if job_data.get("years_of_experience"):
+            try:
+                # Extract required experience from job data
+                required_experience = 0
+                if isinstance(job_data["years_of_experience"], (int, float)):
+                    required_experience = float(job_data["years_of_experience"])
+                elif isinstance(job_data["years_of_experience"], str):
+                    # Extract number from string like "5 years" or "3-5 years"
+                    import re
+                    numbers = re.findall(r'\d+(?:\.\d+)?', job_data["years_of_experience"])
+                    if numbers:
+                        required_experience = float(numbers[0])
+                
+                if years_of_experience < required_experience:
+                    experience_warning = {
+                        "required": required_experience,
+                        "candidate": years_of_experience,
+                        "message": f"This job requires {required_experience} years of experience, but you have {years_of_experience} years."
+                    }
+            except (ValueError, TypeError):
+                pass  # Skip validation if parsing fails
+
         if background_processing:
             # ENTERPRISE ASYNC PROCESSING: Queue for background processing with priority
             from app.services.enhanced_job_queue import get_enterprise_job_queue, JobPriority
@@ -250,6 +288,9 @@ async def apply_to_job(
                 "applicant_email": applicant_email,
                 "applicant_phone": applicant_phone,
                 "cover_letter": cover_letter,
+                "expected_salary": expected_salary,
+                "years_of_experience": years_of_experience,
+                "experience_warning": experience_warning,
                 "cv_file_path": persisted_path,
                 "cv_filename": cv_file.filename,
                 "content_type": cv_file.content_type,
@@ -328,14 +369,16 @@ async def apply_to_job(
             "applicant_email": applicant_email,
             "applicant_phone": applicant_phone,
             "cover_letter": cover_letter,
+            "expected_salary": expected_salary,
+            "years_of_experience": years_of_experience,
+            "experience_warning": experience_warning,
             "public_token": public_token,
             "job_title": job_data.get("job_title", "Position"),
             "company_name": job_data.get("company_name", "Alpha Data Recruitment")
         }
         
         # Start background processing
-        import asyncio
-        asyncio.create_task(process_cv_async(cv_data))
+        background_tasks.add_task(process_cv_async, cv_data)
         
         # Return immediate response
         return JobApplicationResponse(
@@ -994,6 +1037,8 @@ async def get_job_applications(
                 applicant_email=app.get("applicant_email", "unknown@email.com"),
                 application_date=app.get("application_date", "Unknown"),
                 cv_filename=app.get("cv_filename", "unknown.pdf"),
+                expected_salary=app.get("expected_salary"),
+                years_of_experience=app.get("years_of_experience"),
                 match_score=None,  # TODO: Calculate match score if needed
                 status=app.get("status", "pending")
             )
