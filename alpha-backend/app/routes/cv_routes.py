@@ -182,7 +182,8 @@ async def process_cv_async(cv_data: dict) -> dict:
                 "years_of_experience": cv_data.get("years_of_experience"),
                 "experience_warning": cv_data.get("experience_warning"),
                 "application_date": _now_iso(),
-                "application_status": "processed"
+                "application_status": "processed",
+                "cv_filename": cv_data.get("filename")  # Preserve original filename for downloads
             })
         
         # Create storage tasks (run in thread pool to avoid blocking)

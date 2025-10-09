@@ -331,24 +331,19 @@ async def apply_to_job(
         from app.routes.cv_routes import process_cv_async
         
         # Extract text using parsing service (synchronous part)
-        import tempfile
-        file_ext = '.' + cv_file.filename.split('.')[-1].lower() if '.' in cv_file.filename else '.txt'
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
-            tmp.write(file_content)
-            tmp_path = tmp.name
+        # Use the persisted file instead of creating a temporary file
+        if not persisted_path or not os.path.exists(persisted_path):
+            raise HTTPException(status_code=500, detail="CV file was not properly stored")
         
         try:
             parsing_service = get_parsing_service()
-            parsed = parsing_service.process_document(tmp_path, "cv")
+            parsed = parsing_service.process_document(persisted_path, "cv")
             extracted_text = parsed["clean_text"]
             raw_content = parsed["raw_text"]
             extracted_pii = parsed.get("extracted_pii", {"email": [], "phone": []})
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+        except Exception as e:
+            logger.error(f"❌ Failed to parse CV file {persisted_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to process CV file: {str(e)}")
         
         if not extracted_text or len(extracted_text.strip()) < 50:
             raise HTTPException(status_code=400, detail="Could not extract sufficient text from CV. Please check the file format.")

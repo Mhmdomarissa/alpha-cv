@@ -114,7 +114,9 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
             "document_type": "cv",
             "expected_salary": application_data.get("expected_salary"),
             "years_of_experience": application_data.get("years_of_experience"),
-            "experience_warning": application_data.get("experience_warning")
+            "experience_warning": application_data.get("experience_warning"),
+            "is_job_application": True,
+            "cv_filename": application_data.get("cv_filename")  # Preserve original filename for downloads
         })
         
         await asyncio.to_thread(

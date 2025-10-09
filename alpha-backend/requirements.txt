@@ -13,10 +13,10 @@ pydantic==2.8.2
 pydantic-settings==2.2.1
 email-validator==2.1.1
 requests==2.32.3
-numpy==1.26.4
+numpy>=1.26.0,<2.0.0
 sentence-transformers==2.7.0
-scikit-learn==1.4.2
-scipy==1.13.1
+scikit-learn>=1.3.0,<1.5.0
+scipy>=1.11.0,<1.14.0
 sqlmodel==0.0.14
 SQLAlchemy>=2.0.0
 passlib[argon2,bcrypt]==1.7.4

@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # Development Frontend (runs on port 3001)
+  frontend-dev:
+    build:
+      context: ./cv-analyzer-frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://13.62.91.25:8001
+    ports:
+      - "3001:3000"  # Different port for dev
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://13.62.91.25:8001
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  # Development Backend (runs on port 8001)
+  backend-dev:
+    build:
+      context: ./alpha-backend
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"  # Different port for dev
+    env_file:
+      - .env.dev
+    volumes:
+      - ./alpha-backend:/app
+    networks:
+      - dev-network
+    depends_on:
+      - postgres-dev
+      - qdrant-dev
+    restart: unless-stopped
+
+  # Development PostgreSQL (runs on port 5434)
+  postgres-dev:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=cv_analyzer_dev
+    ports:
+      - "5434:5432"  # Different port for dev
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  # Development Qdrant (runs on port 6335)
+  qdrant-dev:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6335:6333"  # Different port for dev
+    volumes:
+      - qdrant-dev-data:/qdrant/storage
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+networks:
+  dev-network:
+    driver: bridge
+
+volumes:
+  postgres-dev-data:
+  qdrant-dev-data:

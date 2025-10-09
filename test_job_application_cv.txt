@@ -1,7 +1,0 @@
-Mike Johnson
-Frontend Developer
-4 years experience
-Skills: React, Vue.js, TypeScript, CSS, HTML
-Responsibilities: Build user interfaces, Optimize performance, Collaborate with designers
-Email: mike.johnson@example.com
-Phone: +971501234568
