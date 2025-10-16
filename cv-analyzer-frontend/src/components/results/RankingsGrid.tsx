@@ -2,14 +2,13 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { 
-  Play, Settings, Trophy, TrendingUp, Users, Target, BarChart3, Zap, Filter, Download, Eye, ArrowUpDown, Award, Brain, Star, CheckCircle, Lightbulb
+  Play, Trophy, TrendingUp, Users, Target, BarChart3, Zap, Filter, Download, Eye, ArrowUpDown, Award, Brain, Star, CheckCircle, Lightbulb
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-enhanced';
 import { Button } from '@/components/ui/button-enhanced';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading';
-import WeightsPanel from './WeightsPanel';
 import CandidateDetail from './CandidateDetail';
 import { formatPercentage, getScoreBadgeVariant, getMatchQualityColor, getMatchQualityLabel } from '@/lib/utils';
 import { CandidateBreakdown } from '@/lib/types';
@@ -28,7 +27,6 @@ export default function RankingsGrid() {
     selectAllCVs
   } = useAppStore();
   
-  const [showWeights, setShowWeights] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateBreakdown | null>(null);
   const [sortBy, setSortBy] = useState<'overall' | 'skills' | 'responsibilities' | 'title' | 'experience'>('overall');
   const [filterThreshold, setFilterThreshold] = useState(0);
@@ -144,15 +142,6 @@ export default function RankingsGrid() {
             Analytics
           </Button>
           <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowWeights(!showWeights)}
-            className="transition-all duration-300 hover:shadow-md"
-          >
-            <Settings className="h-4 w-4 mr-2" />
-            Weights
-          </Button>
-          <Button
             onClick={handleRunMatch}
             disabled={!selectedJD || isMatching}
             variant="primary"
@@ -252,8 +241,6 @@ export default function RankingsGrid() {
         </CardContent>
       </Card>
       
-      {/* Weights Panel */}
-      {showWeights && <WeightsPanel />}
       
       {/* Error Display */}
       {matchError && (
@@ -471,7 +458,7 @@ export default function RankingsGrid() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-3">
                   <div className="p-2 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl shadow-md">
-                    <Settings className="h-5 w-5 text-white" />
+                    <Target className="h-5 w-5 text-white" />
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold">Algorithm Configuration</h3>

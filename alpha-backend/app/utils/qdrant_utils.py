@@ -4,6 +4,8 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import hashlib
 import uuid
+import gzip
+import base64
 
 import numpy as np
 from qdrant_client import QdrantClient
@@ -19,6 +21,31 @@ from qdrant_client.http.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+def compress_content(content: str) -> str:
+    """Compress content using gzip and encode as base64."""
+    if not content:
+        return ""
+    compressed = gzip.compress(content.encode('utf-8'))
+    return base64.b64encode(compressed).decode('ascii')
+
+def decompress_content(compressed_content: str) -> str:
+    """Decompress base64-encoded gzip content."""
+    if not compressed_content:
+        return ""
+    try:
+        compressed = base64.b64decode(compressed_content.encode('ascii'))
+        return gzip.decompress(compressed).decode('utf-8')
+    except Exception as e:
+        logger.warning(f"Failed to decompress content: {e}")
+        return compressed_content  # Return as-is if decompression fails
+
+def get_decompressed_content(payload: Dict[str, Any]) -> str:
+    """Get decompressed raw_content from document payload."""
+    raw_content = payload.get("raw_content", "")
+    if payload.get("raw_content_compressed", False):
+        return decompress_content(raw_content)
+    return raw_content
 
 class QdrantUtils:
     """
@@ -163,7 +190,8 @@ class QdrantUtils:
                 "id": doc_id,
                 "filename": filename,
                 "file_format": file_format,
-                "raw_content": raw_content,
+                "raw_content": compress_content(raw_content),
+                "raw_content_compressed": True,
                 "upload_date": upload_date,
                 "content_hash": hashlib.md5(raw_content.encode()).hexdigest(),
                 "document_type": doc_type,
@@ -186,14 +214,13 @@ class QdrantUtils:
     def store_structured_data(self, doc_id: str, doc_type: str, structured_data: Dict[str, Any]) -> bool:
         """
         Store standardized JSON into {doc_type}_structured with a dummy 768 vector.
-        structured_data expected to include "document_id" and "structured_info".
+        structured_data expected to include "structured_info".
         """
         try:
             collection_name = f"{doc_type}_structured"
             dummy_vector = [0.0] * 768
             payload = {
                 "id": doc_id,
-                "document_id": doc_id,
                 "structured_info": structured_data.get("structured_info", structured_data),
                 "stored_at": datetime.utcnow().isoformat(),
             }
@@ -236,15 +263,12 @@ class QdrantUtils:
                 id=doc_id,  # Use doc_id as the point ID for direct access
                 vector=dummy_vector,
                 payload={
-                    "document_id": doc_id,
                     "vector_structure": vector_structure,
                     "metadata": {
-                        "skills": embeddings_data.get("skills", []),
-                        "responsibilities": embeddings_data.get("responsibilities", []),
                         "experience_years": embeddings_data.get("experience_years", ""),
                         "job_title": embeddings_data.get("job_title", ""),
                         "vector_count": 32,
-                        "storage_version": "optimized_v1"
+                        "storage_version": "optimized_v2"
                     }
                 }
             )
@@ -306,7 +330,7 @@ class QdrantUtils:
             points, _ = self.client.scroll(
                 collection_name=f"{doc_type}_embeddings",
                 scroll_filter=Filter(
-                    must=[FieldCondition(key="document_id", match=MatchValue(value=doc_id))]
+                    must=[FieldCondition(key="id", match=MatchValue(value=doc_id))]
                 ),
                 limit=50,
                 with_payload=True,
@@ -387,7 +411,7 @@ class QdrantUtils:
                 self.client.delete(
                     collection_name=f"{doc_type}_embeddings",
                     points_selector=FilterSelector(
-                        filter=Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=doc_id))])
+                        filter=Filter(must=[FieldCondition(key="id", match=MatchValue(value=doc_id))])
                     ),
                 )
                 logger.info(f"✅ LEGACY: Deleted multiple points for {doc_id} from {doc_type}_embeddings")
@@ -432,7 +456,7 @@ class QdrantUtils:
             for p in pts:
                 si = p.payload.get("structured_info", {})
                 out.append({
-                    "id": p.payload.get("document_id", str(p.id)),
+                    "id": str(p.id),
                     "name": si.get("full_name", si.get("name", str(p.id))),
                     "category": si.get("category", "General"),
                 })
@@ -463,41 +487,45 @@ class QdrantUtils:
             )
             
             # Get document metadata for all CVs
-            doc_ids = [p.payload.get("document_id", str(p.id)) for p in pts]
+            doc_ids = [str(p.id) for p in pts]
             docs_map = {}
             if doc_ids:
                 docs_pts, _ = self.client.scroll(
                     collection_name="cv_documents",
                     scroll_filter=Filter(
-                        must=[FieldCondition(key="document_id", match=MatchAny(any=doc_ids))]
+                        must=[FieldCondition(key="id", match=MatchAny(any=doc_ids))]
                     ),
                     limit=1000,
                     with_payload=True,
                     with_vectors=False,
                 )
-                docs_map = {p.payload.get("document_id", str(p.id)): p.payload for p in docs_pts}
+                docs_map = {str(p.id): p.payload for p in docs_pts}
             
             # Build enhanced CV list with full details
             enhanced = []
             for p in pts:
-                doc_id = p.payload.get("document_id", str(p.id))
+                doc_id = str(p.id)
                 payload = p.payload
                 structured = payload.get("structured_info", {})
                 doc_meta = docs_map.get(doc_id, {})
 
-                skills = structured.get("skills", [])
-                resps = structured.get("responsibilities", structured.get("responsibility_sentences", []))
+                skills = structured.get("skills_sentences", structured.get("skills", []))
+                resps = structured.get("responsibility_sentences", structured.get("responsibilities", []))
+
+                # Clean up filename - extract just the filename from path
+                filename = doc_meta.get("filename", "Unknown")
+                if filename and "/" in filename:
+                    filename = filename.split("/")[-1]  # Get just the filename, not the full path
 
                 enhanced.append({
                     "id": doc_id,
-                    "filename": doc_meta.get("filename", "Unknown"),
+                    "filename": filename,
                     "upload_date": doc_meta.get("upload_date", "Unknown"),
                     "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
-                    "job_title": structured.get("job_title", "Not specified"),                    "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
+                    "job_title": structured.get("job_title", "Not specified"),
+                    "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
                     "skills_count": len(skills),
-                    "skills": skills,
                     "responsibilities_count": len(resps),
-                    "text_length": len(doc_meta.get("raw_content", "")),
                     "has_structured_data": True,
                     "category": structured.get("category", "General")
                 })
@@ -1100,7 +1128,7 @@ class QdrantUtils:
             current_point = self.client.scroll(
                 collection_name=collection_name,
                 scroll_filter=Filter(
-                    must=[FieldCondition(key="document_id", match=MatchValue(value=application_id))]
+                    must=[FieldCondition(key="id", match=MatchValue(value=application_id))]
                 ),
                 limit=1,
                 with_payload=True,

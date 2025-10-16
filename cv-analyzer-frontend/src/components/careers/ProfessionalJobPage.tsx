@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-e
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingCard } from '@/components/ui/loading';
 import JobApplicationForm from './JobApplicationForm';
+import MoreOpenings from './MoreOpenings';
 
 interface ProfessionalJobPageProps {
   token: string;
@@ -232,6 +233,13 @@ export default function ProfessionalJobPage({ token }: ProfessionalJobPageProps)
                 </div>
               </div>
             )}
+          </div>
+
+          {/* More Openings Section */}
+          <div className="mt-16 pt-8 border-t border-gray-200 animate-slide-in-up">
+            <div className="job-section-card">
+              <MoreOpenings currentJobToken={token} />
+            </div>
           </div>
         </div>
       </div>

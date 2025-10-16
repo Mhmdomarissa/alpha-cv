@@ -957,7 +957,7 @@ async def view_database() -> JSONResponse:
             pl = p.payload or {}
             s = pl.get("structured_info", pl)
             formatted_cvs.append({
-                "id": pl.get("id") or pl.get("document_id") or str(p.id),
+                "id": str(p.id),
                 "name": s.get("full_name", s.get("name", "Unknown")),
                 "filename": s.get("filename", "Unknown"),
                 "job_title": s.get("job_title", "Not specified"),
@@ -974,7 +974,7 @@ async def view_database() -> JSONResponse:
             pl = p.payload or {}
             s = pl.get("structured_info", pl)
             formatted_jds.append({
-                "id": pl.get("id") or pl.get("document_id") or str(p.id),
+                "id": str(p.id),
                 "filename": s.get("filename", "Unknown"),
                 "job_title": s.get("job_title", "Not specified"),
                 "required_skills": len(s.get("skills", [])),

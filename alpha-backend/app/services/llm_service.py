@@ -519,9 +519,6 @@ class LLMService:
             "category": data.get("category"),
             "skills_sentences": skills,
             "responsibility_sentences": resps,
-            # Back-compat aliases
-            "skills": skills,
-            "responsibilities": resps,
             "contact_info": {"name": data.get("name")},
         }
         return out
@@ -543,9 +540,6 @@ class LLMService:
             "category": data.get("category"),
             "skills_sentences": skills,
             "responsibility_sentences": resps,
-            # Back-compat aliases
-            "skills": skills,
-            "responsibilities": resps,
         }
         return out
 

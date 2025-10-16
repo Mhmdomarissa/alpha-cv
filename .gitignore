@@ -79,3 +79,36 @@ Desktop.ini
 *.bin
 *.dat
 *.dump
+
+# Shell history and config
+.bash_history
+.bash_logout
+.bashrc
+.profile
+.sudo_as_admin_successful
+.wget-hsts
+
+# User config directories
+.config/
+.local/
+.ssh/
+.npm/
+
+# Snap packages
+snap/
+
+# Backup and maintenance scripts (if not needed in repo)
+backup_system.sh
+cleanup_qdrant.sh
+enable-maintenance.sh
+disable-maintenance.sh
+maintenance.html
+nginx-maintenance-simple.conf
+docker-compose.yml.backup*
+
+# Claude AI files
+.claude.json
+.claude/
+
+# Certbot
+certbot/

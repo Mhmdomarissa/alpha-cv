@@ -535,6 +535,40 @@ body {
   min-height: 100vh;
 }
 
+/* More Openings Section Styles */
+.more-openings-section {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 16px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.more-openings-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(0);
+}
+
+.more-openings-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+.more-openings-card .apply-button {
+  transition: all 0.2s ease-in-out;
+  transform: scale(1);
+}
+
+.more-openings-card:hover .apply-button {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 82, 155, 0.4);
+}
+
+/* Staggered animation for job cards */
+.more-openings-card:nth-child(1) { animation-delay: 0.1s; }
+.more-openings-card:nth-child(2) { animation-delay: 0.2s; }
+.more-openings-card:nth-child(3) { animation-delay: 0.3s; }
+.more-openings-card:nth-child(4) { animation-delay: 0.4s; }
+.more-openings-card:nth-child(5) { animation-delay: 0.5s; }
+
 .job-section-card {
   background: white;
   border: 1px solid var(--gray-200);
