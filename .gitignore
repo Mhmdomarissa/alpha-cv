@@ -1,134 +1,81 @@
-# System files
-.DS_Store
-Thumbs.db
+# AWS Credentials - NEVER COMMIT THESE
+.aws/
+*.pem
+*.key
 
-# Shell history and cache
-.bash_history
-.cache/
-.cursor-server/
-.vscode-server/
-.ssh/
-.dotnet/
-.config/
-.npm/
-.local/
-snap/
-.wget-hsts
-.sudo_as_admin_successful
+# Environment files with secrets
+.env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
-env/
-venv/
-.venv/
-pip-log.txt
-pip-delete-this-directory.txt
-.pytest_cache/
-
-# Node.js
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# Next.js
-.next/
-out/
-
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env.dev
-
-# IDEs
-.vscode/
-.idea/
-.cursor/
-.claude/
-*.swp
-*.swo
-
-# Logs
-logs
-*.log
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage directory used by tools like istanbul
-coverage/
-
-# Docker
-.dockerignore
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Test files (keep some important ones but exclude debug files)
-debug_*.html
-debug_*.json
-*.tmp
-
-# Project specific files to ignore
-uploaded_files/
-*.pid
-*.seed
-*.pid.lock
-performance_benchmark_results.json
-cv_filenames.txt
-jd_filenames.txt
-
-# TypeScript build files
-tsconfig.tsbuildinfo
-
-# Build outputs
+*.so
+*.egg
+*.egg-info/
 dist/
 build/
-
-# Temporary files
-*.temp
-*.backup
-*.bak
-
-# Database files
-*.db
-*.sqlite
-*.sqlite3
+.venv/
+venv/
+env/
+ENV/
 
 # LLM Cache
 .llm_cache/
-alpha-backend/.llm_cache/
+*.cache
 
-# Linux system files
-.lesshst
-.bash_history
-.bashrc
-.profile
-.gitconfig
-*.lock
+# Node
+node_modules/
+.next/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# SSL/Certificate files
-certbot/
+# Docker
+docker-compose.override.yml
 
-# System process and session files
-*.session
-*.state
-**/accounts/.env.backup.*
+# IDE & Editor
+.vscode/
+.idea/
+.cursor/
+.cursor-server/
+*.swp
+*.swo
+*.sublime-*
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Cache & Temp
+nginx-cache/
+tmp/
+temp/
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Backups
 backups/
+*.backup
+*.bak
+*.old
+
+# Database
+*.db
+*.sqlite
+*.sql
+
+# System
+.Trash/
+Desktop.ini
+
+# Large binary files
+*.bin
+*.dat
+*.dump

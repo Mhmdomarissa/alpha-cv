@@ -38,7 +38,8 @@ from app.schemas.careers import (
 from app.services.parsing_service import get_parsing_service
 from app.services.llm_service import get_llm_service  
 from app.services.embedding_service import get_embedding_service
-from app.utils.qdrant_utils import get_qdrant_utils
+from app.utils.qdrant_utils import get_qdrant_utils, get_decompressed_content
+from app.services.s3_storage import get_s3_storage_service
 from app.deps.auth import require_admin, require_user
 from app.models.user import User
 from app.routes.cv_routes import process_cv_async
@@ -79,6 +80,79 @@ def _now_iso() -> str:
     return datetime.utcnow().isoformat()
 
 # ==================== PUBLIC ENDPOINTS (No Authentication) ====================
+
+@router.get("/jobs/recent", response_model=List[JobPostingSummary])
+async def get_recent_job_postings(limit: int = 5) -> List[JobPostingSummary]:
+    """
+    Public endpoint: Get recent job postings (no authentication required)
+    
+    Returns the most recent active job postings for display on public job pages.
+    Used to show "More Openings" section to candidates.
+    """
+    try:
+        logger.info(f"📄 Getting recent {limit} job postings")
+        
+        qdrant = get_qdrant_utils()
+        # Get all active job postings
+        job_postings = qdrant.get_all_job_postings(
+            include_inactive=False,  # Only active jobs
+            posted_by_user=None,
+            user_role=None  # No role filtering for public access
+        )
+        
+        # Sort by upload_date (newest first) and limit
+        job_postings.sort(key=lambda x: x.get("upload_date", x.get("created_date", x.get("stored_at", ""))), reverse=True)
+        recent_jobs = job_postings[:limit]
+        
+        summaries = []
+        for job in recent_jobs:
+            # Extract job details from merged job data
+            structured_info = job.get("structured_info", {})
+            
+            job_title = structured_info.get("job_title", "") or job.get("job_title", "Position Available")
+            job_location = structured_info.get("job_location", "") or structured_info.get("location", "")
+            job_summary = structured_info.get("job_summary", "") or structured_info.get("summary", "")
+            
+            # Get responsibilities and skills
+            responsibilities_list = structured_info.get("responsibilities", [])
+            if responsibilities_list and isinstance(responsibilities_list, list):
+                key_responsibilities = "\n".join([f"• {resp}" for resp in responsibilities_list])
+            else:
+                key_responsibilities = ""
+            
+            skills_list = structured_info.get("skills", []) or structured_info.get("requirements", [])
+            if skills_list and isinstance(skills_list, list):
+                qualifications = "\n".join([f"• {skill}" for skill in skills_list])
+            else:
+                qualifications = ""
+            
+            summary = JobPostingSummary(
+                job_id=job["id"],
+                job_title=job_title,
+                job_location=job_location,
+                job_summary=job_summary,
+                key_responsibilities=key_responsibilities,
+                qualifications=qualifications,
+                company_name=job.get("company_name"),
+                upload_date=job.get("created_date", job.get("upload_date", _now_iso())),
+                filename=job.get("filename", "job_description.pdf"),
+                is_active=job.get("is_active", True),
+                application_count=0,  # Not needed for public view
+                public_token=job.get("public_token") or "unknown",
+                posted_by_user=job.get("posted_by_user"),
+                posted_by_role=job.get("posted_by_role"),
+                can_edit=False,  # Public access - no edit permissions
+                can_delete=False  # Public access - no delete permissions
+            )
+            summaries.append(summary)
+        
+        logger.info(f"✅ Returning {len(summaries)} recent job postings")
+        return summaries
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get recent job postings: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve recent job postings")
+
 
 @router.get("/jobs/{public_token}", response_model=PublicJobView)
 async def get_public_job(public_token: str) -> PublicJobView:
@@ -230,26 +304,36 @@ async def apply_to_job(
         if len(file_content) > MAX_FILE_SIZE:
             raise HTTPException(status_code=400, detail=f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB")
         
-        # Store CV file immediately for background processing
+        # Store CV file in S3 for job applications
         persisted_path = None
         if cv_file.filename:
             file_ext = os.path.splitext(cv_file.filename)[1].lower() or '.pdf'
-            dest_filename = f"{application_id}{file_ext}"
-            dest_path = os.path.join(STORAGE_DIR, dest_filename)
             
-            # Ensure the directory exists
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            # Save to temp file first
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                tmp.write(file_content)
+                tmp_path = tmp.name
             
-            with open(dest_path, 'wb') as f:
-                f.write(file_content)
-            persisted_path = dest_path
-            logger.info(f"✅ Stored CV file: {dest_path}")
-            
-            # Verify the file was saved correctly
-            if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
-                logger.info(f"✅ Verified CV file saved: {dest_path} ({os.path.getsize(dest_path)} bytes)")
-            else:
-                logger.error(f"❌ Failed to save CV file: {dest_path}")
+            # Upload to S3
+            s3_service = get_s3_storage_service()
+            try:
+                persisted_path = s3_service.upload_file(tmp_path, application_id, "cv", file_ext)
+                logger.info(f"✅ Job application CV uploaded to S3: {persisted_path}")
+                
+                # Cleanup temp file
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.error(f"❌ Failed to upload job application CV to S3: {e}")
+                # Cleanup temp file
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+                # Don't fail the application if S3 upload fails
                 persisted_path = None
         
         # Check experience requirements and create warning if needed
@@ -330,19 +414,54 @@ async def apply_to_job(
         # Import the optimized CV processing function
         from app.routes.cv_routes import process_cv_async
         
-        # Extract text using parsing service (synchronous part)
-        # Use the persisted file instead of creating a temporary file
-        if not persisted_path or not os.path.exists(persisted_path):
-            raise HTTPException(status_code=500, detail="CV file was not properly stored")
-        
+        # Extract text using parsing service
+        # Check if file is in S3 or local
+        temp_file_path = None
         try:
-            parsing_service = get_parsing_service()
-            parsed = parsing_service.process_document(persisted_path, "cv")
-            extracted_text = parsed["clean_text"]
-            raw_content = parsed["raw_text"]
-            extracted_pii = parsed.get("extracted_pii", {"email": [], "phone": []})
+            if persisted_path and persisted_path.startswith('s3://'):
+                # Download from S3 to temp file for processing
+                logger.info(f"📥 Downloading application CV from S3 for processing: {persisted_path}")
+                file_ext = os.path.splitext(cv_file.filename)[1].lower() or '.pdf'
+                
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                    temp_file_path = tmp.name
+                
+                # Download from S3
+                s3_service = get_s3_storage_service()
+                s3_service.download_file(application_id, "cv", file_ext, temp_file_path)
+                
+                # Parse the downloaded file
+                parsing_service = get_parsing_service()
+                parsed = parsing_service.process_document(temp_file_path, "cv")
+                extracted_text = parsed["clean_text"]
+                raw_content = parsed["raw_text"]
+                extracted_pii = parsed.get("extracted_pii", {"email": [], "phone": []})
+                
+                # Cleanup temp file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
+            elif persisted_path and os.path.exists(persisted_path):
+                # Local file (legacy or fallback)
+                parsing_service = get_parsing_service()
+                parsed = parsing_service.process_document(persisted_path, "cv")
+                extracted_text = parsed["clean_text"]
+                raw_content = parsed["raw_text"]
+                extracted_pii = parsed.get("extracted_pii", {"email": [], "phone": []})
+            else:
+                raise HTTPException(status_code=500, detail="CV file was not properly stored")
+                
         except Exception as e:
             logger.error(f"❌ Failed to parse CV file {persisted_path}: {e}")
+            # Cleanup temp file if it exists
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
             raise HTTPException(status_code=500, detail=f"Failed to process CV file: {str(e)}")
         
         if not extracted_text or len(extracted_text.strip()) < 50:
@@ -526,7 +645,6 @@ async def post_job(
         # Store structured data in JD collection
         jd_structured_payload = {
             **llm_result,
-            "document_id": job_id,
             "document_type": "jd"
         }
         success_steps.append(
@@ -659,7 +777,6 @@ Additional Information:
         # Store structured data in jd_structured collection (reuse existing infrastructure)
         jd_structured_payload = {
             **llm_result,
-            "document_id": job_id,
             "document_type": "jd"
         }
         success_steps.append(
@@ -1051,9 +1168,6 @@ async def get_job_applications(
 
 # ==================== UTILITY ENDPOINTS ====================
 
-
-
-
 @router.post("/admin/jobs/{jd_id}/extract-ui-data")
 async def extract_jd_for_ui(jd_id: str) -> dict:
     """
@@ -1071,7 +1185,7 @@ async def extract_jd_for_ui(jd_id: str) -> dict:
             raise HTTPException(status_code=404, detail="JD not found")
         
         # Use raw content and send to LLM for auto-fill (as requested)
-        raw_content = jd_doc.get("raw_content", "")
+        raw_content = get_decompressed_content(jd_doc)
         
         if not raw_content:
             raise HTTPException(status_code=400, detail="No raw content found in JD document")

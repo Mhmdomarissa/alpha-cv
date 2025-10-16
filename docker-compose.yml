@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   # =======================
-  # Backend (FastAPI) - Memory Optimized for g4dn.xlarge
+  # Backend (FastAPI) - Memory Optimized for g4dn.2xlarge
   # =======================
   backend:
     build: ./alpha-backend
@@ -11,6 +11,13 @@ services:
     env_file:
       - ./.env
     runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     environment:
       NODE_ENV: "production"
       ENVIRONMENT: "production"
@@ -24,18 +31,18 @@ services:
       QDRANT_PORT: 6333
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_MAXMEMORY: "12gb"
+      REDIS_MAXMEMORY: "18gb"
       REDIS_MAXMEMORY_POLICY: "allkeys-lru"
-      MAX_GLOBAL_CONCURRENT: "1600"
-      CIRCUIT_BREAKER_THRESHOLD: "200"
+      MAX_GLOBAL_CONCURRENT: "3200"
+      CIRCUIT_BREAKER_THRESHOLD: "400"
       CIRCUIT_BREAKER_RECOVERY_TIME: "300"
-      MIN_QUEUE_WORKERS: "12"
-      MAX_QUEUE_WORKERS: "40"
-      QUEUE_SIZE_THRESHOLD: "10000"
+      MIN_QUEUE_WORKERS: "16"
+      MAX_QUEUE_WORKERS: "64"
+      QUEUE_SIZE_THRESHOLD: "20000"
       MEMORY_THRESHOLD_MB: "24576"
       CPU_THRESHOLD_PERCENT: "85"
       PYTHON_MEMORY_LIMIT: "24576"
-      UVICORN_WORKERS: "20"
+      UVICORN_WORKERS: "16"
       # Heavy load optimizations for 20 concurrent users
       WORKER_CONNECTIONS: "4096"
       KEEPALIVE_TIMEOUT: "65"
@@ -75,15 +82,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 20G
+          memory: 24G
           cpus: '7.0'
         reservations:
-          memory: 10G
-          cpus: '5.0'
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+          memory: 12G
+          cpus: '4.0'
 
   # =======================
   # Frontend (Next.js) - Memory Optimized
@@ -191,7 +194,7 @@ services:
       QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_REQUESTS: 2000
       QDRANT__STORAGE__PERFORMANCE__MAX_OPTIMIZATION_THREADS: 16
       QDRANT__SERVICE__MAX_REQUEST_SIZE_MB: 512
-      QDRANT__STORAGE__WAL__WAL_CAPACITY_MB: 4096
+      QDRANT__STORAGE__WAL__WAL_CAPACITY_MB: 256
       QDRANT__STORAGE__PERFORMANCE__MAX_PAYLOAD_SIZE_MB: 128
       QDRANT__STORAGE__PERFORMANCE__MAX_VECTOR_SIZE: 4096
       QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_RESULTS: 10000
@@ -199,10 +202,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 12G
+          memory: 18G
           cpus: '5.0'
         reservations:
-          memory: 6G
+          memory: 10G
           cpus: '3.0'
 
   # =======================
@@ -214,18 +217,18 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 12gb --maxmemory-policy allkeys-lru --tcp-keepalive 60 --timeout 300 --maxclients 2000
+    command: redis-server --appendonly yes --maxmemory 18gb --maxmemory-policy allkeys-lru --tcp-keepalive 60 --timeout 300 --maxclients 3000
     restart: unless-stopped
     networks:
       - cv-network
     deploy:
       resources:
         limits:
-          memory: 12G
-          cpus: '2.5'
+          memory: 18G
+          cpus: '3.0'
         reservations:
-          memory: 3G
-          cpus: '1.5'
+          memory: 6G
+          cpus: '2.0'
 
   # =======================
   # Nginx - Lightweight proxy
@@ -237,6 +240,7 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx-cache:/var/cache/nginx
+      - ./maintenance.html:/usr/share/nginx/html/maintenance.html:ro
     depends_on:
       backend:
         condition: service_healthy

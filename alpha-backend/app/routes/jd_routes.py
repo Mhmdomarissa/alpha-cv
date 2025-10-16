@@ -17,7 +17,8 @@ from pydantic import BaseModel
 from app.services.parsing_service import get_parsing_service
 from app.services.llm_service import get_llm_service
 from app.services.embedding_service import get_embedding_service
-from app.utils.qdrant_utils import get_qdrant_utils
+from app.utils.qdrant_utils import get_qdrant_utils, get_decompressed_content
+from app.services.s3_storage import get_s3_storage_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -93,11 +94,12 @@ async def upload_jd(
                 raw_content = parsed["raw_text"]
                 extracted_text = parsed["clean_text"]
                 filename = file.filename
-            finally:
+            except Exception as e:
                 try:
                     os.unlink(tmp_path)
-                except Exception:
+                except:
                     pass
+                raise e
 
         elif jd_text:
             logger.info("Processing JD text input")
@@ -126,32 +128,76 @@ async def upload_jd(
         #   skill_vectors[20], responsibility_vectors[10], experience_vector[1], job_title_vector[1]
         #   plus: skills, responsibilities, experience_years, job_title
 
-        # ---- Step 3: Store across Qdrant collections ----
-        logger.info("---------- STEP 3: DATABASE STORAGE ----------")
-        qdrant = get_qdrant_utils()
+        # ---- Step 3: Store file in S3 (if uploaded as file) ----
+        logger.info("---------- STEP 3: S3 STORAGE ----------")
         jd_id = str(uuid.uuid4())
+        persisted_path = None
+        
+        if file:
+            # Upload original file to S3
+            s3_service = get_s3_storage_service()
+            try:
+                persisted_path = s3_service.upload_file(tmp_path, jd_id, "jd", file_ext)
+                logger.info(f"✅ JD file uploaded to S3: {persisted_path}")
+                # Cleanup temp file
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to upload JD to S3: {e}")
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+        elif jd_text:
+            # Save text to temp file then upload to S3
+            s3_service = get_s3_storage_service()
+            try:
+                import tempfile, shutil
+                dest_filename = f"{jd_id}.txt"
+                dest_path = os.path.join("/tmp", dest_filename)
+                with open(dest_path, "w", encoding="utf-8") as f:
+                    f.write(raw_content or extracted_text or "")
+                persisted_path = s3_service.upload_file(dest_path, jd_id, "jd", ".txt")
+                logger.info(f"✅ JD text uploaded to S3: {persisted_path}")
+                # Cleanup temp file
+                try:
+                    os.unlink(dest_path)
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to upload JD text to S3: {e}")
+        
+        # ---- Step 4: Store metadata in Qdrant ----
+        logger.info("---------- STEP 4: DATABASE STORAGE ----------")
+        qdrant = get_qdrant_utils()
+        
+        import mimetypes
+        mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
-        # 3a) Raw doc
+        # 4a) Raw doc (with S3 reference)
         qdrant.store_document(
             doc_id=jd_id,
             doc_type="jd",
             filename=filename,
             file_format=file_ext.lstrip("."),
             raw_content=raw_content,
-            upload_date=_now_iso()
+            upload_date=_now_iso(),
+            file_path=persisted_path,
+            mime_type=mime_type
         )
 
-        # 3b) Structured
+        # 4b) Structured
         qdrant.store_structured_data(
             doc_id=jd_id,
             doc_type="jd",
             structured_data={
-                "document_id": jd_id,
                 "structured_info": standardized
             }
         )
 
-        # 3c) EXACT embeddings
+        # 4c) EXACT embeddings
         qdrant.store_embeddings_exact(
             doc_id=jd_id,
             doc_type="jd",
@@ -227,24 +273,28 @@ async def list_jds() -> JSONResponse:
         enhanced = []
         for p in all_structured:
             payload = p.payload or {}
-            doc_id = payload.get("id") or payload.get("document_id") or str(p.id)
+            doc_id = str(p.id)
             structured = payload.get("structured_info", {})
             doc_meta = docs_map.get(doc_id, {})
 
-            skills = structured.get("skills", [])
-            resps = structured.get("responsibilities", structured.get("responsibility_sentences", []))
+            skills = structured.get("skills_sentences", structured.get("skills", []))
+            resps = structured.get("responsibility_sentences", structured.get("responsibilities", []))
 
+            # Clean up filename - extract just the filename from path
+            filename = doc_meta.get("filename", "Unknown")
+            if filename and "/" in filename:
+                filename = filename.split("/")[-1]  # Get just the filename, not the full path
+            
             enhanced.append({
                 "id": doc_id,
-                "filename": doc_meta.get("filename", "Unknown"),
+                "filename": filename,
                 "upload_date": doc_meta.get("upload_date", "Unknown"),
                 "job_title": structured.get("job_title", "Not specified"),
                 "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
                 "skills_count": len(skills),
-                "skills": skills,
                 "responsibilities_count": len(resps),
-                "text_length": len(doc_meta.get("raw_content", "")),
-                "has_structured_data": True
+                "has_structured_data": True,
+                "category": structured.get("category", "General")
             })
 
         # Sort newest first when possible
@@ -277,25 +327,68 @@ async def get_jd_details(jd_id: str) -> JSONResponse:
         d = qdrant.client.retrieve("jd_documents", ids=[jd_id], with_payload=True, with_vectors=False)
         doc_meta = (d[0].payload if d else {}) or {}
 
-        # Embeddings info
-        emb_points, _ = qdrant.client.scroll(
-            collection_name="jd_embeddings",
-            scroll_filter={"must": [{"key": "document_id", "match": {"value": jd_id}}]},
-            limit=100,
-            with_payload=True,
-            with_vectors=True
-        )
-        skills_count = len([p for p in emb_points if (p.payload or {}).get("vector_type") == "skill"])
-        resp_count = len([p for p in emb_points if (p.payload or {}).get("vector_type") == "responsibility"])
-        has_title = any((p.payload or {}).get("vector_type") == "job_title" for p in emb_points)
-        has_exp = any((p.payload or {}).get("vector_type") == "experience" for p in emb_points)
-        dim = 0
-        for p in emb_points:
-            if isinstance(p.vector, list):
-                dim = len(p.vector)
-                break
+        # Embedding info - handle both optimized and legacy storage
+        try:
+            # Try optimized single-point retrieval first
+            emb_point = qdrant.client.retrieve(
+                collection_name="jd_embeddings",
+                ids=[jd_id],
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            if emb_point and len(emb_point) > 0:
+                payload = emb_point[0].payload
+                if payload and "vector_structure" in payload:
+                    # Optimized storage - single point with vector_structure
+                    vector_structure = payload["vector_structure"]
+                    skills_count = len(vector_structure.get("skill_vectors", []))
+                    resp_count = len(vector_structure.get("responsibility_vectors", []))
+                    has_title = len(vector_structure.get("job_title_vector", [])) > 0
+                    has_exp = len(vector_structure.get("experience_vector", [])) > 0
+                    # Get dimension from first skill vector if available
+                    dim = len(vector_structure.get("skill_vectors", [[]])[0]) if vector_structure.get("skill_vectors") else 0
+                else:
+                    # Legacy storage - multiple points
+                    emb_points, _ = qdrant.client.scroll(
+                        collection_name="jd_embeddings",
+                        scroll_filter={"must": [{"key": "id", "match": {"value": jd_id}}]},
+                        limit=100,
+                        with_payload=True,
+                        with_vectors=True
+                    )
+                    skills_count = len([p for p in emb_points if (p.payload or {}).get("vector_type") == "skill"])
+                    resp_count = len([p for p in emb_points if (p.payload or {}).get("vector_type") == "responsibility"])
+                    has_title = any((p.payload or {}).get("vector_type") == "job_title" for p in emb_points)
+                    has_exp = any((p.payload or {}).get("vector_type") == "experience" for p in emb_points)
+                    dim = 0
+                    for p in emb_points:
+                        if isinstance(p.vector, list):
+                            dim = len(p.vector)
+                            break
+            else:
+                # No embeddings found
+                skills_count = resp_count = 0
+                has_title = has_exp = False
+                dim = 0
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to get embeddings info for {jd_id}: {e}")
+            skills_count = resp_count = 0
+            has_title = has_exp = False
+            dim = 0
 
-        responsibilities = structured.get("responsibilities", structured.get("responsibility_sentences", []))
+        # Handle both old and new data structures
+        skills = structured.get("skills_sentences", structured.get("skills", []))
+        responsibilities = structured.get("responsibility_sentences", structured.get("responsibilities", []))
+
+        # Create optimized structured_info without duplicates
+        optimized_structured = structured.copy()
+        # Remove duplicate skills and responsibilities from structured_info
+        # Frontend should use job_requirements.skills and job_requirements.responsibilities instead
+        if "skills" in optimized_structured:
+            del optimized_structured["skills"]
+        if "responsibilities" in optimized_structured:
+            del optimized_structured["responsibilities"]
 
         response = {
             "id": jd_id,
@@ -305,14 +398,10 @@ async def get_jd_details(jd_id: str) -> JSONResponse:
             "job_requirements": {
                 "job_title": structured.get("job_title", "Not specified"),
                 "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
-                "skills": structured.get("skills", []),
+                "skills": skills,
                 "responsibilities": responsibilities,
-                "skills_count": len(structured.get("skills", [])),
+                "skills_count": len(skills),
                 "responsibilities_count": len(responsibilities)
-            },
-            "text_info": {
-                "extracted_text_length": len(doc_meta.get("raw_content", "")),
-                "extracted_text_preview": (doc_meta.get("raw_content", "")[:500] + "...") if len(doc_meta.get("raw_content", "")) > 500 else doc_meta.get("raw_content", "")
             },
             "embeddings_info": {
                 "skills_embeddings": skills_count,
@@ -321,7 +410,7 @@ async def get_jd_details(jd_id: str) -> JSONResponse:
                 "has_experience_embedding": has_exp,
                 "embedding_dimension": dim,
             },
-            "structured_info": structured,
+            "structured_info": optimized_structured,
             "processing_metadata": structured.get("processing_metadata", {})
         }
 
@@ -354,7 +443,7 @@ async def delete_jd(jd_id: str) -> JSONResponse:
         # Delete embeddings points by collecting their ids
         emb_points, _ = qdrant.client.scroll(
             collection_name="jd_embeddings",
-            scroll_filter={"must": [{"key": "document_id", "match": {"value": jd_id}}]},
+            scroll_filter={"must": [{"key": "id", "match": {"value": jd_id}}]},
             limit=1000,
             with_payload=False,
             with_vectors=False
@@ -393,7 +482,7 @@ async def reprocess_jd(jd_id: str) -> JSONResponse:
         if not doc:
             raise HTTPException(status_code=404, detail=f"JD not found: {jd_id}")
         filename = doc[0].payload.get("filename", "reprocessed_jd.txt")
-        raw_content = doc[0].payload.get("raw_content", "")
+        raw_content = get_decompressed_content(doc[0].payload)
 
         if not raw_content:
             raise HTTPException(status_code=400, detail="No stored raw content to reprocess")
@@ -408,14 +497,13 @@ async def reprocess_jd(jd_id: str) -> JSONResponse:
 
         # Replace structured
         qdrant.store_structured_data(jd_id, "jd", {
-            "document_id": jd_id,
             "structured_info": standardized
         })
 
         # Remove old embeddings and store new ones
         emb_points, _ = qdrant.client.scroll(
             collection_name="jd_embeddings",
-            scroll_filter={"must": [{"key": "document_id", "match": {"value": jd_id}}]},
+            scroll_filter={"must": [{"key": "id", "match": {"value": jd_id}}]},
             limit=2000,
             with_payload=False,
             with_vectors=False
@@ -461,7 +549,7 @@ async def get_jd_embeddings_info(jd_id: str) -> JSONResponse:
         # Pull embedding points
         points, _ = qdrant.client.scroll(
             collection_name="jd_embeddings",
-            scroll_filter={"must": [{"key": "document_id", "match": {"value": jd_id}}]},
+            scroll_filter={"must": [{"key": "id", "match": {"value": jd_id}}]},
             limit=2000,
             with_payload=True,
             with_vectors=True

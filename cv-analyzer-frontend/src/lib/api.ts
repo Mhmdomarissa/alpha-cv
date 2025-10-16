@@ -474,6 +474,16 @@ async getPublicJob(token: string): Promise<PublicJobView> {
   }
 }
 
+  async getRecentJobPostings(limit: number = 5): Promise<JobPostingListItem[]> {
+    try {
+      const response = await this.client.get<JobPostingListItem[]>(`/api/careers/jobs/recent?limit=${limit}`);
+      return response.data;
+    } catch (error: any) {
+      logger.error('Failed to get recent job postings:', error);
+      throw error;
+    }
+  }
+
   async submitJobApplication(
     token: string, 
     applicantName: string,
@@ -740,6 +750,7 @@ export const api = {
   listJobPostings: (includeInactive: boolean = false) => 
   RequestRetryHandler.withRetry(() => apiClient.listJobPostings(includeInactive)),
   getPublicJob: (token: string) => RequestRetryHandler.withRetry(() => apiClient.getPublicJob(token)),
+  getRecentJobPostings: (limit: number = 5) => RequestRetryHandler.withRetry(() => apiClient.getRecentJobPostings(limit)),
   submitJobApplication: (token: string, name: string, email: string, phone: string | undefined, expectedSalary: number, yearsOfExperience: number, cvFile: File) => 
     RequestRetryHandler.withRetry(() => apiClient.submitJobApplication(token, name, email, phone, expectedSalary, yearsOfExperience, cvFile)),
   getJobApplications: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobApplications(jobId)),

@@ -6,12 +6,9 @@ import {
   TrendingUp,
   Users,
   Award,
-  ChevronDown,
-  ChevronUp,
   BarChart3,
   Eye,
   Download,
-  Settings,
   Star,
   Filter,
   Briefcase,
@@ -122,7 +119,6 @@ export default function MatchingPageNew() {
   const { applications } = useCareersStore();
   
   const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
-  const [showWeights, setShowWeights] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>('score');
   const [filterThreshold, setFilterThreshold] = useState(0);
   const [downloadingCV, setDownloadingCV] = useState<string | null>(null);
@@ -546,16 +542,6 @@ export default function MatchingPageNew() {
       {/* Controls */}
       <motion.div {...fadeInUp} className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowWeights((s) => !s)}
-            className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-          >
-            <Settings className="w-4 h-4 mr-2" />
-            {showWeights ? 'Hide' : 'Show'} Weights
-            {showWeights ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
-          </button>
-          
-          
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortKey)}
@@ -603,87 +589,6 @@ export default function MatchingPageNew() {
           </button>
         </div>
       </motion.div>
-      
-      {/* Weights Panel */}
-      <AnimatePresence initial={false}>
-        {showWeights && (
-          <motion.div
-            key="weights"
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.2 }}
-            className="bg-white rounded-xl shadow-sm p-6 border border-gray-200"
-          >
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-indigo-50">
-                <Brain className="w-5 h-5 text-indigo-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Matching Weights</h3>
-                <p className="text-sm text-gray-600">Defaults: Skills 80%, Responsibilities 15%, Title 2.5%, Experience 2.5%</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {(['skills', 'responsibilities', 'job_title', 'experience'] as const).map((key) => {
-                const raw = matchWeights?.[key] ?? DEFAULT_WEIGHTS[key];
-                const pct = Math.round(normWeights[key] * 100);
-                const labelMap: Record<typeof key, string> = {
-                  skills: 'Skills',
-                  responsibilities: 'Responsibilities',
-                  job_title: 'Job Title',
-                  experience: 'Experience (Years)',
-                } as any;
-                return (
-                  <div key={key} className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="font-medium text-sm text-gray-800">{labelMap[key]}</label>
-                      <span className="text-sm font-semibold text-indigo-600">{pct}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={raw}
-                      onChange={(e) =>
-                        setMatchWeights?.({
-                          ...(matchWeights ?? DEFAULT_WEIGHTS),
-                          [key]: parseFloat(e.target.value),
-                        })
-                      }
-                      className="w-full h-2 rounded-lg appearance-none cursor-pointer"
-                      style={{
-                        background: `linear-gradient(to right, #6366f1 0%, #6366f1 ${Math.max(
-                          0,
-                          Math.min(100, raw * 100)
-                        )}%, #e5e7eb ${Math.max(0, Math.min(100, raw * 100))}%, #e5e7eb 100%)`,
-                      }}
-                    />
-                    <div className="text-xs text-gray-500">
-                      {key === 'skills' && 'Technical & domain skills alignment'}
-                      {key === 'responsibilities' && 'Responsibility / task alignment'}
-                      {key === 'job_title' && 'Title similarity'}
-                      {key === 'experience' && 'Years of experience fit'}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-6 flex items-center justify-between">
-              <div className="text-xs text-gray-500">Weights are normalized automatically to total 100%.</div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setMatchWeights?.({ ...DEFAULT_WEIGHTS })}
-                  className="px-3 py-2 text-sm rounded-md border border-gray-300 hover:bg-gray-50"
-                >
-                  Reset to Defaults
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
       
       {/* Ranked Candidates */}
       <motion.div {...fadeInUp} className="bg-white rounded-xl shadow-sm border border-gray-200">

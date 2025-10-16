@@ -16,7 +16,8 @@ from pydantic import BaseModel
 from app.services.parsing_service import get_parsing_service
 from app.services.llm_service import get_llm_service
 from app.services.embedding_service import get_embedding_service
-from app.utils.qdrant_utils import get_qdrant_utils
+from app.utils.qdrant_utils import get_qdrant_utils, get_decompressed_content
+from app.services.s3_storage import get_s3_storage_service
 # at top of the file
 import mimetypes
 import shutil
@@ -165,7 +166,6 @@ async def process_cv_async(cv_data: dict) -> dict:
         
         # Prepare structured data with job application info if applicable
         structured_payload = {
-            "document_id": cv_id,
             "structured_info": standardized
         }
         
@@ -356,26 +356,35 @@ async def upload_cv(
                 "mime_type": mimetypes.guess_type(filename)[0] or "application/octet-stream"
             }
             
-            # Store file immediately
+            # Store file in S3
+            s3_service = get_s3_storage_service()
             try:
                 if file:
-                    dest_filename = f"{cv_id}{file_ext}"
-                    dest_path = os.path.join(STORAGE_DIR, dest_filename)
-                    shutil.copyfile(tmp_path, dest_path)
-                    cv_data["persisted_path"] = dest_path
+                    # Upload to S3
+                    s3_uri = s3_service.upload_file(tmp_path, cv_id, "cv", file_ext)
+                    cv_data["persisted_path"] = s3_uri
+                    cv_data["storage_type"] = "s3"
                     # cleanup tmp
                     try:
                         os.unlink(tmp_path)
                     except Exception:
                         pass
                 else:
+                    # Save text to temp file then upload to S3
                     dest_filename = f"{cv_id}.txt"
-                    dest_path = os.path.join(STORAGE_DIR, dest_filename)
+                    dest_path = os.path.join("/tmp", dest_filename)
                     with open(dest_path, "w", encoding="utf-8") as f:
                         f.write(raw_content or extracted_text or "")
-                    cv_data["persisted_path"] = dest_path
+                    s3_uri = s3_service.upload_file(dest_path, cv_id, "cv", ".txt")
+                    cv_data["persisted_path"] = s3_uri
+                    cv_data["storage_type"] = "s3"
+                    # cleanup tmp
+                    try:
+                        os.unlink(dest_path)
+                    except Exception:
+                        pass
             except Exception as e:
-                logger.warning(f"⚠️ Failed to persist original file: {e}")
+                logger.warning(f"⚠️ Failed to persist original file to S3: {e}")
             
             # Start background processing
             import asyncio
@@ -416,28 +425,31 @@ async def upload_cv(
         logger.info("---------- STEP 3: DATABASE STORAGE ----------")
         qdrant = get_qdrant_utils()
         
-        # Persist the original file (or synthesize a .txt if text input)
+        # Persist the original file to S3
+        s3_service = get_s3_storage_service()
         try:
             if file:
-                # name by cv_id to avoid collisions
-                dest_filename = f"{cv_id}{file_ext}"
-                dest_path = os.path.join(STORAGE_DIR, dest_filename)
-                shutil.copyfile(tmp_path, dest_path)
-                persisted_path = dest_path
+                # Upload to S3
+                persisted_path = s3_service.upload_file(tmp_path, cv_id, "cv", file_ext)
                 # cleanup tmp
                 try:
                     os.unlink(tmp_path)
                 except Exception:
                     pass
             else:
-                # save text as a .txt so it can be downloaded later
+                # save text to temp file then upload to S3
                 dest_filename = f"{cv_id}.txt"
-                dest_path = os.path.join(STORAGE_DIR, dest_filename)
+                dest_path = os.path.join("/tmp", dest_filename)
                 with open(dest_path, "w", encoding="utf-8") as f:
                     f.write(raw_content or extracted_text or "")
-                persisted_path = dest_path
+                persisted_path = s3_service.upload_file(dest_path, cv_id, "cv", ".txt")
+                # cleanup tmp
+                try:
+                    os.unlink(dest_path)
+                except Exception:
+                    pass
         except Exception as e:
-            logger.warning(f"⚠️ Failed to persist original file: {e}")
+            logger.warning(f"⚠️ Failed to persist original file to S3: {e}")
             persisted_path = None
         
         mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
@@ -459,7 +471,6 @@ async def upload_cv(
             doc_id=cv_id,
             doc_type="cv",
             structured_data={
-                "document_id": cv_id,
                 "structured_info": standardized
             }
         )
@@ -543,25 +554,29 @@ async def list_cvs() -> JSONResponse:
         enhanced = []
         for p in all_structured:
             payload = p.payload or {}
-            doc_id = payload.get("id") or payload.get("document_id") or str(p.id)
+            doc_id = str(p.id)
             structured = payload.get("structured_info", {})
             doc_meta = docs_map.get(doc_id, {})
 
-            skills = structured.get("skills", [])
-            resps = structured.get("responsibilities", structured.get("responsibility_sentences", []))
+            skills = structured.get("skills_sentences", structured.get("skills", []))
+            resps = structured.get("responsibility_sentences", structured.get("responsibilities", []))
 
+            # Clean up filename - extract just the filename from path
+            filename = doc_meta.get("filename", "Unknown")
+            if filename and "/" in filename:
+                filename = filename.split("/")[-1]  # Get just the filename, not the full path
+            
             enhanced.append({
                 "id": doc_id,
-                "filename": doc_meta.get("filename", "Unknown"),
+                "filename": filename,
                 "upload_date": doc_meta.get("upload_date", "Unknown"),
                 "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
                 "job_title": structured.get("job_title", "Not specified"),
                 "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
                 "skills_count": len(skills),
-                "skills": skills,
                 "responsibilities_count": len(resps),
-                "text_length": len(doc_meta.get("raw_content", "")),
-                "has_structured_data": True
+                "has_structured_data": True,
+                "category": structured.get("category", "General")
             })
 
         enhanced.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
@@ -635,25 +650,68 @@ async def get_cv_details(cv_id: str) -> JSONResponse:
         d = qdrant.client.retrieve("cv_documents", ids=[cv_id], with_payload=True, with_vectors=False)
         doc_meta = (d[0].payload if d else {}) or {}
 
-        # Embedding points
-        emb_points, _ = qdrant.client.scroll(
-            collection_name="cv_embeddings",
-            scroll_filter={"must": [{"key": "document_id", "match": {"value": cv_id}}]},
-            limit=100,
-            with_payload=True,
-            with_vectors=True
-        )
-        skills_count = len([p for p in emb_points if (p.payload or {}).get("vector_type") == "skill"])
-        resp_count = len([p for p in emb_points if (p.payload or {}).get("vector_type") == "responsibility"])
-        has_title = any((p.payload or {}).get("vector_type") == "job_title" for p in emb_points)
-        has_exp = any((p.payload or {}).get("vector_type") == "experience" for p in emb_points)
-        dim = 0
-        for p in emb_points:
-            if isinstance(p.vector, list):
-                dim = len(p.vector)
-                break
+        # Embedding info - handle both optimized and legacy storage
+        try:
+            # Try optimized single-point retrieval first
+            emb_point = qdrant.client.retrieve(
+                collection_name="cv_embeddings",
+                ids=[cv_id],
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            if emb_point and len(emb_point) > 0:
+                payload = emb_point[0].payload
+                if payload and "vector_structure" in payload:
+                    # Optimized storage - single point with vector_structure
+                    vector_structure = payload["vector_structure"]
+                    skills_count = len(vector_structure.get("skill_vectors", []))
+                    resp_count = len(vector_structure.get("responsibility_vectors", []))
+                    has_title = len(vector_structure.get("job_title_vector", [])) > 0
+                    has_exp = len(vector_structure.get("experience_vector", [])) > 0
+                    # Get dimension from first skill vector if available
+                    dim = len(vector_structure.get("skill_vectors", [[]])[0]) if vector_structure.get("skill_vectors") else 0
+                else:
+                    # Legacy storage - multiple points
+                    emb_points, _ = qdrant.client.scroll(
+                        collection_name="cv_embeddings",
+                        scroll_filter={"must": [{"key": "id", "match": {"value": cv_id}}]},
+                        limit=100,
+                        with_payload=True,
+                        with_vectors=True
+                    )
+                    skills_count = len([p for p in emb_points if (p.payload or {}).get("vector_type") == "skill"])
+                    resp_count = len([p for p in emb_points if (p.payload or {}).get("vector_type") == "responsibility"])
+                    has_title = any((p.payload or {}).get("vector_type") == "job_title" for p in emb_points)
+                    has_exp = any((p.payload or {}).get("vector_type") == "experience" for p in emb_points)
+                    dim = 0
+                    for p in emb_points:
+                        if isinstance(p.vector, list):
+                            dim = len(p.vector)
+                            break
+            else:
+                # No embeddings found
+                skills_count = resp_count = 0
+                has_title = has_exp = False
+                dim = 0
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to get embeddings info for {cv_id}: {e}")
+            skills_count = resp_count = 0
+            has_title = has_exp = False
+            dim = 0
 
-        responsibilities = structured.get("responsibilities", structured.get("responsibility_sentences", []))
+        # Handle both old and new data structures
+        skills = structured.get("skills_sentences", structured.get("skills", []))
+        responsibilities = structured.get("responsibility_sentences", structured.get("responsibilities", []))
+
+        # Create optimized structured_info without duplicates
+        optimized_structured = structured.copy()
+        # Remove duplicate skills and responsibilities from structured_info
+        # Frontend should use candidate.skills and candidate.responsibilities instead
+        if "skills" in optimized_structured:
+            del optimized_structured["skills"]
+        if "responsibilities" in optimized_structured:
+            del optimized_structured["responsibilities"]
 
         response = {
             "id": cv_id,
@@ -665,15 +723,11 @@ async def get_cv_details(cv_id: str) -> JSONResponse:
                 "full_name": structured.get("contact_info", {}).get("name") or structured.get("full_name", "Not specified"),
                 "job_title": structured.get("job_title", "Not specified"),
                 "years_of_experience": structured.get("years_of_experience", structured.get("experience_years", "Not specified")),
-                "skills": structured.get("skills", []),
+                "skills": skills,
                 "responsibilities": responsibilities,
-                "skills_count": len(structured.get("skills", [])),
+                "skills_count": len(skills),
                 "responsibilities_count": len(responsibilities),
                 "contact_info": structured.get("contact_info", {})
-            },
-            "text_info": {
-                "extracted_text_length": len(doc_meta.get("raw_content", "")),
-                "extracted_text_preview": (doc_meta.get("raw_content", "")[:500] + "...") if len(doc_meta.get("raw_content", "")) > 500 else doc_meta.get("raw_content", "")
             },
             "embeddings_info": {
                 "skills_embeddings": skills_count,
@@ -682,7 +736,7 @@ async def get_cv_details(cv_id: str) -> JSONResponse:
                 "has_experience_embedding": has_exp,
                 "embedding_dimension": dim,
             },
-            "structured_info": structured,
+            "structured_info": optimized_structured,
             "processing_metadata": structured.get("processing_metadata", {})
         }
 
@@ -717,20 +771,34 @@ async def delete_cv(cv_id: str) -> JSONResponse:
       - cv_documents
       - cv_structured
       - cv_embeddings (all vectors with document_id == cv_id)
+      - S3 file storage
     """
     try:
         qdrant = get_qdrant_utils()
 
-        # Check existence
+        # Check existence and get file info
         s = qdrant.client.retrieve("cv_structured", ids=[cv_id], with_payload=True)
         if not s:
             raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
-        filename = (qdrant.client.retrieve("cv_documents", ids=[cv_id], with_payload=True) or [{}])[0].payload.get("filename", cv_id)
+        
+        doc_payload = (qdrant.client.retrieve("cv_documents", ids=[cv_id], with_payload=True) or [{}])[0].payload
+        filename = doc_payload.get("filename", cv_id)
+        file_path = doc_payload.get("file_path", "")
+        
+        # Delete from S3 if stored there
+        if file_path and file_path.startswith('s3://'):
+            try:
+                s3_service = get_s3_storage_service()
+                file_ext = os.path.splitext(filename)[1] or '.pdf'
+                s3_service.delete_file(cv_id, "cv", file_ext)
+                logger.info(f"✅ Deleted CV file from S3: {cv_id}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to delete CV from S3: {e}")
 
         # Delete embedding points
         emb_points, _ = qdrant.client.scroll(
             collection_name="cv_embeddings",
-            scroll_filter={"must": [{"key": "document_id", "match": {"value": cv_id}}]},
+            scroll_filter={"must": [{"key": "id", "match": {"value": cv_id}}]},
             limit=1000,
             with_payload=False,
             with_vectors=False
@@ -769,7 +837,7 @@ async def reprocess_cv(cv_id: str) -> JSONResponse:
         if not doc:
             raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
         filename = doc[0].payload.get("filename", "reprocessed_cv.txt")
-        raw_content = doc[0].payload.get("raw_content", "")
+        raw_content = get_decompressed_content(doc[0].payload)
 
         if not raw_content:
             raise HTTPException(status_code=400, detail="No stored raw content to reprocess")
@@ -784,14 +852,13 @@ async def reprocess_cv(cv_id: str) -> JSONResponse:
 
         # Replace structured
         qdrant.store_structured_data(cv_id, "cv", {
-            "document_id": cv_id,
             "structured_info": standardized
         })
 
         # Remove old embeddings and store new ones
         emb_points, _ = qdrant.client.scroll(
             collection_name="cv_embeddings",
-            scroll_filter={"must": [{"key": "document_id", "match": {"value": cv_id}}]},
+            scroll_filter={"must": [{"key": "id", "match": {"value": cv_id}}]},
             limit=2000,
             with_payload=False,
             with_vectors=False
@@ -834,42 +901,82 @@ async def get_cv_embeddings_info(cv_id: str) -> JSONResponse:
         if not s:
             raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
 
-        # Pull embedding points
-        points, _ = qdrant.client.scroll(
-            collection_name="cv_embeddings",
-            scroll_filter={"must": [{"key": "document_id", "match": {"value": cv_id}}]},
-            limit=2000,
-            with_payload=True,
-            with_vectors=True
-        )
+        # Try optimized single-point retrieval first
+        try:
+            emb_point = qdrant.client.retrieve(
+                collection_name="cv_embeddings",
+                ids=[cv_id],
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            info = {
+                "cv_id": cv_id,
+                "embeddings_found": False,
+                "skills": {"count": 0, "embedding_dimension": 0},
+                "responsibilities": {"count": 0, "embedding_dimension": 0},
+                "title_embedding": False,
+                "experience_embedding": False,
+                "total_embeddings": 0
+            }
+            
+            if emb_point and len(emb_point) > 0:
+                payload = emb_point[0].payload
+                if payload and "vector_structure" in payload:
+                    # Optimized storage - single point with vector_structure
+                    vector_structure = payload["vector_structure"]
+                    info["embeddings_found"] = True
+                    info["skills"]["count"] = len(vector_structure.get("skill_vectors", []))
+                    info["responsibilities"]["count"] = len(vector_structure.get("responsibility_vectors", []))
+                    info["title_embedding"] = len(vector_structure.get("job_title_vector", [])) > 0
+                    info["experience_embedding"] = len(vector_structure.get("experience_vector", [])) > 0
+                    
+                    # Get dimensions from first vectors if available
+                    if vector_structure.get("skill_vectors"):
+                        info["skills"]["embedding_dimension"] = len(vector_structure["skill_vectors"][0])
+                    if vector_structure.get("responsibility_vectors"):
+                        info["responsibilities"]["embedding_dimension"] = len(vector_structure["responsibility_vectors"][0])
+                else:
+                    # Legacy storage - multiple points
+                    points, _ = qdrant.client.scroll(
+                        collection_name="cv_embeddings",
+                        scroll_filter={"must": [{"key": "id", "match": {"value": cv_id}}]},
+                        limit=2000,
+                        with_payload=True,
+                        with_vectors=True
+                    )
+                    
+                    info["embeddings_found"] = bool(points)
+                    
+                    for p in points:
+                        pld = p.payload or {}
+                        vtype = pld.get("vector_type")
+                        if vtype == "skill":
+                            info["skills"]["count"] += 1
+                            if isinstance(p.vector, list) and not info["skills"]["embedding_dimension"]:
+                                info["skills"]["embedding_dimension"] = len(p.vector)
+                        elif vtype == "responsibility":
+                            info["responsibilities"]["count"] += 1
+                            if isinstance(p.vector, list) and not info["responsibilities"]["embedding_dimension"]:
+                                info["responsibilities"]["embedding_dimension"] = len(p.vector)
+                        elif vtype == "job_title":
+                            info["title_embedding"] = True
+                        elif vtype == "experience":
+                            info["experience_embedding"] = True
 
-        info = {
-            "cv_id": cv_id,
-            "embeddings_found": bool(points),
-            "skills": {"count": 0, "embedding_dimension": 0},
-            "responsibilities": {"count": 0, "embedding_dimension": 0},
-            "title_embedding": False,
-            "experience_embedding": False,
-            "total_embeddings": 0
-        }
-
-        for p in points:
-            pld = p.payload or {}
-            vtype = pld.get("vector_type")
-            if vtype == "skill":
-                info["skills"]["count"] += 1
-                if isinstance(p.vector, list) and not info["skills"]["embedding_dimension"]:
-                    info["skills"]["embedding_dimension"] = len(p.vector)
-            elif vtype == "responsibility":
-                info["responsibilities"]["count"] += 1
-                if isinstance(p.vector, list) and not info["responsibilities"]["embedding_dimension"]:
-                    info["responsibilities"]["embedding_dimension"] = len(p.vector)
-            elif vtype == "job_title":
-                info["title_embedding"] = True
-            elif vtype == "experience":
-                info["experience_embedding"] = True
-
-        info["total_embeddings"] = info["skills"]["count"] + info["responsibilities"]["count"] + int(info["title_embedding"]) + int(info["experience_embedding"])
+            info["total_embeddings"] = info["skills"]["count"] + info["responsibilities"]["count"] + int(info["title_embedding"]) + int(info["experience_embedding"])
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to get embeddings info for {cv_id}: {e}")
+            info = {
+                "cv_id": cv_id,
+                "embeddings_found": False,
+                "skills": {"count": 0, "embedding_dimension": 0},
+                "responsibilities": {"count": 0, "embedding_dimension": 0},
+                "title_embedding": False,
+                "experience_embedding": False,
+                "total_embeddings": 0
+            }
 
         return JSONResponse({"status": "success", "embeddings_info": info})
 
@@ -972,8 +1079,66 @@ async def download_cv(cv_id: str):
                 cv_filename = structured_payload.get("cv_filename", "cv.pdf")
                 filename = f"{applicant_name}_{cv_filename}"
 
-    # Serve the persisted file if we have it
-    if filepath and os.path.exists(filepath):
+    # Check if file is in S3
+    if filepath and filepath.startswith('s3://'):
+        # File is stored in S3 - stream it through backend (avoids CORS)
+        s3_service = get_s3_storage_service()
+        file_ext = os.path.splitext(filename)[1] or '.pdf'
+        
+        try:
+            import tempfile
+            # Download from S3 to temp file using the ACTUAL S3 path from database
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                tmp_path = tmp.name
+            
+            # Extract bucket and key from S3 URI
+            # filepath = "s3://bucket-name/cvs/file-id.pdf"
+            s3_parts = filepath.replace('s3://', '').split('/', 1)
+            bucket_name = s3_parts[0]
+            s3_key = s3_parts[1] if len(s3_parts) > 1 else f"cvs/{cv_id}{file_ext}"
+            
+            logger.info(f"📥 Downloading from S3: {bucket_name}/{s3_key}")
+            
+            # Download using boto3 directly with actual path
+            s3_service.s3_client.download_file(bucket_name, s3_key, tmp_path)
+            
+            # Determine MIME type
+            mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            
+            # Stream file to user
+            def cleanup():
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+            
+            response = FileResponse(
+                tmp_path,
+                media_type=mime_type,
+                filename=filename,
+                background=None
+            )
+            # Cleanup temp file after sending
+            import atexit
+            atexit.register(cleanup)
+            return response
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ Failed to download from S3: {e}")
+            # Final fallback to raw_content
+            raw = get_decompressed_content(payload)
+            if raw:
+                logger.info(f"✅ Final fallback to raw_content for {cv_id}")
+                bytes_io = BytesIO(raw.encode("utf-8"))
+                fallback_filename = f"{os.path.splitext(filename)[0]}.txt"
+                headers = {"Content-Disposition": f'attachment; filename="{fallback_filename}"'}
+                return StreamingResponse(bytes_io, media_type="text/plain; charset=utf-8", headers=headers)
+            raise HTTPException(status_code=500, detail="Failed to download file")
+    
+    # Serve the persisted file if we have it (legacy local storage)
+    elif filepath and os.path.exists(filepath):
         # Get the original filename from structured data if available
         original_filename = filename
         structured_res = q.retrieve("cv_structured", ids=[cv_id], with_payload=True, with_vectors=False)
@@ -1000,7 +1165,7 @@ async def download_cv(cv_id: str):
         )
 
     # Fallback: stream raw_content as a .txt download (helps older records)
-    raw = payload.get("raw_content")
+    raw = get_decompressed_content(payload)
     if raw:
         # Try to preserve original filename extension if available
         fallback_filename = filename

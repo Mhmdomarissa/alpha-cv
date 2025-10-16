@@ -55,16 +55,59 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
         if not job_posting:
             raise Exception(f"Job posting not found for token: {public_token}")
         
-        # Step 2: Process CV file
+        # Step 2: Process CV file (handle S3 paths)
         logger.info(f"📄 Processing CV file: {cv_file_path}")
         
-        # Parse CV document
-        parsed = await asyncio.to_thread(parsing_service.process_document, cv_file_path, "cv")
-        cv_raw_text = parsed["clean_text"]
-        extracted_pii = parsed["extracted_pii"]
+        # Check if file is in S3 or local
+        temp_file_path = None
+        try:
+            if cv_file_path and cv_file_path.startswith('s3://'):
+                # Download from S3 to temp file for processing
+                logger.info(f"📥 Downloading CV from S3 for processing: {cv_file_path}")
+                from app.services.s3_storage import get_s3_storage_service
+                import tempfile
+                import os
+                
+                # Extract file extension from filename or default to .pdf
+                file_ext = os.path.splitext(application_data.get("cv_filename", ".pdf"))[1] or ".pdf"
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                    temp_file_path = tmp.name
+                
+                # Download from S3
+                s3_service = get_s3_storage_service()
+                s3_service.download_file(application_data["application_id"], "cv", file_ext, temp_file_path)
+                
+                # Parse the downloaded file
+                parsed = await asyncio.to_thread(parsing_service.process_document, temp_file_path, "cv")
+                cv_raw_text = parsed["clean_text"]
+                extracted_pii = parsed["extracted_pii"]
+                
+                # Cleanup temp file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
+            else:
+                # Local file (legacy or fallback)
+                parsed = await asyncio.to_thread(parsing_service.process_document, cv_file_path, "cv")
+                cv_raw_text = parsed["clean_text"]
+                extracted_pii = parsed["extracted_pii"]
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to parse CV file {cv_file_path}: {e}")
+            # Cleanup temp file if it exists
+            if temp_file_path:
+                try:
+                    import os
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+            raise Exception(f"Failed to process CV: {str(e)}")
         
         # Generate CV standardized data using LLM
-        cv_standardized = await asyncio.to_thread(llm_service.standardize_cv, cv_raw_text, cv_file_path)
+        cv_standardized = await asyncio.to_thread(llm_service.standardize_cv, cv_raw_text, application_data.get("cv_filename", "application.pdf"))
         
         # Merge extracted PII into standardized data
         logger.info("---------- MERGING PII ----------")

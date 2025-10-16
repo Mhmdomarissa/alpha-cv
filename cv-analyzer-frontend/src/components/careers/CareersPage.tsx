@@ -200,9 +200,15 @@ export default function CareersPage() {
 
   // Filter jobs based on selected filter
   const filteredJobs = jobPostings.filter(job => {
-    if (jobFilter === 'all') return true;
+    if (jobFilter === 'all') {
+      // All users can see all jobs
+      return true;
+    }
     if (jobFilter === 'yours') return job.posted_by_user === user?.username;
-    if (jobFilter === 'others') return job.posted_by_user !== user?.username;
+    if (jobFilter === 'others') {
+      // All users can see others' jobs
+      return job.posted_by_user !== user?.username;
+    }
     return true;
   });
 
@@ -306,45 +312,53 @@ export default function CareersPage() {
 
       {/* Role-based information banner */}
       {user.role === 'admin' && (
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-center">
-              <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
-              <p className="text-blue-800 text-sm">
-                <strong>Admin View:</strong> You can see and manage all job postings in the system.
-              </p>
-            </div>
-          </div>
-          
-          {/* Filter Dropdown for Admin */}
-          <div className="flex items-center space-x-3">
-            <Filter className="w-4 h-4 text-gray-500" />
-            <label className="text-sm font-medium text-gray-700">Filter jobs:</label>
-            <select
-              value={jobFilter}
-              onChange={(e) => setJobFilter(e.target.value as 'all' | 'yours' | 'others')}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="all">All Jobs</option>
-              <option value="yours">Your Jobs</option>
-              <option value="others">Others' Jobs</option>
-            </select>
-            <span className="text-xs text-gray-500">
-              Showing {filteredJobs.length} of {jobPostings.length} jobs
-            </span>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
+            <p className="text-blue-800 text-sm">
+              <strong>Admin View:</strong> You can see and manage all job postings in the system.
+            </p>
           </div>
         </div>
       )}
+      
+      {/* Filter Dropdown for All Users */}
+      <div className="flex items-center space-x-3">
+        <Filter className="w-4 h-4 text-gray-500" />
+        <label className="text-sm font-medium text-gray-700">Filter jobs:</label>
+        <select
+          value={jobFilter}
+          onChange={(e) => setJobFilter(e.target.value as 'all' | 'yours' | 'others')}
+          className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+          <option value="all">All Jobs</option>
+          <option value="yours">Your Jobs</option>
+          <option value="others">Others' Jobs</option>
+        </select>
+        <span className="text-xs text-gray-500">
+          Showing {filteredJobs.length} of {jobPostings.length} jobs
+        </span>
+      </div>
       
       {user.role === 'user' && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4">
           <div className="flex items-center">
             <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
             <p className="text-green-800 text-sm">
-              <strong>User View:</strong> You can only see and manage job postings that you created.
+              <strong>User View:</strong> You can see all job postings but can only edit and manage the ones you created.
             </p>
           </div>
         </div>
+      )}
+
+      {/* Create Job Form (File Upload) - Positioned right after filters */}
+      {showCreateForm && (
+        <JobPostingForm
+          onSuccess={() => {
+            setShowCreateForm(false);
+            loadJobPostings();
+          }}
+        />
       )}
 
       {/* Job Postings List */}
@@ -588,15 +602,6 @@ export default function CareersPage() {
         )}
       </div>
 
-      {/* Create Job Form (File Upload) */}
-      {showCreateForm && (
-        <JobPostingForm
-          onSuccess={() => {
-            setShowCreateForm(false);
-            loadJobPostings();
-          }}
-        />
-      )}
 
 
       {/* 🚨 ADMIN-ONLY DELETE CONFIRMATION DIALOG 🚨 */}
