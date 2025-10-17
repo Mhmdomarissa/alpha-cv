@@ -38,6 +38,11 @@ class StandardizeCVRequest(BaseModel):
     cv_filename: str = "cv.txt"
 
 
+class NoteRequest(BaseModel):
+    note: str
+    hr_user: str  # HR user who created the note
+
+
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
 
@@ -1197,3 +1202,235 @@ async def download_cv(cv_id: str):
         return StreamingResponse(bytes_io, media_type="text/plain; charset=utf-8", headers=headers)
 
     raise HTTPException(status_code=404, detail="File not found on server")
+
+
+# ----------------------------
+# Note Management APIs
+# ----------------------------
+
+@router.post("/{cv_id}/note")
+async def add_or_update_note(cv_id: str, request: NoteRequest) -> JSONResponse:
+    """
+    Add or update a note for a specific CV.
+    Notes are stored in the cv_structured collection under the 'hr_notes' field.
+    """
+    try:
+        logger.info(f"📝 Adding/updating note for CV: {cv_id}")
+        qdrant = get_qdrant_utils()
+        
+        # Check if CV exists
+        s = qdrant.client.retrieve("cv_structured", ids=[cv_id], with_payload=True, with_vectors=False)
+        if not s:
+            raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
+        
+        # Get current structured data
+        current_payload = s[0].payload or {}
+        structured_info = current_payload.get("structured_info", {})
+        
+        # Add/update note
+        if "hr_notes" not in structured_info:
+            structured_info["hr_notes"] = []
+        
+        # Check if note already exists for this HR user
+        existing_note_index = None
+        for i, note in enumerate(structured_info["hr_notes"]):
+            if note.get("hr_user") == request.hr_user:
+                existing_note_index = i
+                break
+        
+        note_data = {
+            "note": request.note,
+            "hr_user": request.hr_user,
+            "created_at": _now_iso(),
+            "updated_at": _now_iso()
+        }
+        
+        if existing_note_index is not None:
+            # Update existing note
+            structured_info["hr_notes"][existing_note_index] = note_data
+            logger.info(f"✅ Updated note for CV {cv_id} by HR user {request.hr_user}")
+        else:
+            # Add new note
+            structured_info["hr_notes"].append(note_data)
+            logger.info(f"✅ Added new note for CV {cv_id} by HR user {request.hr_user}")
+        
+        # Update the structured data
+        updated_payload = {
+            **current_payload,
+            "structured_info": structured_info
+        }
+        
+        # Store updated data
+        qdrant.store_structured_data(cv_id, "cv", updated_payload)
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Note added/updated successfully",
+            "cv_id": cv_id,
+            "note": note_data
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to add/update note for CV {cv_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add/update note: {e}")
+
+
+@router.get("/{cv_id}/note")
+async def get_cv_note(cv_id: str) -> JSONResponse:
+    """
+    Get all notes for a specific CV.
+    """
+    try:
+        logger.info(f"📖 Getting notes for CV: {cv_id}")
+        qdrant = get_qdrant_utils()
+        
+        # Get CV structured data
+        s = qdrant.client.retrieve("cv_structured", ids=[cv_id], with_payload=True, with_vectors=False)
+        if not s:
+            raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
+        
+        structured_info = s[0].payload.get("structured_info", {})
+        notes = structured_info.get("hr_notes", [])
+        
+        return JSONResponse({
+            "status": "success",
+            "cv_id": cv_id,
+            "notes": notes,
+            "notes_count": len(notes)
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to get notes for CV {cv_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get notes: {e}")
+
+
+@router.delete("/{cv_id}/note/{hr_user}")
+async def delete_cv_note(cv_id: str, hr_user: str) -> JSONResponse:
+    """
+    Delete a note for a specific CV by HR user.
+    """
+    try:
+        logger.info(f"🗑️ Deleting note for CV: {cv_id} by HR user: {hr_user}")
+        qdrant = get_qdrant_utils()
+        
+        # Check if CV exists
+        s = qdrant.client.retrieve("cv_structured", ids=[cv_id], with_payload=True, with_vectors=False)
+        if not s:
+            raise HTTPException(status_code=404, detail=f"CV not found: {cv_id}")
+        
+        # Get current structured data
+        current_payload = s[0].payload or {}
+        structured_info = current_payload.get("structured_info", {})
+        
+        # Remove note for this HR user
+        if "hr_notes" in structured_info:
+            original_count = len(structured_info["hr_notes"])
+            structured_info["hr_notes"] = [
+                note for note in structured_info["hr_notes"] 
+                if note.get("hr_user") != hr_user
+            ]
+            
+            if len(structured_info["hr_notes"]) == original_count:
+                raise HTTPException(status_code=404, detail=f"No note found for HR user: {hr_user}")
+        
+        # Update the structured data
+        updated_payload = {
+            **current_payload,
+            "structured_info": structured_info
+        }
+        
+        # Store updated data
+        qdrant.store_structured_data(cv_id, "cv", updated_payload)
+        
+        logger.info(f"✅ Deleted note for CV {cv_id} by HR user {hr_user}")
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Note deleted successfully",
+            "cv_id": cv_id,
+            "hr_user": hr_user
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to delete note for CV {cv_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete note: {e}")
+
+
+@router.get("/notes/all")
+async def get_all_cvs_with_notes() -> JSONResponse:
+    """
+    Get all CVs that have notes, with their note information.
+    This is used for the Notes tab in the frontend.
+    """
+    try:
+        logger.info("📋 Getting all CVs with notes")
+        qdrant = get_qdrant_utils()
+        
+        # Get all CVs with structured data
+        all_cvs = []
+        offset = None
+        
+        while True:
+            points, next_offset = qdrant.client.scroll(
+                collection_name="cv_structured",
+                limit=200,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            for point in points:
+                payload = point.payload or {}
+                structured_info = payload.get("structured_info", {})
+                notes = structured_info.get("hr_notes", [])
+                
+                if notes:  # Only include CVs that have notes
+                    # Get document metadata for filename and upload date
+                    doc_meta = {}
+                    try:
+                        doc_result = qdrant.client.retrieve("cv_documents", ids=[str(point.id)], with_payload=True, with_vectors=False)
+                        if doc_result:
+                            doc_meta = doc_result[0].payload or {}
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to get document metadata for CV {point.id}: {e}")
+                    
+                    # Clean up filename
+                    filename = doc_meta.get("filename", "Unknown")
+                    if filename and "/" in filename:
+                        filename = filename.split("/")[-1]
+                    
+                    cv_data = {
+                        "cv_id": str(point.id),
+                        "filename": filename,
+                        "upload_date": doc_meta.get("upload_date", "Unknown"),
+                        "full_name": structured_info.get("contact_info", {}).get("name") or structured_info.get("full_name", "Not specified"),
+                        "job_title": structured_info.get("job_title", "Not specified"),
+                        "years_of_experience": structured_info.get("years_of_experience", structured_info.get("experience_years", "Not specified")),
+                        "notes": notes,
+                        "notes_count": len(notes),
+                        "latest_note": max(notes, key=lambda x: x.get("updated_at", x.get("created_at", ""))) if notes else None
+                    }
+                    all_cvs.append(cv_data)
+            
+            if not next_offset:
+                break
+            offset = next_offset
+        
+        # Sort by latest note date
+        all_cvs.sort(key=lambda x: x["latest_note"]["updated_at"] if x["latest_note"] else "", reverse=True)
+        
+        return JSONResponse({
+            "status": "success",
+            "cvs_with_notes": all_cvs,
+            "total_count": len(all_cvs)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get CVs with notes: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get CVs with notes: {e}")

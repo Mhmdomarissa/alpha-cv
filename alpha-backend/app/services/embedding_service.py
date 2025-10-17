@@ -1,12 +1,18 @@
 # embedding_service.py
 import logging
 import time
+import threading
 from typing import List, Dict, Any, Optional
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
+
+# Global shared model instance (Singleton pattern)
+_shared_model = None
+_model_lock = threading.Lock()
+_model_device = None
 
 class EmbeddingService:
     """
@@ -32,23 +38,22 @@ class EmbeddingService:
     
     def __init__(self, model_name: str = "all-mpnet-base-v2"):
         """
-        Initialize the embedding service with GPU support.
+        Initialize the embedding service with shared GPU model (Singleton pattern).
+        All workers share a single model instance to reduce GPU memory usage.
         
         Args:
             model_name: Sentence transformer model to use
         """
+        global _shared_model, _model_device
+            
         self.model_name = model_name
-        self.model = None
+        self._embedding_cache = {}  # Fallback in-memory cache
         
-        # GPU/CPU device selection
+        # GPU/CPU device selection (once for all workers)
         if torch.cuda.is_available():
             self.device = "cuda"
-            logger.info(f"🚀 GPU available! Using CUDA device: {torch.cuda.get_device_name(0)}")
         else:
             self.device = "cpu"
-            logger.info("💻 Using CPU for embeddings")
-        
-        self._embedding_cache = {}  # Fallback in-memory cache
         
         # Initialize Redis cache
         try:
@@ -59,35 +64,80 @@ class EmbeddingService:
             logger.warning(f"⚠️ Redis cache not available: {e}")
             self.redis_cache = None
         
-        self._initialize_model()
-        logger.info(f"🔥 EmbeddingService initialized with {model_name}")
+        # Use shared model instance (thread-safe initialization)
+        self._initialize_shared_model()
+        
+        # Reference the shared model
+        self.model = _shared_model
+        
+        # Verify model is properly loaded
+        if self.model is None:
+            raise Exception("❌ CRITICAL: Shared model failed to initialize!")
+        
+        logger.info(f"🔥 EmbeddingService initialized - Using shared model instance on {self.device}")
+        logger.info(f"✅ Model verification: {type(self.model).__name__} loaded successfully")
     
-    def _initialize_model(self) -> None:
-        """Initialize the sentence transformer model with GPU optimization."""
-        try:
-            # Load model with device specification
-            self.model = SentenceTransformer(self.model_name, device=self.device)
-            
-            # Move model to GPU if available
-            if self.device == "cuda":
-                self.model = self.model.cuda()
-                logger.info(f"🚀 Model {self.model_name} loaded and moved to GPU: {torch.cuda.get_device_name(0)}")
-                logger.info(f"📊 GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB total")
-            else:
-                logger.info(f"💻 Model {self.model_name} loaded on CPU")
-            
-            logger.info(f"✅ Model {self.model_name} initialized successfully on {self.device}")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize embedding model: {str(e)}")
-            # Fallback to CPU if GPU fails
-            if self.device == "cuda":
-                logger.warning("⚠️ GPU initialization failed, falling back to CPU")
-                self.device = "cpu"
-                self.model = SentenceTransformer(self.model_name, device="cpu")
-                logger.info(f"💻 Model {self.model_name} loaded on CPU (fallback)")
-            else:
-                raise Exception(f"Embedding model initialization failed: {str(e)}")
+    def _initialize_shared_model(self) -> None:
+        """
+        Initialize the shared model instance (thread-safe, singleton pattern).
+        Only one model instance is created and shared across all workers.
+        """
+        global _shared_model, _model_lock, _model_device
+        
+        # Thread-safe initialization
+        if _shared_model is None:
+            with _model_lock:
+                # Double-check after acquiring lock
+                if _shared_model is None:
+                    try:
+                        logger.info(f"🚀 Initializing SHARED model instance: {self.model_name}")
+                        
+                        # Clear GPU cache before loading
+                        if self.device == "cuda":
+                            torch.cuda.empty_cache()
+                            logger.info(f"🧹 GPU cache cleared before model load")
+                        
+                        # Load model with device specification
+                        _shared_model = SentenceTransformer(self.model_name, device=self.device)
+                        _model_device = self.device
+                        
+                        # Move model to GPU if available
+                        if self.device == "cuda":
+                            _shared_model = _shared_model.cuda()
+                            
+                            # Enable mixed precision for faster processing
+                            if hasattr(torch.cuda, 'amp'):
+                                _shared_model.half()
+                                logger.info(f"⚡ Mixed precision (FP16) enabled for faster processing")
+                            
+                            logger.info(f"🚀 SHARED model loaded on GPU: {torch.cuda.get_device_name(0)}")
+                            logger.info(f"📊 GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB total")
+                            logger.info(f"📊 GPU Memory Used: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+                        else:
+                            logger.info(f"💻 SHARED model loaded on CPU")
+                        
+                        logger.info(f"✅ SHARED model {self.model_name} initialized successfully on {self.device}")
+                        logger.info(f"🎯 All workers will share this single model instance")
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Failed to initialize shared model: {str(e)}")
+                        # Fallback to CPU if GPU fails
+                        if self.device == "cuda":
+                            logger.warning("⚠️ GPU initialization failed, falling back to CPU")
+                            self.device = "cpu"
+                            _model_device = "cpu"
+                            try:
+                                _shared_model = SentenceTransformer(self.model_name, device="cpu")
+                                logger.info(f"💻 SHARED model {self.model_name} loaded on CPU (fallback)")
+                            except Exception as cpu_e:
+                                logger.error(f"❌ CPU fallback also failed: {str(cpu_e)}")
+                                raise Exception(f"Both GPU and CPU model initialization failed: GPU={str(e)}, CPU={str(cpu_e)}")
+                        else:
+                            raise Exception(f"Shared model initialization failed: {str(e)}")
+                else:
+                    logger.info(f"✅ Using existing SHARED model instance on {_model_device}")
+        else:
+            logger.info(f"✅ Using existing SHARED model instance on {_model_device}")
     
     def generate_document_embeddings(self, structured_data: dict) -> dict:
         """
@@ -270,8 +320,8 @@ class EmbeddingService:
             return {}
         
         try:
-            # Batch processing for performance
-            embeddings = self.model.encode(clean_skills, convert_to_tensor=False, batch_size=32)
+            # Batch processing for performance (larger batch size with shared model)
+            embeddings = self.model.encode(clean_skills, convert_to_tensor=False, batch_size=64, show_progress_bar=False)
             
             # Convert to numpy if needed
             if isinstance(embeddings, torch.Tensor):
@@ -328,7 +378,7 @@ class EmbeddingService:
         
         try:
             # Batch processing for performance
-            embeddings = self.model.encode(clean_responsibilities, convert_to_tensor=False, batch_size=32)
+            embeddings = self.model.encode(clean_responsibilities, convert_to_tensor=False, batch_size=64, show_progress_bar=False)
             
             # Convert to numpy if needed
             if isinstance(embeddings, torch.Tensor):
@@ -357,6 +407,7 @@ class EmbeddingService:
     def calculate_cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
         """
         Calculate cosine similarity between two vectors.
+        Uses GPU acceleration when available, falls back to CPU.
         
         Args:
             vec1: First vector
@@ -364,6 +415,21 @@ class EmbeddingService:
             
         Returns:
             Cosine similarity score (0-1)
+        """
+        try:
+            # Try GPU acceleration first if available
+            if self.device == "cuda" and torch.cuda.is_available():
+                return self._calculate_cosine_similarity_gpu(vec1, vec2)
+            else:
+                return self._calculate_cosine_similarity_cpu(vec1, vec2)
+                
+        except Exception as e:
+            logger.error(f"❌ Similarity calculation failed: {str(e)}")
+            return 0.0
+    
+    def _calculate_cosine_similarity_cpu(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
+        """
+        CPU-based cosine similarity calculation (original implementation).
         """
         try:
             # Normalize vectors
@@ -381,8 +447,138 @@ class EmbeddingService:
             return max(0.0, min(1.0, float(cosine_sim)))
             
         except Exception as e:
-            logger.error(f"❌ Similarity calculation failed: {str(e)}")
+            logger.error(f"❌ CPU similarity calculation failed: {str(e)}")
             return 0.0
+    
+    def _calculate_cosine_similarity_gpu(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
+        """
+        GPU-accelerated cosine similarity calculation.
+        """
+        try:
+            # Convert numpy arrays to PyTorch tensors on GPU
+            tensor1 = torch.from_numpy(vec1).float().cuda()
+            tensor2 = torch.from_numpy(vec2).float().cuda()
+            
+            # Calculate cosine similarity on GPU
+            cosine_sim = torch.cosine_similarity(tensor1, tensor2, dim=0)
+            
+            # Convert back to float and clamp
+            result = float(cosine_sim.cpu().item())
+            return max(0.0, min(1.0, result))
+            
+        except Exception as e:
+            logger.warning(f"⚠️ GPU similarity calculation failed, falling back to CPU: {str(e)}")
+            return self._calculate_cosine_similarity_cpu(vec1, vec2)
+    
+    def calculate_batch_cosine_similarity_gpu(self, matrix_a: np.ndarray, matrix_b: np.ndarray) -> np.ndarray:
+        """
+        GPU-accelerated batch cosine similarity calculation with bulletproof safety.
+        Calculates similarity between all pairs of vectors in two matrices.
+        
+        Args:
+            matrix_a: First matrix of vectors (n_a x dim)
+            matrix_b: Second matrix of vectors (n_b x dim)
+            
+        Returns:
+            Similarity matrix (n_a x n_b)
+        """
+        try:
+            # SAFETY CHECK 1: Size limits to prevent GPU memory overflow
+            max_matrix_size = 50  # Limit to 50x50 to prevent GPU memory issues
+            if matrix_a.shape[0] > max_matrix_size or matrix_b.shape[0] > max_matrix_size:
+                logger.warning(f"⚠️ Matrix too large for GPU ({matrix_a.shape[0]}x{matrix_b.shape[1]}), using CPU")
+                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+            
+            # SAFETY CHECK 2: GPU availability and memory
+            if self.device != "cuda" or not torch.cuda.is_available():
+                logger.debug("🖥️ Using CPU batch similarity calculation (GPU not available)")
+                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+            
+            # SAFETY CHECK 3: GPU memory check
+            try:
+                gpu_memory_free = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated()
+                required_memory = matrix_a.nbytes + matrix_b.nbytes + (matrix_a.shape[0] * matrix_b.shape[0] * 4)  # Rough estimate
+                if required_memory > gpu_memory_free * 0.8:  # Use only 80% of available memory
+                    logger.warning(f"⚠️ Insufficient GPU memory ({required_memory} needed, {gpu_memory_free} available), using CPU")
+                    return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+            except Exception as mem_e:
+                logger.warning(f"⚠️ GPU memory check failed: {mem_e}, using CPU")
+                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+            
+            # Log GPU batch processing
+            logger.info(f"🚀 GPU batch similarity: {matrix_a.shape[0]}x{matrix_b.shape[0]} vectors")
+            
+            # SAFETY CHECK 4: Clear GPU cache before processing
+            torch.cuda.empty_cache()
+            
+            # Convert to PyTorch tensors on GPU with error handling
+            try:
+                tensor_a = torch.from_numpy(matrix_a).float().cuda()
+                tensor_b = torch.from_numpy(matrix_b).float().cuda()
+            except Exception as tensor_e:
+                logger.warning(f"⚠️ Failed to create GPU tensors: {tensor_e}, using CPU")
+                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+            
+            # Normalize vectors with error handling
+            try:
+                tensor_a_norm = torch.nn.functional.normalize(tensor_a, p=2, dim=1)
+                tensor_b_norm = torch.nn.functional.normalize(tensor_b, p=2, dim=1)
+            except Exception as norm_e:
+                logger.warning(f"⚠️ Failed to normalize tensors: {norm_e}, using CPU")
+                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+            
+            # Calculate cosine similarity matrix on GPU with error handling
+            try:
+                similarity_matrix = torch.mm(tensor_a_norm, tensor_b_norm.t())
+                similarity_matrix = torch.clamp(similarity_matrix, 0.0, 1.0)
+            except Exception as calc_e:
+                logger.warning(f"⚠️ Failed GPU calculation: {calc_e}, using CPU")
+                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+            
+            # Convert back to numpy with error handling
+            try:
+                result = similarity_matrix.cpu().numpy()
+                logger.info(f"✅ GPU batch similarity completed: {result.shape}")
+                
+                # SAFETY CHECK 5: Clear GPU cache after processing
+                torch.cuda.empty_cache()
+                
+                return result
+            except Exception as convert_e:
+                logger.warning(f"⚠️ Failed to convert GPU result to numpy: {convert_e}, using CPU")
+                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ GPU batch similarity calculation failed, falling back to CPU: {str(e)}")
+            return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+    
+    def _calculate_batch_cosine_similarity_cpu(self, matrix_a: np.ndarray, matrix_b: np.ndarray) -> np.ndarray:
+        """
+        CPU-based batch cosine similarity calculation (fallback).
+        """
+        try:
+            # Normalize vectors
+            norm_a = np.linalg.norm(matrix_a, axis=1, keepdims=True)
+            norm_b = np.linalg.norm(matrix_b, axis=1, keepdims=True)
+            
+            # Avoid division by zero
+            norm_a = np.where(norm_a == 0, 1, norm_a)
+            norm_b = np.where(norm_b == 0, 1, norm_b)
+            
+            # Normalize matrices
+            matrix_a_norm = matrix_a / norm_a
+            matrix_b_norm = matrix_b / norm_b
+            
+            # Calculate cosine similarity matrix
+            similarity_matrix = np.dot(matrix_a_norm, matrix_b_norm.T)
+            
+            # Clamp values between 0 and 1
+            return np.clip(similarity_matrix, 0.0, 1.0)
+            
+        except Exception as e:
+            logger.error(f"❌ CPU batch similarity calculation failed: {str(e)}")
+            # Return zero matrix as fallback
+            return np.zeros((matrix_a.shape[0], matrix_b.shape[0]))
     
     def calculate_similarity_matrix(self, embeddings1: Dict[str, np.ndarray], embeddings2: Dict[str, np.ndarray]) -> Dict[str, List[Dict[str, Any]]]:
         """

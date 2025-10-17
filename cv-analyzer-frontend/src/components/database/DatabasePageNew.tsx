@@ -38,17 +38,24 @@ import {
   Zap,
   TrendingUp,
   FileCheck,
-  Settings
+  Settings,
+  MessageSquare,
+  Pencil,
+  Save,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
+  Filter
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
+import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card-enhanced';
 import { Button } from '@/components/ui/button-enhanced';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { api } from '@/lib/api';
 import MatchingProgressBar from '@/components/ui/MatchingProgressBar';
 
 /* ----------------------------- Types ---------------------------- */
@@ -225,8 +232,22 @@ export default function DatabasePageNew() {
   const [selectedCVForDetails, setSelectedCVForDetails] = useState<string | null>(null);
   const [selectedJDForDetails, setSelectedJDForDetails] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [notesFilter, setNotesFilter] = useState<'all' | 'with_notes' | 'without_notes'>('all');
+  const [cvsWithNotes, setCvsWithNotes] = useState<Set<string>>(new Set());
+  const [cvNotes, setCvNotes] = useState<Record<string, any[]>>({});
+  const [editingNote, setEditingNote] = useState<{ cvId: string; noteIndex: number } | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState<string | null>(null);
   const [filteredCVs, setFilteredCVs] = useState<CVData[]>([]);
   const [filteredJDs, setFilteredJDs] = useState<JDData[]>([]);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(20);
+  
+  // Sidebar state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   
@@ -241,7 +262,19 @@ export default function DatabasePageNew() {
     loadCVs();
     loadJDs();
     loadCategories();
+    loadCVsWithNotes();
   }, [loadCVs, loadJDs]);
+
+  // Load notes for CVs when they are displayed
+  useEffect(() => {
+    if (filteredCVs.length > 0) {
+      filteredCVs.forEach(cv => {
+        if (!cvNotes[cv.id]) {
+          loadCVNotes(cv.id);
+        }
+      });
+    }
+  }, [filteredCVs]);
 
   // Load categories from API
   const loadCategories = async () => {
@@ -270,11 +303,12 @@ export default function DatabasePageNew() {
   };
   
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredCVs(cvs);
-    } else {
+    let filtered = cvs;
+
+    // Apply search filter
+    if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      const filtered = cvs.filter(cv => {
+      filtered = filtered.filter(cv => {
         const basics = getCVBasics(cv);
         return (
           basics.name.toLowerCase().includes(query) ||
@@ -282,9 +316,19 @@ export default function DatabasePageNew() {
           basics.title.toLowerCase().includes(query)
         );
       });
-      setFilteredCVs(filtered);
     }
-  }, [cvs, searchQuery]);
+
+    // Apply notes filter
+    if (notesFilter === 'with_notes') {
+      filtered = filtered.filter(cv => cvsWithNotes.has(cv.id));
+    } else if (notesFilter === 'without_notes') {
+      filtered = filtered.filter(cv => !cvsWithNotes.has(cv.id));
+    }
+
+    setFilteredCVs(filtered);
+    // Reset to first page when filters change
+    setCurrentPage(1);
+  }, [cvs, searchQuery, notesFilter, cvsWithNotes]);
   
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -305,6 +349,18 @@ export default function DatabasePageNew() {
   const isLoadingCVs = loadingStates.cvs.isLoading;
   const isLoadingJDs = loadingStates.jds.isLoading;
   const isDeleting = loadingStates.upload.isLoading;
+
+  // Pagination calculations - use correct data source based on view
+  const currentCVs = currentView === 'categories' ? cvsInCategory : filteredCVs;
+  const totalPages = Math.ceil(currentCVs.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedCVs = currentCVs.slice(startIndex, endIndex);
+
+  const totalJDPages = Math.ceil(filteredJDs.length / itemsPerPage);
+  const startJDIndex = (currentPage - 1) * itemsPerPage;
+  const endJDIndex = startJDIndex + itemsPerPage;
+  const paginatedJDs = filteredJDs.slice(startJDIndex, endJDIndex);
   
   const handleDeleteCV = async (cvId: string) => {
     if (window.confirm('Are you sure you want to delete this CV?')) {
@@ -339,6 +395,380 @@ export default function DatabasePageNew() {
   
   const clearSearch = () => {
     setSearchQuery('');
+  };
+
+  // Load CVs with notes
+  const loadCVsWithNotes = async () => {
+    try {
+      const response = await api.getAllCVsWithNotes();
+      const cvIdsWithNotes = new Set(response.cvs_with_notes.map((cv: any) => cv.cv_id));
+      setCvsWithNotes(cvIdsWithNotes);
+      
+      // Also load the actual notes for each CV
+      const notesMap: Record<string, any[]> = {};
+      response.cvs_with_notes.forEach((cv: any) => {
+        notesMap[cv.cv_id] = cv.notes || [];
+      });
+      setCvNotes(notesMap);
+    } catch (error) {
+      console.error('Failed to load CVs with notes:', error);
+    }
+  };
+
+  // Load notes for a specific CV
+  const loadCVNotes = async (cvId: string) => {
+    try {
+      const response = await api.getCVNotes(cvId);
+      setCvNotes(prev => ({
+        ...prev,
+        [cvId]: response.notes || []
+      }));
+    } catch (error) {
+      console.error('Failed to load notes for CV:', error);
+    }
+  };
+
+  // Handle note editing
+  const handleEditNote = (cvId: string, noteIndex: number, currentNote: string) => {
+    setEditingNote({ cvId, noteIndex });
+    setNoteText(currentNote);
+  };
+
+  // Handle note saving
+  const handleSaveNote = async (cvId: string) => {
+    if (!noteText.trim() || !user?.username) return;
+
+    setSavingNote(cvId);
+    try {
+      await api.addOrUpdateNote(cvId, noteText.trim(), user.username);
+      await loadCVNotes(cvId);
+      setEditingNote(null);
+      setNoteText('');
+    } catch (error) {
+      console.error('Failed to save note:', error);
+      alert('Failed to save note. Please try again.');
+    } finally {
+      setSavingNote(null);
+    }
+  };
+
+  // Handle note deletion
+  const handleDeleteNote = async (cvId: string, hrUser: string) => {
+    if (!confirm('Are you sure you want to delete this note?')) return;
+
+    try {
+      await api.deleteCVNote(cvId, hrUser);
+      await loadCVNotes(cvId);
+    } catch (error) {
+      console.error('Failed to delete note:', error);
+      alert('Failed to delete note. Please try again.');
+    }
+  };
+
+  // Handle match selected using existing functions
+  const handleMatchSelected = () => {
+    if (selectedCVs.length > 0 && selectedJD) {
+      // Use existing runMatch function
+      runMatch();
+      // Navigate to match tab after matching starts
+      setCurrentTab('match');
+    } else {
+      alert('Please select at least one CV and one Job Description to match.');
+    }
+  };
+
+  // Category selection functions
+  const toggleCategory = (category: string) => {
+    setSelectedCategories(prev => {
+      const newSelection = prev.includes(category) 
+        ? prev.filter(c => c !== category)
+        : [...prev, category];
+      
+      // If no categories selected, show all CVs
+      if (newSelection.length === 0) {
+        setCurrentView('all');
+        setSelectedCategory(null);
+      } else if (newSelection.length === 1) {
+        // If one category selected, use the existing single category view
+        setCurrentView('categories');
+        setSelectedCategory(newSelection[0]);
+        loadCVsForCategory(newSelection[0]);
+      } else {
+        // Multiple categories selected - we'll need to implement this
+        // For now, just use the first selected category
+        setCurrentView('categories');
+        setSelectedCategory(newSelection[0]);
+        loadCVsForCategory(newSelection[0]);
+      }
+      
+      return newSelection;
+    });
+  };
+
+  const selectAllCategories = () => {
+    setSelectedCategories(Object.keys(categories));
+    // Show all CVs when all categories are selected
+    setCurrentView('all');
+    setSelectedCategory(null);
+  };
+
+  const deselectAllCategories = () => {
+    setSelectedCategories([]);
+    // Show all CVs when no categories are selected
+    setCurrentView('all');
+    setSelectedCategory(null);
+  };
+
+  // Sidebar component
+  const Sidebar = () => (
+    <div className={`bg-gradient-to-b from-white to-blue-50/30 border-r border-blue-200 shadow-xl transition-all duration-300 ${
+      sidebarCollapsed ? 'w-0 overflow-hidden opacity-0' : 'w-80 opacity-100'
+    }`}>
+      <div className="p-6 space-y-6">
+        {/* Sidebar Header */}
+        <div className="flex items-center justify-between bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] text-white p-3 rounded-lg">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-white/20 rounded-md">
+              <Filter className="w-4 h-4 text-white" />
+            </div>
+            <h3 className="text-lg font-bold">Smart Filters</h3>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSidebarCollapsed(true)}
+            className="h-7 w-7 p-0 text-white hover:bg-white/20"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+
+        {/* Categories */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-blue-100 rounded-md">
+                <Filter className="w-3 h-3 text-blue-600" />
+              </div>
+              <h4 className="font-semibold text-gray-900 text-sm">Categories</h4>
+            </div>
+            <div className="flex gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={selectAllCategories}
+                className="h-6 px-2 text-xs bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                title="Select All Categories"
+              >
+                All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={deselectAllCategories}
+                className="h-6 px-2 text-xs bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
+                title="Deselect All Categories"
+              >
+                None
+              </Button>
+            </div>
+          </div>
+          
+          <div className="space-y-2 max-h-40 overflow-y-auto">
+            {Object.entries(categories).map(([category, count]) => (
+              <div key={category} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-200">
+                <input
+                  type="checkbox"
+                  id={`category-${category}`}
+                  checked={selectedCategories.includes(category)}
+                  onChange={() => toggleCategory(category)}
+                  className="h-4 w-4 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
+                />
+                <label 
+                  htmlFor={`category-${category}`}
+                  className="flex-1 text-xs font-medium text-gray-700 cursor-pointer flex items-center justify-between"
+                >
+                  <span>{category}</span>
+                  <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{count}</span>
+                </label>
+              </div>
+            ))}
+            {Object.keys(categories).length === 0 && (
+              <div className="text-center py-6">
+                <div className="text-gray-400 mb-2">
+                  <Filter className="w-6 h-6 mx-auto" />
+                </div>
+                <div className="text-xs text-gray-500">No categories available</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-green-100 rounded-md">
+              <Users className="w-3 h-3 text-green-600" />
+            </div>
+            <h4 className="font-semibold text-gray-900 text-sm">Quick Actions</h4>
+          </div>
+          
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={selectAllCVs}
+              disabled={currentCVs.length === 0}
+              className="w-full justify-start h-10 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 transition-colors"
+            >
+              <Users className="w-4 h-4 mr-2" />
+              <div className="text-left">
+                <div className="font-medium text-sm">Select All CVs</div>
+                <div className="text-xs text-blue-600">{currentCVs.length} available</div>
+              </div>
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={deselectAllCVs}
+              disabled={selectedCVs.length === 0}
+              className="w-full justify-start h-10 bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors"
+            >
+              <X className="w-4 h-4 mr-2" />
+              <div className="text-left">
+                <div className="font-medium text-sm">Deselect All CVs</div>
+                <div className="text-xs text-gray-600">{selectedCVs.length} selected</div>
+              </div>
+            </Button>
+          </div>
+        </div>
+
+        {/* Notes Filter */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-purple-100 rounded-md">
+              <MessageSquare className="w-3 h-3 text-purple-600" />
+            </div>
+            <h4 className="font-semibold text-gray-900 text-sm">Notes Filter</h4>
+          </div>
+          
+          <select
+            value={notesFilter}
+            onChange={(e) => setNotesFilter(e.target.value as 'all' | 'with_notes' | 'without_notes')}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 bg-white shadow-sm transition-all duration-200 hover:shadow-md"
+          >
+            <option value="all">All Candidates</option>
+            <option value="with_notes">With Notes</option>
+            <option value="without_notes">Without Notes</option>
+          </select>
+        </div>
+
+        {/* Selection Summary */}
+        {(selectedCVs.length > 0 || selectedJD) && (
+          <div className="space-y-3 p-3 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border border-blue-200 shadow-md">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-blue-100 rounded-md">
+                <Target className="w-3 h-3 text-blue-600" />
+              </div>
+              <h4 className="font-semibold text-blue-900 text-sm">Selection Summary</h4>
+            </div>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center gap-2 p-1.5 bg-white/70 rounded-md">
+                <Users className="w-4 h-4 text-blue-600" />
+                <span className="text-blue-800 font-medium">{selectedCVs.length} CVs selected</span>
+              </div>
+              <div className="flex items-center gap-2 p-1.5 bg-white/70 rounded-md">
+                <FileText className="w-4 h-4 text-blue-600" />
+                <span className="text-blue-800 font-medium">{selectedJD ? '1 JD selected' : 'No JD selected'}</span>
+              </div>
+            </div>
+            
+            {selectedCVs.length > 0 && selectedJD && (
+              <Button
+                onClick={handleMatchSelected}
+                className="w-full bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] hover:from-[rgba(0,82,155,0.8)] hover:to-[rgba(0,61,115,0.8)] text-white font-semibold py-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-300"
+              >
+                <Target className="w-4 h-4 mr-2" />
+                Match Selected ({selectedCVs.length} CVs + 1 JD)
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // Pagination component
+  const PaginationControls = ({ totalPages, currentPage, onPageChange, totalItems, itemsPerPage }: {
+    totalPages: number;
+    currentPage: number;
+    onPageChange: (page: number) => void;
+    totalItems: number;
+    itemsPerPage: number;
+  }) => {
+    if (totalPages <= 1) return null;
+
+    const startItem = (currentPage - 1) * itemsPerPage + 1;
+    const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+
+    return (
+      <div className="flex items-center justify-between mt-4 px-4 py-3 bg-gray-50 rounded-lg">
+        <div className="text-sm text-gray-700">
+          Showing {startItem} to {endItem} of {totalItems} items
+        </div>
+        <div className="flex items-center space-x-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+            className="flex items-center gap-1"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            Previous
+          </Button>
+          
+          <div className="flex items-center space-x-1">
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              let pageNum;
+              if (totalPages <= 5) {
+                pageNum = i + 1;
+              } else if (currentPage <= 3) {
+                pageNum = i + 1;
+              } else if (currentPage >= totalPages - 2) {
+                pageNum = totalPages - 4 + i;
+              } else {
+                pageNum = currentPage - 2 + i;
+              }
+              
+              return (
+                <Button
+                  key={pageNum}
+                  variant={currentPage === pageNum ? "primary" : "outline"}
+                  size="sm"
+                  onClick={() => onPageChange(pageNum)}
+                  className="w-8 h-8 p-0"
+                >
+                  {pageNum}
+                </Button>
+              );
+            })}
+          </div>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            className="flex items-center gap-1"
+          >
+            Next
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    );
   };
   
   const handleClearDatabase = async () => {
@@ -607,114 +1037,6 @@ export default function DatabasePageNew() {
         </div>
       </div>
 
-      {/* Category View */}
-      {currentView === 'categories' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">CV Categories</h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadCategories}
-            >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Refresh Categories
-            </Button>
-          </div>
-          
-          {Object.keys(categories).length === 0 ? (
-            <Card className="p-8 text-center">
-              <AlertCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Categories Found</h3>
-              <p className="text-gray-500">Upload CVs to see them organized by category</p>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {Object.entries(categories).map(([category, count]) => (
-                <Card 
-                  key={category}
-                  className="cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => handleCategoryClick(category)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className={`p-2 rounded-lg ${(categoryColors as any)[category] || 'bg-gray-100 text-gray-600'}`}>
-                        {(categoryIcons as any)[category] || <FolderIcon className="w-5 h-5" />}
-                      </div>
-                      <Badge variant="secondary">{count} CVs</Badge>
-                    </div>
-                    <h3 className="font-medium text-gray-900 mb-2">{category}</h3>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCategoryClick(category);
-                        }}
-                        className="flex-1"
-                      >
-                        <Eye className="w-4 h-4 mr-1" />
-                        View
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // Get all CVs in this category
-                          const categoryCVs = cvs.filter(cv => {
-                            const cvData = (cv as any)?.cv || cv;
-                            const candidate = cvData?.candidate || {};
-                            const structured = cvData?.structured_info || {};
-                            const cvCategory = candidate?.category || structured?.category || 'General';
-                            return cvCategory === category;
-                          });
-                          const categoryCVIds = categoryCVs.map(cv => cv.id);
-                          
-                          // Check if all CVs in this category are selected
-                          const allSelected = categoryCVIds.every(id => selectedCVs.includes(id));
-                          
-                          if (allSelected) {
-                            // Deselect all CVs in this category
-                            categoryCVIds.forEach(id => {
-                              if (selectedCVs.includes(id)) {
-                                deselectCV(id);
-                              }
-                            });
-                          } else {
-                            // Select all CVs in this category
-                            categoryCVIds.forEach(id => {
-                              if (!selectedCVs.includes(id)) {
-                                selectCV(id);
-                              }
-                            });
-                          }
-                        }}
-                        className="flex-1"
-                      >
-                        <CheckCircle className="w-4 h-4 mr-1" />
-                        {(() => {
-                          const categoryCVs = cvs.filter(cv => {
-                            const cvData = (cv as any)?.cv || cv;
-                            const candidate = cvData?.candidate || {};
-                            const structured = cvData?.structured_info || {};
-                            const cvCategory = candidate?.category || structured?.category || 'General';
-                            return cvCategory === category;
-                          });
-                          const categoryCVIds = categoryCVs.map(cv => cv.id);
-                          const allSelected = categoryCVIds.every(id => selectedCVs.includes(id));
-                          return allSelected ? 'Deselect All' : 'Select All';
-                        })()}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Category CVs View */}
       {currentView === 'categories' && selectedCategory && (
@@ -849,82 +1171,135 @@ export default function DatabasePageNew() {
         </div>
       )}
       
-      {/* Search Bar */}
-      <Card className="p-4">
-        <div className="flex items-center space-x-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search by name, ID, or job title..."
-              value={searchQuery}
-              onChange={handleSearchChange}
-              className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              aria-label="Search documents"
-            />
-            {searchQuery && (
-              <button
-                onClick={clearSearch}
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                aria-label="Clear search"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-        </div>
-        {searchQuery && (
-          <div className="mt-2 text-sm text-gray-500">
-            Showing {filteredCVs.length} of {cvs.length} CVs and {filteredJDs.length} of {jds.length} Job Descriptions
-          </div>
-        )}
-      </Card>
+       {/* Enhanced Search Bar */}
+       <Card className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 shadow-lg">
+         <div className="space-y-4">
+           <div className="flex items-center space-x-3">
+             <div className="p-2 bg-blue-100 rounded-lg">
+               <Search className="w-5 h-5 text-blue-600" />
+             </div>
+             <div>
+               <h3 className="text-lg font-semibold text-gray-900">Find Candidates</h3>
+               <p className="text-sm text-gray-600">Search through your talent database</p>
+             </div>
+           </div>
+           
+           <div className="relative">
+             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+             <input
+               type="text"
+               placeholder="Search by candidate name, skills, experience, or job title..."
+               value={searchQuery}
+               onChange={handleSearchChange}
+               className="w-full pl-12 pr-12 py-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg bg-white shadow-sm transition-all duration-200 hover:shadow-md"
+               aria-label="Search candidates"
+             />
+             {searchQuery && (
+               <button
+                 onClick={clearSearch}
+                 className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                 aria-label="Clear search"
+               >
+                 <X className="h-5 w-5" />
+               </button>
+             )}
+           </div>
+           
+           {(searchQuery || notesFilter !== 'all') && (
+             <div className="flex items-center justify-between bg-white/70 rounded-lg p-3 border border-blue-100">
+               <div className="flex items-center space-x-2">
+                 <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                 <span className="text-sm font-medium text-gray-700">
+                   {filteredCVs.length} candidates found
+                 </span>
+               </div>
+               {notesFilter !== 'all' && (
+                 <div className="flex items-center space-x-2">
+                   <span className="text-xs text-gray-500">Filter:</span>
+                   <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                     {notesFilter === 'with_notes' ? 'With Notes' : notesFilter === 'without_notes' ? 'Without Notes' : 'All'}
+                   </span>
+                 </div>
+               )}
+             </div>
+           )}
+         </div>
+       </Card>
       
-      {/* Professional Document Tabs with Signature Colors */}
+      {/* HR-Friendly Document Tabs */}
       <Tabs value={databaseActiveTab} onValueChange={(value) => setDatabaseActiveTab(value as 'cvs' | 'jds')} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 bg-white/90 backdrop-blur-sm rounded-2xl p-2 border border-white/30 shadow-lg">
-          <TabsTrigger 
-            value="cvs" 
-            className="flex items-center space-x-2 px-6 py-3 rounded-xl transition-all duration-300 data-[state=active]:text-white data-[state=active]:shadow-lg hover:-translate-y-0.5"
-            style={{
-              background: databaseActiveTab === 'cvs' 
-                ? 'linear-gradient(135deg, rgba(0, 82, 155, 0.9) 0%, rgba(0, 61, 115, 0.9) 100%)'
-                : 'transparent'
-            }}
-          >
-            <Users className="w-5 h-5" />
-            <span className="font-semibold">CVs ({filteredCVs.length})</span>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="jds" 
-            className="flex items-center space-x-2 px-6 py-3 rounded-xl transition-all duration-300 data-[state=active]:text-white data-[state=active]:shadow-lg hover:-translate-y-0.5"
-            style={{
-              background: databaseActiveTab === 'jds' 
-                ? 'linear-gradient(135deg, rgba(0, 82, 155, 0.9) 0%, rgba(0, 61, 115, 0.9) 100%)'
-                : 'transparent'
-            }}
-          >
-            <FileText className="w-5 h-5" />
-            <span className="font-semibold">Job Descriptions ({filteredJDs.length})</span>
-          </TabsTrigger>
-        </TabsList>
+        <div className="bg-white rounded-2xl p-2 shadow-lg border border-gray-100">
+          <TabsList className="grid w-full grid-cols-2 bg-transparent p-0 h-auto">
+            <TabsTrigger 
+              value="cvs" 
+              className="flex items-center space-x-2 px-4 py-3 rounded-lg transition-all duration-300 data-[state=active]:text-white data-[state=active]:shadow-md hover:-translate-y-0.5 data-[state=active]:bg-gradient-to-r data-[state=active]:from-[rgba(0,82,155,0.7)] data-[state=active]:to-[rgba(0,61,115,0.7)] data-[state=inactive]:hover:bg-gray-50"
+            >
+              <div className="p-1.5 rounded-md data-[state=active]:bg-white/20 data-[state=inactive]:bg-blue-100">
+                <Users className="w-4 h-4 data-[state=active]:text-white data-[state=inactive]:text-blue-600" />
+              </div>
+              <div className="text-left">
+                <div className="font-medium text-sm">Candidate Profiles</div>
+                <div className="text-xs opacity-75">{currentCVs.length} candidates</div>
+              </div>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="jds" 
+              className="flex items-center space-x-2 px-4 py-3 rounded-lg transition-all duration-300 data-[state=active]:text-white data-[state=active]:shadow-md hover:-translate-y-0.5 data-[state=active]:bg-gradient-to-r data-[state=active]:from-[rgba(0,82,155,0.7)] data-[state=active]:to-[rgba(0,61,115,0.7)] data-[state=inactive]:hover:bg-gray-50"
+            >
+              <div className="p-1.5 rounded-md data-[state=active]:bg-white/20 data-[state=inactive]:bg-green-100">
+                <FileText className="w-4 h-4 data-[state=active]:text-white data-[state=inactive]:text-green-600" />
+              </div>
+              <div className="text-left">
+                <div className="font-medium text-sm">Job Descriptions</div>
+                <div className="text-xs opacity-75">{filteredJDs.length} positions</div>
+              </div>
+            </TabsTrigger>
+          </TabsList>
+        </div>
         
         {/* CVs Tab */}
         <TabsContent value="cvs" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Candidate CVs</CardTitle>
-                <div className="flex items-center space-x-2">
-                  <Button variant="outline" size="sm" onClick={selectAllCVs} disabled={filteredCVs.length === 0}>
-                    Select All
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={deselectAllCVs} disabled={selectedCVs.length === 0}>
-                    Deselect All
+          <div className="flex gap-4">
+            {/* Sidebar */}
+            <Sidebar />
+            
+            {/* Main Content */}
+            <div className="flex-1 transition-all duration-300">
+              {/* Sidebar Toggle Button (when collapsed) */}
+              {sidebarCollapsed && (
+                <div className="mb-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSidebarCollapsed(false)}
+                    className="bg-white shadow-lg"
+                  >
+                    <Menu className="h-4 w-4 mr-2" />
+                    Show Filters
                   </Button>
                 </div>
-              </div>
-            </CardHeader>
+              )}
+              
+               <Card className="shadow-lg border-0 bg-gradient-to-br from-white via-blue-50/10 to-indigo-50/20 rounded-xl">
+             <CardHeader className="pb-4 bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] text-white rounded-t-xl">
+               <div className="flex items-center justify-between">
+                 <div className="flex items-center space-x-3">
+                   <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                     <Users className="w-5 h-5 text-white" />
+                   </div>
+                   <div>
+                     <CardTitle className="text-xl font-bold text-white mb-1">Candidate Profiles</CardTitle>
+                     <p className="text-blue-100 text-sm">Discover and manage your talent pool</p>
+                   </div>
+                 </div>
+                 <div className="flex items-center space-x-3">
+                   <div className="text-center bg-white/20 rounded-lg p-3 backdrop-blur-sm">
+                     <div className="text-lg font-bold text-white">{selectedCVs.length}</div>
+                     <div className="text-blue-100 text-xs">Selected</div>
+                   </div>
+                 </div>
+               </div>
+             </CardHeader>
             <CardContent>
               {isLoadingCVs ? (
                 <div className="flex items-center justify-center py-8">
@@ -948,14 +1323,14 @@ export default function DatabasePageNew() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {filteredCVs.map((cv) => {
+                  {paginatedCVs.map((cv) => {
                     const b = getCVBasics(cv);
                     return (
                       <div
                         key={cv.id}
                         className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
                       >
-                        <div className="flex items-center space-x-3">
+                        <div className="flex items-start space-x-3">
                           <input
                             type="checkbox"
                             checked={selectedCVs.includes(cv.id)}
@@ -966,13 +1341,13 @@ export default function DatabasePageNew() {
                                 selectCV(cv.id);
                               }
                             }}
-                            className="h-4 w-4 text-blue-600 rounded"
+                            className="h-4 w-4 text-blue-600 rounded mt-1"
                             aria-label={`Select CV for ${b.name}`}
                           />
                           <div className="p-2 bg-blue-100 rounded-lg">
                             <Users className="w-5 h-5 text-blue-600" />
                           </div>
-                          <div>
+                          <div className="flex-1">
                             <h4 className="font-medium text-gray-900">{b.name}</h4>
                             <p className="text-sm text-gray-500">
                               {b.title} • {b.years} years
@@ -981,6 +1356,122 @@ export default function DatabasePageNew() {
                               <Badge variant="secondary">{b.skillsCount} skills</Badge>
                               <Badge variant="outline">{b.respCount} responsibilities</Badge>
                             </div>
+                          </div>
+                          
+                          {/* Notes Section - Right Side */}
+                          <div className="w-80 ml-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-1">
+                                <MessageSquare className="w-4 h-4 text-blue-600" />
+                                <span className="text-sm font-medium text-gray-700">
+                                  Notes ({cvNotes[cv.id]?.length || 0})
+                                </span>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingNote({ cvId: cv.id, noteIndex: -1 });
+                                  setNoteText('');
+                                }}
+                                className="flex items-center gap-1 h-6 px-2 text-xs"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                Add
+                              </Button>
+                            </div>
+                            
+                            {/* Add/Edit Note Form */}
+                            {editingNote?.cvId === cv.id && (
+                              <div className="mb-2 p-2 bg-blue-50 rounded border border-blue-200">
+                                <textarea
+                                  value={noteText}
+                                  onChange={(e) => setNoteText(e.target.value)}
+                                  placeholder="Add note..."
+                                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                                  rows={2}
+                                />
+                                <div className="flex items-center gap-1 mt-1">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleSaveNote(cv.id)}
+                                    disabled={savingNote === cv.id || !noteText.trim()}
+                                    className="flex items-center gap-1 h-5 px-2 text-xs"
+                                  >
+                                    {savingNote === cv.id ? (
+                                      <div className="w-3 h-3 border border-green-600 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                      <Save className="w-3 h-3" />
+                                    )}
+                                    Save
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingNote(null);
+                                      setNoteText('');
+                                    }}
+                                    className="flex items-center gap-1 h-5 px-2 text-xs"
+                                  >
+                                    <X className="w-3 h-3" />
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Display Notes */}
+                            {cvNotes[cv.id] && cvNotes[cv.id].length > 0 && (
+                              <div className="space-y-1 max-h-32 overflow-y-auto">
+                                {cvNotes[cv.id].map((note: any, noteIndex: number) => (
+                                  <div key={noteIndex} className="p-2 rounded border border-gray-200 bg-gray-50">
+                                    <div className="flex justify-between items-start mb-1">
+                                      <div className="text-xs font-medium text-gray-700">
+                                        {note.hr_user}
+                                        {note.hr_user === user?.username && (
+                                          <span className="ml-1 text-xs bg-blue-200 text-blue-800 px-1 py-0.5 rounded">
+                                            You
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <div className="text-xs text-gray-500">
+                                          {new Date(note.updated_at || note.created_at).toLocaleDateString()}
+                                        </div>
+                                        {/* Only show edit/delete buttons if user owns this note */}
+                                        {note.hr_user === user?.username && (
+                                          <>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => handleEditNote(cv.id, noteIndex, note.note)}
+                                              className="flex items-center gap-1 p-0.5 h-4 w-4"
+                                              title="Edit your note"
+                                            >
+                                              <Pencil className="w-2 h-2" />
+                                            </Button>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => handleDeleteNote(cv.id, note.hr_user)}
+                                              className="flex items-center gap-1 p-0.5 h-4 w-4 text-red-600 hover:text-red-700"
+                                              title="Delete your note"
+                                            >
+                                              <X className="w-2 h-2" />
+                                            </Button>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="text-xs text-gray-800 line-clamp-2">
+                                      {note.note}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
@@ -996,17 +1487,8 @@ export default function DatabasePageNew() {
                               </Button>
                             </DialogTrigger>
                             <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl">
-                              <DialogHeader className="flex flex-row items-center justify-between">
+                              <DialogHeader>
                                 <DialogTitle className="text-xl font-semibold">CV Details</DialogTitle>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setSelectedCVForDetails(null)}
-                                  className="h-6 w-6 rounded-full hover:bg-gray-100"
-                                  aria-label="Close CV details"
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
                               </DialogHeader>
                               <CVDetails cvId={cv.id} />
                             </DialogContent>
@@ -1034,18 +1516,66 @@ export default function DatabasePageNew() {
                       </div>
                     );
                   })}
+                  
+                  {/* Pagination Controls for CVs */}
+                  <PaginationControls
+                    totalPages={totalPages}
+                    currentPage={currentPage}
+                    onPageChange={setCurrentPage}
+                    totalItems={currentCVs.length}
+                    itemsPerPage={itemsPerPage}
+                  />
                 </div>
               )}
             </CardContent>
           </Card>
+            </div>
+          </div>
         </TabsContent>
         
         {/* JDs Tab */}
         <TabsContent value="jds" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Job Descriptions</CardTitle>
-            </CardHeader>
+          <div className="flex gap-4">
+            {/* Sidebar */}
+            <Sidebar />
+            
+            {/* Main Content */}
+            <div className="flex-1 transition-all duration-300">
+              {/* Sidebar Toggle Button (when collapsed) */}
+              {sidebarCollapsed && (
+                <div className="mb-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSidebarCollapsed(false)}
+                    className="bg-white shadow-lg"
+                  >
+                    <Menu className="h-4 w-4 mr-2" />
+                    Show Filters
+                  </Button>
+                </div>
+              )}
+              
+               <Card className="shadow-lg border-0 bg-gradient-to-br from-white via-green-50/10 to-emerald-50/20 rounded-xl">
+             <CardHeader className="pb-4 bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] text-white rounded-t-xl">
+               <div className="flex items-center justify-between">
+                 <div className="flex items-center space-x-3">
+                   <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                     <FileText className="w-5 h-5 text-white" />
+                   </div>
+                   <div>
+                     <CardTitle className="text-xl font-bold text-white mb-1">Job Descriptions</CardTitle>
+                     <p className="text-blue-100 text-sm">Define and manage position requirements</p>
+                   </div>
+                 </div>
+                 <div className="flex items-center space-x-3">
+                   <div className="text-center bg-white/20 rounded-lg p-3 backdrop-blur-sm">
+                     <div className="text-lg font-bold text-white">{selectedJD ? '1' : '0'}</div>
+                     <div className="text-blue-100 text-xs">Selected</div>
+                   </div>
+                 </div>
+               </div>
+             </CardHeader>
             <CardContent>
               {isLoadingJDs ? (
                 <div className="flex items-center justify-center py-8">
@@ -1069,7 +1599,7 @@ export default function DatabasePageNew() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {filteredJDs.map((jd) => {
+                  {paginatedJDs.map((jd) => {
                     const b = getJDBasics(jd);
                     return (
                       <div
@@ -1112,17 +1642,8 @@ export default function DatabasePageNew() {
                               </Button>
                             </DialogTrigger>
                             <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl">
-                              <DialogHeader className="flex flex-row items-center justify-between">
+                              <DialogHeader>
                                 <DialogTitle className="text-xl font-semibold">Job Description Details</DialogTitle>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setSelectedJDForDetails(null)}
-                                  className="h-6 w-6 rounded-full hover:bg-gray-100"
-                                  aria-label="Close job description details"
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
                               </DialogHeader>
                               <JDDetails jdId={jd.id} />
                             </DialogContent>
@@ -1150,10 +1671,21 @@ export default function DatabasePageNew() {
                       </div>
                     );
                   })}
+                  
+                  {/* Pagination Controls for JDs */}
+                  <PaginationControls
+                    totalPages={totalJDPages}
+                    currentPage={currentPage}
+                    onPageChange={setCurrentPage}
+                    totalItems={filteredJDs.length}
+                    itemsPerPage={itemsPerPage}
+                  />
                 </div>
               )}
             </CardContent>
           </Card>
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

@@ -129,6 +129,28 @@ class ApiClient {
     return response.data;
   }
 
+  // CV Notes endpoints
+  async getAllCVsWithNotes(): Promise<{ status: string; cvs_with_notes: any[]; total_count: number }> {
+    const response = await this.client.get('/api/cv/notes/all');
+    return response.data;
+  }
+
+  async getCVNotes(cvId: string): Promise<{ status: string; cv_id: string; notes: any[]; notes_count: number }> {
+    const response = await this.client.get(`/api/cv/${cvId}/note`);
+    return response.data;
+  }
+
+  async addOrUpdateNote(cvId: string, note: string, hrUser: string): Promise<{ status: string; message: string; cv_id: string; note: any }> {
+    const payload = { note, hr_user: hrUser };
+    const response = await this.client.post(`/api/cv/${cvId}/note`, payload);
+    return response.data;
+  }
+
+  async deleteCVNote(cvId: string, hrUser: string): Promise<{ status: string; message: string; cv_id: string; hr_user: string }> {
+    const response = await this.client.delete(`/api/cv/${cvId}/note/${hrUser}`);
+    return response.data;
+  }
+
   // JD endpoints
   async uploadJD(file: File, jdText?: string): Promise<UploadResponse> {
     const formData = new FormData();
@@ -708,6 +730,12 @@ export const api = {
   reprocessCV: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.reprocessCV(cvId)),
   getCVEmbeddings: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVEmbeddings(cvId)),
   standardizeCV: (cvText: string, filename?: string) => RequestRetryHandler.withRetry(() => apiClient.standardizeCV(cvText, filename)),
+  
+  // CV Notes operations
+  getAllCVsWithNotes: () => RequestRetryHandler.withRetry(() => apiClient.getAllCVsWithNotes()),
+  getCVNotes: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVNotes(cvId)),
+  addOrUpdateNote: (cvId: string, note: string, hrUser: string) => RequestRetryHandler.withRetry(() => apiClient.addOrUpdateNote(cvId, note, hrUser)),
+  deleteCVNote: (cvId: string, hrUser: string) => RequestRetryHandler.withRetry(() => apiClient.deleteCVNote(cvId, hrUser)),
   
   // JD operations
   uploadJD: (file: File, jdText?: string) => RequestRetryHandler.withRetry(() => apiClient.uploadJD(file, jdText)),

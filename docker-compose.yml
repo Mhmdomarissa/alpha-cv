@@ -10,6 +10,7 @@ services:
       - "8000:8000"
     env_file:
       - ./.env
+      - ./security_hardening.env
     runtime: nvidia
     deploy:
       resources:
@@ -21,6 +22,7 @@ services:
     environment:
       NODE_ENV: "production"
       ENVIRONMENT: "production"
+      SECRET_KEY: "49X9pTJHdRQxMimtGsIHiCkhVltsw6keJbUUPRrUsu0="
       CUDA_VISIBLE_DEVICES: "0"
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
@@ -31,30 +33,30 @@ services:
       QDRANT_PORT: 6333
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_MAXMEMORY: "18gb"
+      REDIS_MAXMEMORY: "12gb"
       REDIS_MAXMEMORY_POLICY: "allkeys-lru"
       MAX_GLOBAL_CONCURRENT: "3200"
       CIRCUIT_BREAKER_THRESHOLD: "400"
       CIRCUIT_BREAKER_RECOVERY_TIME: "300"
-      MIN_QUEUE_WORKERS: "16"
-      MAX_QUEUE_WORKERS: "64"
-      QUEUE_SIZE_THRESHOLD: "20000"
-      MEMORY_THRESHOLD_MB: "24576"
+      MIN_QUEUE_WORKERS: "8"
+      MAX_QUEUE_WORKERS: "16"
+      QUEUE_SIZE_THRESHOLD: "10000"
+      MEMORY_THRESHOLD_MB: "12288"
       CPU_THRESHOLD_PERCENT: "85"
-      PYTHON_MEMORY_LIMIT: "24576"
-      UVICORN_WORKERS: "16"
+      PYTHON_MEMORY_LIMIT: "12288"
+      UVICORN_WORKERS: "8"
+      # Heavy load optimizations for 20 conc
       # Heavy load optimizations for 20 concurrent users
       WORKER_CONNECTIONS: "4096"
       KEEPALIVE_TIMEOUT: "65"
       CLIENT_MAX_BODY_SIZE: "200M"
       # Advanced performance settings
       ENABLE_GPU_BATCH_PROCESSING: "true"
-      GPU_BATCH_SIZE: "32"
+      GPU_BATCH_SIZE: "64"  # Increased for shared model optimization
       ENABLE_AGGRESSIVE_CACHING: "true"
       CACHE_TTL_EMBEDDINGS: "86400"
       CACHE_TTL_MATCHES: "3600"
-      ENABLE_ASYNC_PROCESSING: "true"
-      ASYNC_WORKER_POOL_SIZE: "50"
+      ASYNC_WORKER_POOL_SIZE: "24"
       ENABLE_PERFORMANCE_MONITORING: "true"
       LOG_LEVEL: "INFO"
       ENABLE_REQUEST_LOGGING: "true"
@@ -82,11 +84,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 24G
-          cpus: '7.0'
-        reservations:
           memory: 12G
-          cpus: '4.0'
+          cpus: '3.5'
+        reservations:
+          memory: 6G
+          cpus: '2.0'
 
   # =======================
   # Frontend (Next.js) - Memory Optimized
@@ -129,6 +131,8 @@ services:
       POSTGRES_USER: cv_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      # Security: Create auth database
+      POSTGRES_MULTIPLE_DATABASES: "auth_db"
       
     ports:
       - "5433:5432"
@@ -202,11 +206,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 18G
-          cpus: '5.0'
-        reservations:
           memory: 10G
-          cpus: '3.0'
+          cpus: '2.5'
+        reservations:
+          memory: 4G
+          cpus: '1.5'
 
   # =======================
   # Redis - Added back for caching
@@ -217,18 +221,18 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 18gb --maxmemory-policy allkeys-lru --tcp-keepalive 60 --timeout 300 --maxclients 3000
+    command: redis-server --appendonly yes --maxmemory 8gb --maxmemory-policy allkeys-lru --tcp-keepalive 60 --timeout 300 --maxclients 1000
     restart: unless-stopped
     networks:
       - cv-network
     deploy:
       resources:
         limits:
-          memory: 18G
-          cpus: '3.0'
-        reservations:
-          memory: 6G
+          memory: 10G
           cpus: '2.0'
+        reservations:
+          memory: 4G
+          cpus: '1.0'
 
   # =======================
   # Nginx - Lightweight proxy

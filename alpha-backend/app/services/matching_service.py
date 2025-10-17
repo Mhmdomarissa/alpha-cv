@@ -7,6 +7,7 @@ import time
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 import numpy as np
+import torch
 from scipy.optimize import linear_sum_assignment
 from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils
@@ -134,7 +135,39 @@ class MatchingService:
     def __init__(self):
         self.embedding_service = get_embedding_service()
         self.qdrant = get_qdrant_utils()
+        
+        # SAFETY: System resource monitoring
+        self.max_cpu_usage = 85.0  # Maximum CPU usage before throttling
+        self.max_memory_usage = 90.0  # Maximum memory usage before throttling
+        
         logger.info("🎯 MatchingService initialized (uses *_structured & *_embeddings)")
+        logger.info("🛡️ Safety limits: CPU < 85%, Memory < 90%, GPU memory checks enabled")
+
+    def _check_system_resources(self) -> bool:
+        """
+        Check if system resources are within safe limits.
+        Returns True if safe to proceed, False if should throttle.
+        """
+        try:
+            import psutil
+            
+            # Check CPU usage
+            cpu_percent = psutil.cpu_percent(interval=1)
+            if cpu_percent > self.max_cpu_usage:
+                logger.warning(f"⚠️ High CPU usage detected: {cpu_percent}% > {self.max_cpu_usage}%")
+                return False
+            
+            # Check memory usage
+            memory = psutil.virtual_memory()
+            if memory.percent > self.max_memory_usage:
+                logger.warning(f"⚠️ High memory usage detected: {memory.percent}% > {self.max_memory_usage}%")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠️ System resource check failed: {e}, proceeding with caution")
+            return True  # Proceed if check fails
 
     # ---------- Universal Dynamic Job Title Similarity Methods ----------
     
@@ -412,13 +445,13 @@ class MatchingService:
             # ---- similarities ----
             skills_analysis = self._skills_similarity(
                 jd_emb["skills"], cv_emb["skills"],
-                jd_std.get("skills", []),
-                cv_std.get("skills", [])
+                jd_std.get("skills_sentences", []),
+                cv_std.get("skills_sentences", [])
             )
             responsibilities_analysis = self._responsibilities_similarity(
                 jd_emb["responsibilities"], cv_emb["responsibilities"],
-                jd_std.get("responsibilities", []) or jd_std.get("responsibility_sentences", []),
-                cv_std.get("responsibilities", [])
+                jd_std.get("responsibility_sentences", []),
+                cv_std.get("responsibility_sentences", [])
             )
             # ---- Enhanced title similarity using semantic mappings ----
             cv_title = cv_std.get("job_title", "") or ""
@@ -705,14 +738,53 @@ class MatchingService:
 
     def bulk_match(self, jd_id: str, cv_ids: List[str], top_k: int = 10) -> List[MatchResult]:
         try:
+            # SAFETY CHECK: Limit bulk matching size to prevent system overload
+            max_bulk_size = 200  # Maximum CVs to process in one bulk operation
+            if len(cv_ids) > max_bulk_size:
+                logger.warning(f"⚠️ Bulk match size too large ({len(cv_ids)} CVs), limiting to {max_bulk_size}")
+                cv_ids = cv_ids[:max_bulk_size]
+            
+            # SAFETY CHECK: Add timeout protection for individual matches
+            import time
+            start_time = time.time()
+            max_processing_time = 300  # 5 minutes max for bulk operation
+            
             results: List[MatchResult] = []
+            processed_count = 0
+            
             for cid in cv_ids:
                 try:
-                    results.append(self.match_cv_against_jd(cid, jd_id))
+                    # Check timeout
+                    if time.time() - start_time > max_processing_time:
+                        logger.warning(f"⚠️ Bulk matching timeout after {processed_count} CVs, returning partial results")
+                        break
+                    
+                    # SAFETY CHECK: Monitor system resources every 10 CVs
+                    if processed_count > 0 and processed_count % 10 == 0:
+                        if not self._check_system_resources():
+                            logger.warning(f"⚠️ System resources exceeded, stopping bulk matching after {processed_count} CVs")
+                            break
+                    
+                    # Process individual match with error handling
+                    result = self.match_cv_against_jd(cid, jd_id)
+                    results.append(result)
+                    processed_count += 1
+                    
+                    # Log progress for large batches
+                    if len(cv_ids) > 50 and processed_count % 10 == 0:
+                        logger.info(f"📊 Bulk matching progress: {processed_count}/{len(cv_ids)} CVs processed")
+                        
                 except Exception as e:
-                    logger.warning(f"⚠ Failed to match CV {cid}: {e}")
+                    logger.warning(f"⚠️ Failed to match CV {cid}: {e}")
+                    continue
+            
+            # Sort results and return top_k
             results.sort(key=lambda x: x.overall_score, reverse=True)
-            return results[:top_k]
+            final_results = results[:top_k]
+            
+            logger.info(f"✅ Bulk matching completed: {processed_count}/{len(cv_ids)} CVs processed, {len(final_results)} results returned")
+            return final_results
+            
         except Exception as e:
             logger.error(f"❌ Bulk matching failed: {e}")
             raise
@@ -761,14 +833,14 @@ class MatchingService:
             from concurrent.futures import ThreadPoolExecutor
             import math
             
-            # Calculate optimal batch size based on category
+            # Calculate optimal batch size based on category (with safety limits)
             batch_sizes = {
-                "Software Engineering": 20,
-                "AI/ML Engineering": 15,  # Smaller batches for GPU-intensive processing
-                "Security Engineering": 25,
-                "Cloud/DevOps Engineering": 20,
-                "Data Science": 15,  # Smaller batches for GPU-intensive processing
-                "General": 30
+                "Software Engineering": 15,  # Reduced for safety
+                "AI/ML Engineering": 10,     # Smaller batches for GPU-intensive processing
+                "Security Engineering": 15,  # Reduced for safety
+                "Cloud/DevOps Engineering": 15,  # Reduced for safety
+                "Data Science": 10,          # Smaller batches for GPU-intensive processing
+                "General": 20                # Reduced for safety
             }
             
             batch_size = batch_sizes.get(category, 20)
@@ -843,10 +915,29 @@ class MatchingService:
 
     def _get_exact_vectors(self, doc_id: str, doc_type: str) -> Dict[str, Any]:
         """
-        Pull points from {doc_type}_embeddings with document_id filter.
+        Pull vectors from {doc_type}_embeddings using optimized single-point retrieval.
         Returns dict with lists: skill_vectors[20], responsibility_vectors[10], experience_vector[1], job_title_vector[1].
         """
         try:
+            # Try optimized single-point retrieval first
+            try:
+                point = self.qdrant.client.retrieve(
+                    collection_name=f"{doc_type}_embeddings",
+                    ids=[doc_id],
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                if point and len(point) > 0:
+                    payload = point[0].payload
+                    if payload and "vector_structure" in payload:
+                        logger.info(f"✅ OPTIMIZED: Retrieved 32 vectors as single point for {doc_id}")
+                        return payload["vector_structure"]
+            except Exception as e:
+                logger.debug(f"Optimized retrieval failed for {doc_id}, trying legacy method: {e}")
+            
+            # Fallback to legacy method for backward compatibility
+            logger.info(f"🔄 FALLBACK: Using legacy retrieval for {doc_id}")
             points, _ = self.qdrant.client.scroll(
                 collection_name=f"{doc_type}_embeddings",
                 scroll_filter={"must": [{"key": "document_id", "match": {"value": doc_id}}]},
@@ -1041,9 +1132,47 @@ class MatchingService:
     def _avg_best_similarity(self, A: List[List[float]], B: List[List[float]]) -> float:
         """
         For each vector in A, take the best cosine similarity against all vectors in B; then average.
+        Uses GPU acceleration when available.
         """
         if not A or not B:
             return 0.0
+        
+        try:
+            # Try GPU-accelerated batch calculation first
+            if self.embedding_service.device == "cuda" and torch.cuda.is_available():
+                return self._avg_best_similarity_gpu(A, B)
+            else:
+                return self._avg_best_similarity_cpu(A, B)
+        except Exception as e:
+            logger.warning(f"⚠️ GPU avg best similarity failed, falling back to CPU: {str(e)}")
+            return self._avg_best_similarity_cpu(A, B)
+    
+    def _avg_best_similarity_gpu(self, A: List[List[float]], B: List[List[float]]) -> float:
+        """
+        GPU-accelerated average best similarity calculation.
+        """
+        try:
+            # Convert to numpy matrices
+            matrix_a = np.array(A)
+            matrix_b = np.array(B)
+            
+            # Calculate similarity matrix on GPU
+            similarity_matrix = self.embedding_service.calculate_batch_cosine_similarity_gpu(matrix_a, matrix_b)
+            
+            # Find best similarity for each vector in A
+            best_similarities = np.max(similarity_matrix, axis=1)
+            
+            # Return average of best similarities
+            return float(np.mean(best_similarities))
+            
+        except Exception as e:
+            logger.warning(f"⚠️ GPU avg best similarity calculation failed: {str(e)}")
+            return self._avg_best_similarity_cpu(A, B)
+    
+    def _avg_best_similarity_cpu(self, A: List[List[float]], B: List[List[float]]) -> float:
+        """
+        CPU-based average best similarity calculation (original implementation).
+        """
         sims = []
         for va in A:
             va_np = np.array(va)
@@ -1059,9 +1188,24 @@ class MatchingService:
         return float(np.mean(sims)) if sims else 0.0
 
     def _cos_sim_list(self, v1: List[float], v2: List[float]) -> float:
-        v1 = np.array(v1); v2 = np.array(v2)
-        den = (np.linalg.norm(v1) * np.linalg.norm(v2)) or 1.0
-        return float(max(0.0, min(1.0, float(np.dot(v1, v2)) / den)))
+        """
+        Calculate cosine similarity between two vectors.
+        Uses GPU acceleration when available.
+        """
+        try:
+            # Convert to numpy arrays
+            vec1 = np.array(v1)
+            vec2 = np.array(v2)
+            
+            # Use the embedding service's GPU-accelerated similarity calculation
+            return self.embedding_service.calculate_cosine_similarity(vec1, vec2)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ GPU cos_sim_list failed, using CPU fallback: {str(e)}")
+            # CPU fallback
+            v1 = np.array(v1); v2 = np.array(v2)
+            den = (np.linalg.norm(v1) * np.linalg.norm(v2)) or 1.0
+            return float(max(0.0, min(1.0, float(np.dot(v1, v2)) / den)))
 
     def _skills_similarity(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
                            jd_skills: List[str], cv_skills: List[str]) -> Dict[str, Any]:
@@ -1069,6 +1213,96 @@ class MatchingService:
             return {"skill_match_percentage": 0.0, "matched_skills": 0, "total_jd_skills": len(jd_skills), 
                     "matches": [], "unmatched_jd_skills": jd_skills}
         
+        # Use GPU-accelerated batch similarity calculation
+        return self._skills_similarity_gpu_batch(jd_emb, cv_emb, jd_skills, cv_skills)
+    
+    def _skills_similarity_gpu_batch(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
+                                     jd_skills: List[str], cv_skills: List[str]) -> Dict[str, Any]:
+        """
+        GPU-accelerated skills similarity calculation using batch processing with bulletproof safety.
+        """
+        try:
+            # SAFETY CHECK: Limit batch size to prevent GPU memory issues
+            max_batch_size = 30  # Conservative limit for skills matching
+            if len(jd_skills) > max_batch_size or len(cv_skills) > max_batch_size:
+                logger.warning(f"⚠️ Skills batch too large ({len(jd_skills)}x{len(cv_skills)}), using CPU fallback")
+                return self._skills_similarity_cpu_fallback(jd_emb, cv_emb, jd_skills, cv_skills)
+            
+            logger.info(f"🚀 GPU batch skills similarity: {len(jd_skills)} JD skills vs {len(cv_skills)} CV skills")
+            # Prepare matrices for batch processing
+            jd_vectors = []
+            cv_vectors = []
+            jd_indices = []
+            cv_indices = []
+            
+            # Build JD vectors matrix
+            for idx, jd_s in enumerate(jd_skills):
+                v1 = jd_emb.get(jd_s)
+                if v1 is not None:
+                    jd_vectors.append(v1)
+                    jd_indices.append(idx)
+            
+            # Build CV vectors matrix
+            for idx, cv_s in enumerate(cv_skills):
+                v2 = cv_emb.get(cv_s)
+                if v2 is not None:
+                    cv_vectors.append(v2)
+                    cv_indices.append(idx)
+            
+            if not jd_vectors or not cv_vectors:
+                return {"skill_match_percentage": 0.0, "matched_skills": 0, "total_jd_skills": len(jd_skills), 
+                        "matches": [], "unmatched_jd_skills": jd_skills}
+            
+            # Convert to numpy matrices
+            jd_matrix = np.array(jd_vectors)
+            cv_matrix = np.array(cv_vectors)
+            
+            # Calculate similarity matrix on GPU (or CPU fallback)
+            similarity_matrix = self.embedding_service.calculate_batch_cosine_similarity_gpu(jd_matrix, cv_matrix)
+            
+            # Process results to find best matches
+            matches, matched = [], 0
+            for jd_idx, jd_original_idx in enumerate(jd_indices):
+                jd_s = jd_skills[jd_original_idx]
+                
+                # Find best match for this JD skill
+                best_cv_idx = np.argmax(similarity_matrix[jd_idx])
+                best_sim = similarity_matrix[jd_idx, best_cv_idx]
+                cv_original_idx = cv_indices[best_cv_idx]
+                cv_s = cv_skills[cv_original_idx]
+                
+                if best_sim >= self.embedding_service.SIMILARITY_THRESHOLDS["skills"]["minimum"]:
+                    matched += 1
+                    matches.append({
+                        "jd_skill": jd_s, 
+                        "cv_skill": cv_s, 
+                        "similarity": float(best_sim), 
+                        "quality": self.embedding_service.get_match_quality(best_sim, "skills"),
+                        "jd_index": jd_original_idx,
+                        "cv_index": cv_original_idx
+                    })
+            
+            total = len(jd_skills) or 1
+            pct = matched / total * 100.0
+            unmatched = [s for s in jd_skills if s not in [m["jd_skill"] for m in matches]]
+            
+            return {
+                "skill_match_percentage": pct, 
+                "matched_skills": matched, 
+                "total_jd_skills": len(jd_skills), 
+                "matches": matches, 
+                "unmatched_jd_skills": unmatched
+            }
+            
+        except Exception as e:
+            logger.warning(f"⚠️ GPU batch skills similarity failed, falling back to CPU: {str(e)}")
+            return self._skills_similarity_cpu_fallback(jd_emb, cv_emb, jd_skills, cv_skills)
+    
+    def _skills_similarity_cpu_fallback(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
+                                        jd_skills: List[str], cv_skills: List[str]) -> Dict[str, Any]:
+        """
+        CPU fallback for skills similarity calculation (original implementation).
+        """
         matches, matched = [], 0
         for idx, jd_s in enumerate(jd_skills):
             v1 = jd_emb.get(jd_s)
@@ -1117,6 +1351,97 @@ class MatchingService:
                     "total_jd_responsibilities": len(jd_resps), "matches": [], 
                     "unmatched_jd_responsibilities": jd_resps}
         
+        # Use GPU-accelerated batch similarity calculation
+        return self._responsibilities_similarity_gpu_batch(jd_emb, cv_emb, jd_resps, cv_resps)
+    
+    def _responsibilities_similarity_gpu_batch(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
+                                               jd_resps: List[str], cv_resps: List[str]) -> Dict[str, Any]:
+        """
+        GPU-accelerated responsibilities similarity calculation using batch processing with bulletproof safety.
+        """
+        try:
+            # SAFETY CHECK: Limit batch size to prevent GPU memory issues
+            max_batch_size = 20  # Conservative limit for responsibilities matching
+            if len(jd_resps) > max_batch_size or len(cv_resps) > max_batch_size:
+                logger.warning(f"⚠️ Responsibilities batch too large ({len(jd_resps)}x{len(cv_resps)}), using CPU fallback")
+                return self._responsibilities_similarity_cpu_fallback(jd_emb, cv_emb, jd_resps, cv_resps)
+            
+            logger.info(f"🚀 GPU batch responsibilities similarity: {len(jd_resps)} JD resp vs {len(cv_resps)} CV resp")
+            # Prepare matrices for batch processing
+            jd_vectors = []
+            cv_vectors = []
+            jd_indices = []
+            cv_indices = []
+            
+            # Build JD vectors matrix
+            for idx, jd_r in enumerate(jd_resps):
+                v1 = jd_emb.get(jd_r)
+                if v1 is not None:
+                    jd_vectors.append(v1)
+                    jd_indices.append(idx)
+            
+            # Build CV vectors matrix
+            for idx, cv_r in enumerate(cv_resps):
+                v2 = cv_emb.get(cv_r)
+                if v2 is not None:
+                    cv_vectors.append(v2)
+                    cv_indices.append(idx)
+            
+            if not jd_vectors or not cv_vectors:
+                return {"responsibility_match_percentage": 0.0, "matched_responsibilities": 0, 
+                        "total_jd_responsibilities": len(jd_resps), "matches": [], 
+                        "unmatched_jd_responsibilities": jd_resps}
+            
+            # Convert to numpy matrices
+            jd_matrix = np.array(jd_vectors)
+            cv_matrix = np.array(cv_vectors)
+            
+            # Calculate similarity matrix on GPU (or CPU fallback)
+            similarity_matrix = self.embedding_service.calculate_batch_cosine_similarity_gpu(jd_matrix, cv_matrix)
+            
+            # Process results to find best matches
+            matches, matched = [], 0
+            for jd_idx, jd_original_idx in enumerate(jd_indices):
+                jd_r = jd_resps[jd_original_idx]
+                
+                # Find best match for this JD responsibility
+                best_cv_idx = np.argmax(similarity_matrix[jd_idx])
+                best_sim = similarity_matrix[jd_idx, best_cv_idx]
+                cv_original_idx = cv_indices[best_cv_idx]
+                cv_r = cv_resps[cv_original_idx]
+                
+                if best_sim >= self.embedding_service.SIMILARITY_THRESHOLDS["responsibilities"]["minimum"]:
+                    matched += 1
+                    matches.append({
+                        "jd_responsibility": jd_r, 
+                        "cv_responsibility": cv_r, 
+                        "similarity": float(best_sim), 
+                        "quality": self.embedding_service.get_match_quality(best_sim, "responsibilities"),
+                        "jd_index": jd_original_idx,
+                        "cv_index": cv_original_idx
+                    })
+            
+            total = len(jd_resps) or 1
+            pct = matched / total * 100.0
+            unmatched = [r for r in jd_resps if r not in [m["jd_responsibility"] for m in matches]]
+            
+            return {
+                "responsibility_match_percentage": pct, 
+                "matched_responsibilities": matched, 
+                "total_jd_responsibilities": len(jd_resps), 
+                "matches": matches, 
+                "unmatched_jd_responsibilities": unmatched
+            }
+            
+        except Exception as e:
+            logger.warning(f"⚠️ GPU batch responsibilities similarity failed, falling back to CPU: {str(e)}")
+            return self._responsibilities_similarity_cpu_fallback(jd_emb, cv_emb, jd_resps, cv_resps)
+    
+    def _responsibilities_similarity_cpu_fallback(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
+                                                  jd_resps: List[str], cv_resps: List[str]) -> Dict[str, Any]:
+        """
+        CPU fallback for responsibilities similarity calculation (original implementation).
+        """
         matches, matched = [], 0
         for idx, jd_r in enumerate(jd_resps):
             v1 = jd_emb.get(jd_r)

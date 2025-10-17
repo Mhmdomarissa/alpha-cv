@@ -13,11 +13,16 @@ import {
   Filter,
   Briefcase,
   Calendar,
-  FileDown
+  FileDown,
+  MessageSquare,
+  Pencil,
+  Save,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/stores/appStore';
 import { useCareersStore } from '@/stores/careersStore';
+import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button-enhanced';
 import { MatchWeights } from '@/lib/types';
@@ -117,6 +122,7 @@ export default function MatchingPageNew() {
   } = useAppStore();
   
   const { applications } = useCareersStore();
+  const { user } = useAuthStore();
   
   const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortKey>('score');
@@ -124,6 +130,12 @@ export default function MatchingPageNew() {
   const [downloadingCV, setDownloadingCV] = useState<string | null>(null);
   const [resultsLimit, setResultsLimit] = useState<number | 'all'>(3); // Default to top 3
   const [isExporting, setIsExporting] = useState(false);
+  
+  // Notes state
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState<string | null>(null);
+  const [candidateNotes, setCandidateNotes] = useState<Record<string, any[]>>({});
   
   // Ensure default weights present
   useEffect(() => {
@@ -136,6 +148,17 @@ export default function MatchingPageNew() {
       setMatchWeights?.({ ...DEFAULT_WEIGHTS });
     }
   }, [matchWeights, setMatchWeights]);
+
+  // Load notes for all candidates when match results change
+  useEffect(() => {
+    if (matchResult?.candidates) {
+      matchResult.candidates.forEach((candidate: any) => {
+        if (candidate.cv_id && !candidateNotes[candidate.cv_id]) {
+          loadCandidateNotes(candidate.cv_id);
+        }
+      });
+    }
+  }, [matchResult?.candidates]);
 
   // Queue handlers removed
 
@@ -262,6 +285,46 @@ export default function MatchingPageNew() {
     } finally {
       setDownloadingCV(null);
     }
+  };
+
+  // Notes handlers
+  const loadCandidateNotes = async (cvId: string) => {
+    try {
+      const response = await api.getCVNotes(cvId);
+      setCandidateNotes(prev => ({
+        ...prev,
+        [cvId]: response.notes || []
+      }));
+    } catch (error) {
+      console.error('Failed to load notes:', error);
+    }
+  };
+
+  const handleEditNote = (cvId: string) => {
+    setEditingNote(cvId);
+    setNoteText('');
+  };
+
+  const handleSaveNote = async (cvId: string) => {
+    if (!noteText.trim()) return;
+    
+    setSavingNote(cvId);
+    try {
+      await api.addOrUpdateNote(cvId, noteText.trim(), user?.username || 'anonymous');
+      await loadCandidateNotes(cvId);
+      setEditingNote(null);
+      setNoteText('');
+    } catch (error) {
+      console.error('Failed to save note:', error);
+      alert('Failed to save note');
+    } finally {
+      setSavingNote(null);
+    }
+  };
+
+  const handleCancelNote = () => {
+    setEditingNote(null);
+    setNoteText('');
   };
 
   // Export results handler
@@ -649,7 +712,15 @@ export default function MatchingPageNew() {
           #{index + 1}
         </div>
         <div>
-          <h4 className="font-semibold text-gray-900">{displayName}</h4>
+          <div className="flex items-center gap-2">
+            <h4 className="font-semibold text-gray-900">{displayName}</h4>
+            {candidateNotes[candidate.cv_id] && candidateNotes[candidate.cv_id].length > 0 && (
+              <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                <MessageSquare className="w-3 h-3" />
+                <span>{candidateNotes[candidate.cv_id].length}</span>
+              </div>
+            )}
+          </div>
           <p className="text-sm text-gray-600">
             {title} • {yearsText}
           </p>
@@ -782,8 +853,74 @@ export default function MatchingPageNew() {
       </div>
     </div>
 
-    {/* Download CV Button */}
-    <div className="mt-4 flex justify-end">
+    {/* Action Buttons */}
+    <div className="mt-4 flex justify-between items-center">
+      {/* Note Section */}
+      <div className="flex items-center gap-2">
+        {editingNote === candidate.cv_id ? (
+          <div className="flex items-center gap-2">
+            <textarea
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Add a note about this candidate..."
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              rows={2}
+              cols={30}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSaveNote(candidate.cv_id);
+              }}
+              disabled={savingNote === candidate.cv_id || !noteText.trim()}
+              className="flex items-center gap-1"
+            >
+              {savingNote === candidate.cv_id ? (
+                <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCancelNote();
+              }}
+              className="flex items-center gap-1"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEditNote(candidate.cv_id);
+              }}
+              className="flex items-center gap-1"
+            >
+              <Pencil className="w-4 h-4" />
+              <span>Add Note</span>
+            </Button>
+            {candidateNotes[candidate.cv_id] && candidateNotes[candidate.cv_id].length > 0 && (
+              <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                <MessageSquare className="w-4 h-4" />
+                <span>{candidateNotes[candidate.cv_id].length} note{candidateNotes[candidate.cv_id].length !== 1 ? 's' : ''}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* Download CV Button */}
       <Button
         variant="outline"
         size="sm"
@@ -791,7 +928,6 @@ export default function MatchingPageNew() {
           e.stopPropagation();
           handleDownloadCV(candidate.cv_id);
         }}
-
         disabled={downloadingCV === candidate.cv_id}
         className="flex items-center gap-1"
       >
