@@ -8,10 +8,15 @@ import {
   FileText, 
   Download,
   X,
-  Loader2
+  Loader2,
+  MessageSquare,
+  Edit3,
+  Save,
+  Calendar
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAppStore } from '@/stores/appStore';
+import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card-enhanced';
 import { Button } from '@/components/ui/button-enhanced';
@@ -19,9 +24,15 @@ import { Badge } from '@/components/ui/badge';
 import { LoadingCard } from '@/components/ui/loading';
 
 export default function ApplicationsList() {
-  const { applications, isLoading, selectedJob, viewingCVData, setViewingCVData } = useCareersStore();
+  const { applications, isLoading, selectedJob, viewingCVData, setViewingCVData, loadJobApplications } = useCareersStore();
   const { setCurrentTab, setCareersMatchData } = useAppStore();
+  const { user } = useAuthStore();
   const [downloadingCV, setDownloadingCV] = useState<string | null>(null);
+  
+  // Note editing state
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState<string | null>(null);
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString();
@@ -47,6 +58,38 @@ export default function ApplicationsList() {
   };
 
   const [loadingCVData, setLoadingCVData] = useState(false);
+
+  // Note handling functions
+  const handleEditNote = (cvId: string, currentNote: string = '') => {
+    setEditingNote(cvId);
+    setNoteText(currentNote);
+  };
+
+  const handleSaveNote = async (cvId: string) => {
+    if (!noteText.trim()) return;
+    
+    setSavingNote(cvId);
+    try {
+      await api.addOrUpdateNote(cvId, noteText.trim(), user?.username || 'anonymous');
+      setEditingNote(null);
+      setNoteText('');
+      
+      // Reload applications to get updated note data
+      if (selectedJob) {
+        await loadJobApplications(selectedJob.job_id);
+      }
+    } catch (error) {
+      console.error('Failed to save note:', error);
+      alert('Failed to save note. Please try again.');
+    } finally {
+      setSavingNote(null);
+    }
+  };
+
+  const handleCancelNote = () => {
+    setEditingNote(null);
+    setNoteText('');
+  };
 
   const handleViewDetails = async (cvId: string, filename: string) => {
     setLoadingCVData(true);
@@ -121,7 +164,7 @@ export default function ApplicationsList() {
                   <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
                     <User className="w-5 h-5 text-blue-600" />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <div className="flex items-center space-x-2">
                       <h3 className="font-semibold text-neutral-900">
                         {application.applicant_name}
@@ -129,6 +172,12 @@ export default function ApplicationsList() {
                       {application.expected_salary && (
                         <Badge variant="secondary" className="bg-green-100 text-green-800">
                           AED {application.expected_salary.toLocaleString()}
+                        </Badge>
+                      )}
+                      {application.has_notes && (
+                        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                          <MessageSquare className="w-3 h-3 mr-1" />
+                          {application.notes_count || 0} note{(application.notes_count || 0) > 1 ? 's' : ''}
                         </Badge>
                       )}
                     </div>
@@ -155,6 +204,102 @@ export default function ApplicationsList() {
                     <FileText className="w-4 h-4" />
                     <span>{application.cv_filename}</span>
                   </div>
+                </div>
+
+                {/* Notes Section */}
+                <div className="mt-4 pt-3 border-t border-gray-100">
+                  {application.has_notes && application.latest_note_text && editingNote !== application.application_id && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-2">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-1">
+                            <MessageSquare className="w-4 h-4 text-yellow-600" />
+                            <span className="text-sm font-medium text-yellow-800">Latest Note</span>
+                            <span className="text-xs text-yellow-600">
+                              by {application.latest_note_author}
+                            </span>
+                            {application.latest_note_date && (
+                              <span className="text-xs text-yellow-600">
+                                <Calendar className="w-3 h-3 inline mr-1" />
+                                {formatDate(application.latest_note_date)}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-yellow-800 whitespace-pre-wrap">
+                            {application.latest_note_text}
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditNote(application.application_id, application.latest_note_text)}
+                          className="text-yellow-600 hover:text-yellow-700 hover:bg-yellow-100 ml-2"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Note editing form */}
+                  {editingNote === application.application_id && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-2">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <MessageSquare className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm font-medium text-blue-800">
+                          {application.has_notes ? 'Edit Note' : 'Add Note'}
+                        </span>
+                      </div>
+                      <textarea
+                        value={noteText}
+                        onChange={(e) => setNoteText(e.target.value)}
+                        placeholder="Add your note about this candidate..."
+                        className="w-full p-2 border border-blue-300 rounded text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        rows={3}
+                      />
+                      <div className="flex justify-end space-x-2 mt-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleCancelNote}
+                          disabled={savingNote === application.application_id}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleSaveNote(application.application_id)}
+                          disabled={!noteText.trim() || savingNote === application.application_id}
+                          className="bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                          {savingNote === application.application_id ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-4 h-4 mr-1" />
+                              Save Note
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Add note button for candidates without notes */}
+                  {!application.has_notes && editingNote !== application.application_id && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEditNote(application.application_id)}
+                      className="text-gray-600 hover:text-gray-700 hover:bg-gray-100"
+                    >
+                      <MessageSquare className="w-4 h-4 mr-1" />
+                      Add Note
+                    </Button>
+                  )}
                 </div>
               </div>
               

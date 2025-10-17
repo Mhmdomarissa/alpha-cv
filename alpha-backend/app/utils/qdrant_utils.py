@@ -1171,7 +1171,7 @@ class QdrantUtils:
 
     def get_applications_for_job(self, job_id: str) -> List[Dict]:
         """
-        Get all applications for a specific job posting
+        Get all applications for a specific job posting with note information
         """
         try:
             collection_name = "cv_structured"
@@ -1192,9 +1192,39 @@ class QdrantUtils:
             applications = []
             if results[0]:
                 for point in results[0]:
-                    applications.append(point.payload)
+                    application_data = point.payload.copy()
+                    
+                    # Extract note information from structured_info
+                    structured_info = application_data.get("structured_info", {})
+                    hr_notes = structured_info.get("hr_notes", [])
+                    
+                    # Add note metadata to application data
+                    application_data["notes"] = hr_notes
+                    application_data["notes_count"] = len(hr_notes)
+                    application_data["has_notes"] = len(hr_notes) > 0
+                    
+                    # Add latest note info for sorting/display
+                    if hr_notes:
+                        latest_note = max(hr_notes, key=lambda x: x.get("updated_at", x.get("created_at", "")))
+                        application_data["latest_note"] = latest_note
+                        application_data["latest_note_text"] = latest_note.get("note", "")
+                        application_data["latest_note_author"] = latest_note.get("hr_user", "")
+                        application_data["latest_note_date"] = latest_note.get("updated_at", latest_note.get("created_at", ""))
+                    else:
+                        application_data["latest_note"] = None
+                        application_data["latest_note_text"] = ""
+                        application_data["latest_note_author"] = ""
+                        application_data["latest_note_date"] = ""
+                    
+                    applications.append(application_data)
             
-            logger.info(f"✅ Found {len(applications)} applications for job {job_id}")
+            # Sort applications: those with notes first, then by latest note date, then by application date
+            applications.sort(key=lambda x: (
+                not x["has_notes"],  # False (has notes) comes before True (no notes)
+                x["latest_note_date"] if x["has_notes"] else x.get("application_date", ""),
+            ), reverse=True)
+            
+            logger.info(f"✅ Found {len(applications)} applications for job {job_id} ({sum(1 for app in applications if app['has_notes'])} with notes)")
             return applications
             
         except Exception as e:

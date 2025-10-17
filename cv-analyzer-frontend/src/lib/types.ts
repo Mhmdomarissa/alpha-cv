@@ -410,6 +410,14 @@ export interface JobApplicationListItem {
   years_of_experience?: number;
   match_score?: number;
   status?: string;
+  // Note fields added by backend
+  notes?: any[];
+  notes_count?: number;
+  has_notes?: boolean;
+  latest_note?: any;
+  latest_note_text?: string;
+  latest_note_author?: string;
+  latest_note_date?: string;
 }
 
 // Queue management types removed
