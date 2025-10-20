@@ -214,8 +214,8 @@ async def upload_jd(
             "standardized_data": standardized,
             "processing_stats": {
                 "text_length": len(extracted_text),
-                "skills_count": len(standardized.get("skills", [])),
-                "responsibilities_count": len(standardized.get("responsibilities", [])),
+                "skills_count": len(standardized.get("skills_sentences", standardized.get("skills", []))),
+                "responsibilities_count": len(standardized.get("responsibility_sentences", standardized.get("responsibilities", []))),
                 "embeddings_generated": 32
             }
         })
@@ -520,8 +520,8 @@ async def reprocess_jd(jd_id: str) -> JSONResponse:
             "jd_id": jd_id,
             "updated_data": standardized,
             "processing_stats": {
-                "skills_count": len(standardized.get("skills", [])),
-                "responsibilities_count": len(standardized.get("responsibilities", [])),
+                "skills_count": len(standardized.get("skills_sentences", standardized.get("skills", []))),
+                "responsibilities_count": len(standardized.get("responsibility_sentences", standardized.get("responsibilities", []))),
                 "embeddings_generated": 32
             }
         })
@@ -618,8 +618,8 @@ async def standardize_jd_text(request: StandardizeJDRequest) -> JSONResponse:
             "standardized_data": standardized,
             "processing_stats": {
                 "input_text_length": len(request.jd_text),
-                "skills_count": len(standardized.get("skills", [])),
-                "responsibilities_count": len(standardized.get("responsibilities", [])),
+                "skills_count": len(standardized.get("skills_sentences", standardized.get("skills", []))),
+                "responsibilities_count": len(standardized.get("responsibility_sentences", standardized.get("responsibilities", []))),
                 "embeddings_info": {
                     "skills_count": len(doc_embeddings["skill_vectors"]),
                     "responsibilities_count": len(doc_embeddings["responsibility_vectors"]),

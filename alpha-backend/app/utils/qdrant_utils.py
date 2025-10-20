@@ -573,7 +573,7 @@ class QdrantUtils:
                 "job_title": s.get("job_title", ""),
                 "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
                 "category": s.get("category", ""),
-                "skills_sentences": (s.get("skills", []) or [])[:20],
+                "skills_sentences": (s.get("skills_sentences", []) or s.get("skills", []) or [])[:20],
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
             }
         except Exception as e:
@@ -595,7 +595,7 @@ class QdrantUtils:
                     "job_title": s.get("job_title", ""),
                     "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
                     "category": s.get("category", ""),
-                    "skills_sentences": (s.get("skills", []) or [])[:20],  # Matching system expects this field name
+                    "skills_sentences": (s.get("skills_sentences", []) or s.get("skills", []) or [])[:20],  # Matching system expects this field name
                     "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],  # Matching system expects this field name
                     "structured_info": s,  # Keep original structure
                 }
@@ -610,7 +610,7 @@ class QdrantUtils:
                 "job_title": s.get("job_title", ""),
                 "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
                 "category": s.get("category", ""),
-                "skills_sentences": (s.get("skills", []) or [])[:20],  # Matching system expects this field name
+                "skills_sentences": (s.get("skills_sentences", []) or s.get("skills", []) or [])[:20],  # Matching system expects this field name
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],  # Matching system expects this field name
                 "structured_info": s,  # Keep original structure
             }
@@ -633,7 +633,7 @@ class QdrantUtils:
                     "job_title": s.get("job_title", ""),
                     "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
                     "category": s.get("category", ""),
-                    "skills_sentences": (s.get("skills", []) or [])[:20],
+                    "skills_sentences": (s.get("skills_sentences", []) or s.get("skills", []) or [])[:20],
                     "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
                     "job_summary": s.get("job_summary", "") or s.get("summary", ""),
                     "location": s.get("location", "") or s.get("job_location", ""),
@@ -649,7 +649,7 @@ class QdrantUtils:
                 "job_title": s.get("job_title", ""),
                 "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
                 "category": s.get("category", ""),
-                "skills_sentences": (s.get("skills", []) or [])[:20],
+                "skills_sentences": (s.get("skills_sentences", []) or s.get("skills", []) or [])[:20],
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
                 "job_summary": s.get("job_summary", "") or s.get("summary", ""),
                 "location": s.get("location", "") or s.get("job_location", ""),

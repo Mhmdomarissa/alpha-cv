@@ -159,7 +159,7 @@ class EmbeddingService:
             embeddings = {}
             
             # Generate 20 skill vectors (one per skill)
-            skills = structured_data.get("skills", [])[:20]  # Ensure exactly 20
+            skills = structured_data.get("skills_sentences", structured_data.get("skills", []))[:20]  # Ensure exactly 20
             if len(skills) < 20:
                 # Pad with generic skills if needed
                 while len(skills) < 20:
@@ -180,7 +180,7 @@ class EmbeddingService:
             embeddings["skills"] = skills  # Store the actual skills for reference
             
             # Generate 10 responsibility vectors (one per responsibility)
-            responsibilities = structured_data.get("responsibilities", [])[:10]  # Ensure exactly 10
+            responsibilities = structured_data.get("responsibility_sentences", structured_data.get("responsibilities", []))[:10]  # Ensure exactly 10
             if len(responsibilities) < 10:
                 # Pad with generic responsibilities if needed
                 while len(responsibilities) < 10:

@@ -670,13 +670,13 @@ class MatchingService:
             # Calculate similarities
             skills_analysis = self._skills_similarity(
                 jd_emb["skills"], cv_emb["skills"],
-                jd_structured.get("skills", []),
-                cv_structured.get("skills", [])
+                jd_structured.get("skills_sentences", jd_structured.get("skills", [])),
+                cv_structured.get("skills_sentences", cv_structured.get("skills", []))
             )
             responsibilities_analysis = self._responsibilities_similarity(
                 jd_emb["responsibilities"], cv_emb["responsibilities"],
-                jd_structured.get("responsibilities", []),
-                cv_structured.get("responsibilities", [])
+                jd_structured.get("responsibility_sentences", jd_structured.get("responsibilities", [])),
+                cv_structured.get("responsibility_sentences", cv_structured.get("responsibilities", []))
             )
             
             # ---- Enhanced title similarity using semantic mappings ----
@@ -1016,10 +1016,14 @@ class MatchingService:
         # Build maps from generated content lists
         skills_map = {}
         for s, v in zip(doc_emb.get("skills", []), doc_emb.get("skill_vectors", [])):
-            skills_map[s] = np.array(v)
+            # Skip empty skills to avoid false matches
+            if s and s.strip():
+                skills_map[s] = np.array(v)
         resp_map = {}
         for r, v in zip(doc_emb.get("responsibilities", []), doc_emb.get("responsibility_vectors", [])):
-            resp_map[r] = np.array(v)
+            # Skip empty responsibilities to avoid false matches
+            if r and r.strip():
+                resp_map[r] = np.array(v)
         title_vec = np.array(doc_emb["job_title_vector"][0]) if doc_emb.get("job_title_vector") else None
         exp_vec = np.array(doc_emb["experience_vector"][0]) if doc_emb.get("experience_vector") else None
         return {"skills": skills_map, "responsibilities": resp_map, "title": title_vec, "experience": exp_vec}
@@ -1035,6 +1039,9 @@ class MatchingService:
         skill_vectors = stored_embeddings.get("skill_vectors", [])
         
         for i, skill in enumerate(skills):
+            # Skip empty skills to avoid false matches
+            if not skill or not skill.strip():
+                continue
             if i < len(skill_vectors) and skill_vectors[i] is not None:
                 skills_map[skill] = np.array(skill_vectors[i])
             else:
@@ -1048,6 +1055,9 @@ class MatchingService:
         resp_vectors = stored_embeddings.get("responsibility_vectors", [])
         
         for i, resp in enumerate(responsibilities):
+            # Skip empty responsibilities to avoid false matches
+            if not resp or not resp.strip():
+                continue
             if i < len(resp_vectors) and resp_vectors[i] is not None:
                 resp_map[resp] = np.array(resp_vectors[i])
             else:

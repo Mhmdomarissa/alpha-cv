@@ -252,8 +252,8 @@ async def process_cv_async(cv_data: dict) -> dict:
         # Mark as completed
         processing_stats = {
             "text_length": len(extracted_text),
-            "skills_count": len(standardized.get("skills", [])),
-            "responsibilities_count": len(standardized.get("responsibilities", [])),
+            "skills_count": len(standardized.get("skills_sentences", standardized.get("skills", []))),
+            "responsibilities_count": len(standardized.get("responsibility_sentences", standardized.get("responsibilities", []))),
             "embeddings_generated": 32,
             "pii_extracted": {
                 "emails": len(extracted_pii.get("email", [])),
@@ -497,8 +497,8 @@ async def upload_cv(
             "standardized_data": standardized,
             "processing_stats": {
                 "text_length": len(extracted_text),
-                "skills_count": len(standardized.get("skills", [])),
-                "responsibilities_count": len(standardized.get("responsibilities", [])),
+                "skills_count": len(standardized.get("skills_sentences", standardized.get("skills", []))),
+                "responsibilities_count": len(standardized.get("responsibility_sentences", standardized.get("responsibilities", []))),
                 "embeddings_generated": 32,
                 "pii_extracted": {
                     "emails": len(extracted_pii.get("email", [])),
@@ -880,8 +880,8 @@ async def reprocess_cv(cv_id: str) -> JSONResponse:
             "cv_id": cv_id,
             "updated_data": standardized,
             "processing_stats": {
-                "skills_count": len(standardized.get("skills", [])),
-                "responsibilities_count": len(standardized.get("responsibilities", [])),
+                "skills_count": len(standardized.get("skills_sentences", standardized.get("skills", []))),
+                "responsibilities_count": len(standardized.get("responsibility_sentences", standardized.get("responsibilities", []))),
                 "embeddings_generated": 32
             }
         })
@@ -1039,8 +1039,8 @@ async def standardize_cv_text(request: StandardizeCVRequest) -> JSONResponse:
             "standardized_data": standardized,
             "processing_stats": {
                 "input_text_length": len(request.cv_text),
-                "skills_count": len(standardized.get("skills", [])),
-                "responsibilities_count": len(standardized.get("responsibilities", [])),
+                "skills_count": len(standardized.get("skills_sentences", standardized.get("skills", []))),
+                "responsibilities_count": len(standardized.get("responsibility_sentences", standardized.get("responsibilities", []))),
                 "embeddings_info": {
                     "skills_count": len(doc_embeddings["skill_vectors"]),
                     "responsibilities_count": len(doc_embeddings["responsibility_vectors"]),
