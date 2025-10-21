@@ -1147,15 +1147,10 @@ class MatchingService:
         if not A or not B:
             return 0.0
         
-        try:
-            # Try GPU-accelerated batch calculation first
-            if self.embedding_service.device == "cuda" and torch.cuda.is_available():
-                return self._avg_best_similarity_gpu(A, B)
-            else:
-                return self._avg_best_similarity_cpu(A, B)
-        except Exception as e:
-            logger.warning(f"⚠️ GPU avg best similarity failed, falling back to CPU: {str(e)}")
-            return self._avg_best_similarity_cpu(A, B)
+        # Enforce GPU-only path
+        if self.embedding_service.device == "cuda" and torch.cuda.is_available():
+            return self._avg_best_similarity_gpu(A, B)
+        raise RuntimeError("CUDA GPU not available for avg_best_similarity (GPU-only mode)")
     
     def _avg_best_similarity_gpu(self, A: List[List[float]], B: List[List[float]]) -> float:
         """
@@ -1176,8 +1171,8 @@ class MatchingService:
             return float(np.mean(best_similarities))
             
         except Exception as e:
-            logger.warning(f"⚠️ GPU avg best similarity calculation failed: {str(e)}")
-            return self._avg_best_similarity_cpu(A, B)
+            logger.warning(f"⚠️ GPU avg best similarity calculation failed (GPU-only mode): {str(e)}")
+            raise
     
     def _avg_best_similarity_cpu(self, A: List[List[float]], B: List[List[float]]) -> float:
         """
@@ -1202,20 +1197,11 @@ class MatchingService:
         Calculate cosine similarity between two vectors.
         Uses GPU acceleration when available.
         """
-        try:
-            # Convert to numpy arrays
-            vec1 = np.array(v1)
-            vec2 = np.array(v2)
-            
-            # Use the embedding service's GPU-accelerated similarity calculation
-            return self.embedding_service.calculate_cosine_similarity(vec1, vec2)
-            
-        except Exception as e:
-            logger.warning(f"⚠️ GPU cos_sim_list failed, using CPU fallback: {str(e)}")
-            # CPU fallback
-            v1 = np.array(v1); v2 = np.array(v2)
-            den = (np.linalg.norm(v1) * np.linalg.norm(v2)) or 1.0
-            return float(max(0.0, min(1.0, float(np.dot(v1, v2)) / den)))
+        # Enforce GPU-only path
+        # Convert to numpy arrays
+        vec1 = np.array(v1)
+        vec2 = np.array(v2)
+        return self.embedding_service.calculate_cosine_similarity(vec1, vec2)
 
     def _skills_similarity(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
                            jd_skills: List[str], cv_skills: List[str]) -> Dict[str, Any]:
@@ -1305,8 +1291,8 @@ class MatchingService:
             }
             
         except Exception as e:
-            logger.warning(f"⚠️ GPU batch skills similarity failed, falling back to CPU: {str(e)}")
-            return self._skills_similarity_cpu_fallback(jd_emb, cv_emb, jd_skills, cv_skills)
+            logger.warning(f"⚠️ GPU batch skills similarity failed (GPU-only mode): {str(e)}")
+            raise
     
     def _skills_similarity_cpu_fallback(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
                                         jd_skills: List[str], cv_skills: List[str]) -> Dict[str, Any]:
@@ -1444,8 +1430,8 @@ class MatchingService:
             }
             
         except Exception as e:
-            logger.warning(f"⚠️ GPU batch responsibilities similarity failed, falling back to CPU: {str(e)}")
-            return self._responsibilities_similarity_cpu_fallback(jd_emb, cv_emb, jd_resps, cv_resps)
+            logger.warning(f"⚠️ GPU batch responsibilities similarity failed (GPU-only mode): {str(e)}")
+            raise
     
     def _responsibilities_similarity_cpu_fallback(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
                                                   jd_resps: List[str], cv_resps: List[str]) -> Dict[str, Any]:

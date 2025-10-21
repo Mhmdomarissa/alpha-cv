@@ -267,29 +267,62 @@ class AzureEmailService:
             return None
     
     def extract_expected_salary(self, email_body: str) -> Optional[float]:
-        """Extract expected salary from email body"""
+        """
+        Extract expected salary from email body with robust pattern matching.
+        Handles: AED 5000, 5k, 50-60k, $5000, ranges, etc.
+        """
         if not email_body:
             return None
         
         try:
-            # Patterns to match salary mentions
-            # Examples: "Expected Salary: 5000 AED", "Salary: AED 5,000", "expecting 5000", etc.
+            # Normalize the text for better matching
+            text = email_body.lower()
+            
+            # Enhanced patterns to match various salary formats
             patterns = [
-                r'(?:expected\s+salary|salary\s+expectation|expecting)[\s:]+(?:AED\s*)?([0-9,]+)',
-                r'(?:AED|aed)\s+([0-9,]+)(?:\s+(?:per\s+month|monthly|expected))?',
-                r'salary[\s:]+([0-9,]+)',
+                # "Expected Salary: 5000 AED" or "Expected Salary: AED 5000"
+                r'(?:expected\s+salary|salary\s+expectation|salary\s+expected)[\s:]+(?:aed\s*)?([0-9,]+(?:\.[0-9]+)?)\s*(?:k|aed)?',
+                
+                # "Expecting 5000" or "Expecting AED 5000" or "Expecting 5k" or "Expecting around 7k"
+                r'expecting[\s:]+(?:around\s+)?(?:aed\s*)?([0-9,]+(?:\.[0-9]+)?)\s*(?:k|aed)?',
+                
+                # "AED 5000" or "AED 5,000" or "AED 5k"
+                r'(?:aed|dhs)[\s:]+([0-9,]+(?:\.[0-9]+)?)\s*k?',
+                
+                # "Salary: 5000" or "Salary 5000 AED" or "Salary 5k"
+                r'salary[\s:]+([0-9,]+(?:\.[0-9]+)?)\s*(?:k|aed|dhs)?',
+                
+                # "5000 AED per month" or "5k monthly"
+                r'([0-9,]+(?:\.[0-9]+)?)\s*(?:k)?\s*(?:aed|dhs)?[\s]*(?:per\s+month|monthly|pm)',
+                
+                # "Current/Desired salary: 5000" or "Current salary 5k"
+                r'(?:current|desired|monthly)\s+salary[\s:]+([0-9,]+(?:\.[0-9]+)?)\s*(?:k|aed|dhs)?',
+                
+                # Salary range: "5000-6000" or "5k-6k" (take the lower bound)
+                r'(?:salary|expecting)[\s:]+([0-9,]+(?:\.[0-9]+)?)\s*(?:k)?\s*[-–]\s*[0-9,]+(?:\.[0-9]+)?\s*(?:k)?',
             ]
             
             for pattern in patterns:
-                match = re.search(pattern, email_body, re.IGNORECASE)
+                match = re.search(pattern, text)
                 if match:
-                    salary_str = match.group(1).replace(',', '')
+                    salary_str = match.group(1).replace(',', '').replace(' ', '')
                     try:
                         salary = float(salary_str)
+                        
+                        # Handle "k" suffix (5k = 5000)
+                        if 'k' in text[match.start():match.end()].lower():
+                            salary = salary * 1000
+                        
                         # Sanity check: salary should be reasonable (1000 - 1000000 AED)
                         if 1000 <= salary <= 1000000:
-                            logger.info(f"💰 Extracted salary: AED {salary}")
+                            logger.info(f"💰 Extracted salary: AED {salary:,.0f} from pattern: {pattern[:50]}...")
                             return salary
+                        elif salary < 1000 and salary > 1:
+                            # Might be in thousands (e.g., "5" meaning 5000)
+                            adjusted_salary = salary * 1000
+                            if 1000 <= adjusted_salary <= 1000000:
+                                logger.info(f"💰 Extracted salary (adjusted): AED {adjusted_salary:,.0f}")
+                                return adjusted_salary
                     except ValueError:
                         continue
             

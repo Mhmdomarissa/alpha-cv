@@ -215,20 +215,39 @@ class QdrantUtils:
         """
         Store standardized JSON into {doc_type}_structured with a dummy 768 vector.
         structured_data expected to include "structured_info".
+        
+        PRESERVES ALL FIELDS from structured_data including:
+        - is_job_application, job_posting_id, applicant_email (for career applications)
+        - cv_filename, application_id (for email-submitted CVs)
+        - Any other metadata fields
         """
         try:
             collection_name = f"{doc_type}_structured"
             dummy_vector = [0.0] * 768
+            
+            # CRITICAL: Preserve ALL fields from structured_data
+            # This ensures job application metadata is not lost
             payload = {
-                "id": doc_id,
-                "structured_info": structured_data.get("structured_info", structured_data),
-                "stored_at": datetime.utcnow().isoformat(),
+                **structured_data,  # Keep ALL existing fields
+                "id": doc_id,  # Ensure ID is set
+                "stored_at": datetime.utcnow().isoformat(),  # Update timestamp
             }
+            
+            # Ensure structured_info is properly nested
+            if "structured_info" not in payload:
+                payload["structured_info"] = structured_data
+            
             self.client.upsert(
                 collection_name=collection_name,
                 points=[PointStruct(id=doc_id, vector=dummy_vector, payload=payload)],
             )
-            logger.info(f"✅ Structured stored: {doc_id} → {collection_name}")
+            
+            # Log job application preservation
+            if payload.get("is_job_application"):
+                logger.info(f"✅ Structured stored: {doc_id} → {collection_name} (job_posting_id={payload.get('job_posting_id')})")
+            else:
+                logger.info(f"✅ Structured stored: {doc_id} → {collection_name}")
+            
             return True
         except Exception as e:
             logger.error(f"❌ store_structured_data({doc_id}) failed: {e}")

@@ -1227,6 +1227,14 @@ async def add_or_update_note(cv_id: str, request: NoteRequest) -> JSONResponse:
         current_payload = s[0].payload or {}
         structured_info = current_payload.get("structured_info", {})
         
+        # IMPORTANT: Preserve job application metadata at root level
+        # This ensures job posting links remain intact
+        is_job_application = current_payload.get("is_job_application", False)
+        job_posting_id = current_payload.get("job_posting_id")
+        applicant_email = current_payload.get("applicant_email")
+        application_id = current_payload.get("application_id")
+        cv_filename = current_payload.get("cv_filename")
+        
         # Add/update note
         if "hr_notes" not in structured_info:
             structured_info["hr_notes"] = []
@@ -1254,11 +1262,25 @@ async def add_or_update_note(cv_id: str, request: NoteRequest) -> JSONResponse:
             structured_info["hr_notes"].append(note_data)
             logger.info(f"✅ Added new note for CV {cv_id} by HR user {request.hr_user}")
         
-        # Update the structured data
+        # Build updated payload - PRESERVE all job application metadata
         updated_payload = {
             **current_payload,
             "structured_info": structured_info
         }
+        
+        # Explicitly preserve job application fields to ensure they're not lost
+        if is_job_application:
+            updated_payload["is_job_application"] = is_job_application
+            if job_posting_id:
+                updated_payload["job_posting_id"] = job_posting_id
+            if applicant_email:
+                updated_payload["applicant_email"] = applicant_email
+            if application_id:
+                updated_payload["application_id"] = application_id
+            if cv_filename:
+                updated_payload["cv_filename"] = cv_filename
+            
+            logger.info(f"✅ Preserved job application link: job_posting_id={job_posting_id}")
         
         # Store updated data
         qdrant.store_structured_data(cv_id, "cv", updated_payload)
@@ -1326,6 +1348,14 @@ async def delete_cv_note(cv_id: str, hr_user: str) -> JSONResponse:
         current_payload = s[0].payload or {}
         structured_info = current_payload.get("structured_info", {})
         
+        # IMPORTANT: Preserve job application metadata at root level
+        # This ensures job posting links remain intact
+        is_job_application = current_payload.get("is_job_application", False)
+        job_posting_id = current_payload.get("job_posting_id")
+        applicant_email = current_payload.get("applicant_email")
+        application_id = current_payload.get("application_id")
+        cv_filename = current_payload.get("cv_filename")
+        
         # Remove note for this HR user
         if "hr_notes" in structured_info:
             original_count = len(structured_info["hr_notes"])
@@ -1337,11 +1367,25 @@ async def delete_cv_note(cv_id: str, hr_user: str) -> JSONResponse:
             if len(structured_info["hr_notes"]) == original_count:
                 raise HTTPException(status_code=404, detail=f"No note found for HR user: {hr_user}")
         
-        # Update the structured data
+        # Build updated payload - PRESERVE all job application metadata
         updated_payload = {
             **current_payload,
             "structured_info": structured_info
         }
+        
+        # Explicitly preserve job application fields to ensure they're not lost
+        if is_job_application:
+            updated_payload["is_job_application"] = is_job_application
+            if job_posting_id:
+                updated_payload["job_posting_id"] = job_posting_id
+            if applicant_email:
+                updated_payload["applicant_email"] = applicant_email
+            if application_id:
+                updated_payload["application_id"] = application_id
+            if cv_filename:
+                updated_payload["cv_filename"] = cv_filename
+            
+            logger.info(f"✅ Preserved job application link: job_posting_id={job_posting_id}")
         
         # Store updated data
         qdrant.store_structured_data(cv_id, "cv", updated_payload)

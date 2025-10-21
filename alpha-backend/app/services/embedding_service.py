@@ -49,11 +49,10 @@ class EmbeddingService:
         self.model_name = model_name
         self._embedding_cache = {}  # Fallback in-memory cache
         
-        # GPU/CPU device selection (once for all workers)
-        if torch.cuda.is_available():
-            self.device = "cuda"
-        else:
-            self.device = "cpu"
+        # Enforce GPU-only operation
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA GPU is required for embedding and matching. Please run on a GPU-enabled instance with NVIDIA runtime.")
+        self.device = "cuda"
         
         # Initialize Redis cache
         try:
@@ -120,20 +119,8 @@ class EmbeddingService:
                         logger.info(f"🎯 All workers will share this single model instance")
                         
                     except Exception as e:
-                        logger.error(f"❌ Failed to initialize shared model: {str(e)}")
-                        # Fallback to CPU if GPU fails
-                        if self.device == "cuda":
-                            logger.warning("⚠️ GPU initialization failed, falling back to CPU")
-                            self.device = "cpu"
-                            _model_device = "cpu"
-                            try:
-                                _shared_model = SentenceTransformer(self.model_name, device="cpu")
-                                logger.info(f"💻 SHARED model {self.model_name} loaded on CPU (fallback)")
-                            except Exception as cpu_e:
-                                logger.error(f"❌ CPU fallback also failed: {str(cpu_e)}")
-                                raise Exception(f"Both GPU and CPU model initialization failed: GPU={str(e)}, CPU={str(cpu_e)}")
-                        else:
-                            raise Exception(f"Shared model initialization failed: {str(e)}")
+                        logger.error(f"❌ Failed to initialize shared model on GPU: {str(e)}")
+                        raise
                 else:
                     logger.info(f"✅ Using existing SHARED model instance on {_model_device}")
         else:
@@ -417,11 +404,10 @@ class EmbeddingService:
             Cosine similarity score (0-1)
         """
         try:
-            # Try GPU acceleration first if available
+            # Enforce GPU-only
             if self.device == "cuda" and torch.cuda.is_available():
                 return self._calculate_cosine_similarity_gpu(vec1, vec2)
-            else:
-                return self._calculate_cosine_similarity_cpu(vec1, vec2)
+            raise RuntimeError("CUDA GPU not available for cosine similarity")
                 
         except Exception as e:
             logger.error(f"❌ Similarity calculation failed: {str(e)}")
@@ -486,24 +472,24 @@ class EmbeddingService:
             # SAFETY CHECK 1: Size limits to prevent GPU memory overflow
             max_matrix_size = 50  # Limit to 50x50 to prevent GPU memory issues
             if matrix_a.shape[0] > max_matrix_size or matrix_b.shape[0] > max_matrix_size:
-                logger.warning(f"⚠️ Matrix too large for GPU ({matrix_a.shape[0]}x{matrix_b.shape[1]}), using CPU")
-                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+                logger.warning(f"⚠️ Matrix too large for GPU ({matrix_a.shape[0]}x{matrix_b.shape[0]}), aborting (GPU-only mode)")
+                raise RuntimeError("Batch too large for GPU-only mode. Reduce batch size.")
             
             # SAFETY CHECK 2: GPU availability and memory
             if self.device != "cuda" or not torch.cuda.is_available():
-                logger.debug("🖥️ Using CPU batch similarity calculation (GPU not available)")
-                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+                logger.debug("🖥️ GPU not available (GPU-only mode)")
+                raise RuntimeError("CUDA GPU not available for batch similarity")
             
             # SAFETY CHECK 3: GPU memory check
             try:
                 gpu_memory_free = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated()
                 required_memory = matrix_a.nbytes + matrix_b.nbytes + (matrix_a.shape[0] * matrix_b.shape[0] * 4)  # Rough estimate
                 if required_memory > gpu_memory_free * 0.8:  # Use only 80% of available memory
-                    logger.warning(f"⚠️ Insufficient GPU memory ({required_memory} needed, {gpu_memory_free} available), using CPU")
-                    return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+                    logger.warning(f"⚠️ Insufficient GPU memory ({required_memory} needed, {gpu_memory_free} available) in GPU-only mode")
+                    raise RuntimeError("Insufficient GPU memory for batch similarity")
             except Exception as mem_e:
-                logger.warning(f"⚠️ GPU memory check failed: {mem_e}, using CPU")
-                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+                logger.warning(f"⚠️ GPU memory check failed: {mem_e} (GPU-only mode)")
+                raise
             
             # Log GPU batch processing
             logger.info(f"🚀 GPU batch similarity: {matrix_a.shape[0]}x{matrix_b.shape[0]} vectors")
@@ -516,24 +502,24 @@ class EmbeddingService:
                 tensor_a = torch.from_numpy(matrix_a).float().cuda()
                 tensor_b = torch.from_numpy(matrix_b).float().cuda()
             except Exception as tensor_e:
-                logger.warning(f"⚠️ Failed to create GPU tensors: {tensor_e}, using CPU")
-                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+                logger.warning(f"⚠️ Failed to create GPU tensors: {tensor_e} (GPU-only mode)")
+                raise
             
             # Normalize vectors with error handling
             try:
                 tensor_a_norm = torch.nn.functional.normalize(tensor_a, p=2, dim=1)
                 tensor_b_norm = torch.nn.functional.normalize(tensor_b, p=2, dim=1)
             except Exception as norm_e:
-                logger.warning(f"⚠️ Failed to normalize tensors: {norm_e}, using CPU")
-                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+                logger.warning(f"⚠️ Failed to normalize tensors: {norm_e} (GPU-only mode)")
+                raise
             
             # Calculate cosine similarity matrix on GPU with error handling
             try:
                 similarity_matrix = torch.mm(tensor_a_norm, tensor_b_norm.t())
                 similarity_matrix = torch.clamp(similarity_matrix, 0.0, 1.0)
             except Exception as calc_e:
-                logger.warning(f"⚠️ Failed GPU calculation: {calc_e}, using CPU")
-                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+                logger.warning(f"⚠️ Failed GPU calculation: {calc_e} (GPU-only mode)")
+                raise
             
             # Convert back to numpy with error handling
             try:
@@ -545,12 +531,12 @@ class EmbeddingService:
                 
                 return result
             except Exception as convert_e:
-                logger.warning(f"⚠️ Failed to convert GPU result to numpy: {convert_e}, using CPU")
-                return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+                logger.warning(f"⚠️ Failed to convert GPU result to numpy: {convert_e} (GPU-only mode)")
+                raise
             
         except Exception as e:
-            logger.warning(f"⚠️ GPU batch similarity calculation failed, falling back to CPU: {str(e)}")
-            return self._calculate_batch_cosine_similarity_cpu(matrix_a, matrix_b)
+            logger.warning(f"⚠️ GPU batch similarity calculation failed (GPU-only mode): {str(e)}")
+            raise
     
     def _calculate_batch_cosine_similarity_cpu(self, matrix_a: np.ndarray, matrix_b: np.ndarray) -> np.ndarray:
         """
