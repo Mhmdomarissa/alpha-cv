@@ -438,6 +438,46 @@ export default function CareersPage() {
                         <span>Created {formatDate(job.upload_date)}</span>
                       </div>
                         </div>
+                        
+                        {/* Email Subject Template for Naukri */}
+                        {job.email_subject_template && (
+                          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="text-xs font-medium text-blue-700 mb-1">Email Subject for Naukri/Candidates:</div>
+                                <div className="flex items-center space-x-2">
+                                  <code className="text-sm font-mono text-blue-900 bg-blue-100 px-2 py-1 rounded">
+                                    {job.email_subject_template}
+                                  </code>
+                                  <span className="text-xs text-blue-600">({job.email_subject_id})</span>
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (job.email_subject_template) {
+                                    navigator.clipboard.writeText(job.email_subject_template);
+                                    setCopiedLink(`${job.job_id}-subject`);
+                                    setTimeout(() => setCopiedLink(null), 2000);
+                                  }
+                                }}
+                                className="ml-2 text-blue-600 hover:text-blue-700 hover:bg-blue-100"
+                                title="Copy Email Subject"
+                              >
+                                {copiedLink === `${job.job_id}-subject` ? (
+                                  <Check className="w-4 h-4" />
+                                ) : (
+                                  <Copy className="w-4 h-4" />
+                                )}
+                              </Button>
+                            </div>
+                            <div className="text-xs text-blue-600 mt-2">
+                              💡 Paste this subject when posting on Naukri or sharing with candidates
+                            </div>
+                          </div>
+                        )}
                       </div>
                       
                       <div className="flex items-center space-x-2 ml-4">

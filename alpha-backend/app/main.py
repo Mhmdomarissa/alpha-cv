@@ -18,6 +18,7 @@ from app.routes import cv_routes, jd_routes, special_routes, careers_routes
 from app.routes.auth_routes import router as auth_router
 from app.routes.admin_routes import router as admin_router
 from app.routes.performance_routes import router as performance_router
+from app.routes.email_routes import router as email_router
 
 # Services init
 from app.utils.qdrant_utils import get_qdrant_utils
@@ -95,10 +96,49 @@ async def lifespan(app: FastAPI):
         await get_enterprise_job_queue()  # This will start the workers
         logger.info("✅ Enterprise job queue ready")
 
+        # Only start email scheduler on ONE worker (not all workers)
+        # Use a file lock to ensure only one scheduler runs across all workers
+        import fcntl
+        scheduler_task = None
+        scheduler = None
+        scheduler_lock_file = None
+        
+        try:
+            scheduler_lock_file = open("/tmp/email_scheduler.lock", "w")
+            fcntl.flock(scheduler_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # We got the lock! This worker will run the scheduler
+            logger.info("📧 Starting email scheduler (acquired lock)...")
+            from app.services.email_scheduler import get_email_scheduler
+            import asyncio
+            scheduler = get_email_scheduler()
+            scheduler_task = asyncio.create_task(scheduler.start_scheduler())
+            logger.info("✅ Email scheduler started (checking every 5 minutes)")
+        except BlockingIOError:
+            # Another worker already has the lock and is running the scheduler
+            logger.info("⏭️ Email scheduler already running on another worker")
+            if scheduler_lock_file:
+                scheduler_lock_file.close()
+            scheduler_lock_file = None
+
         logger.info("🎉 Startup complete")
         yield
         # Graceful shutdown
         logger.info("🛑 Shutting down CV Analyzer API...")
+        if scheduler_task and scheduler:
+            logger.info("🛑 Stopping email scheduler...")
+            await scheduler.stop_scheduler()
+            try:
+                await asyncio.wait_for(scheduler_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                scheduler_task.cancel()
+        # Release the lock file
+        if scheduler_lock_file:
+            try:
+                fcntl.flock(scheduler_lock_file.fileno(), fcntl.LOCK_UN)
+                scheduler_lock_file.close()
+                os.remove("/tmp/email_scheduler.lock")
+            except Exception:
+                pass
         logger.info("✅ Shutdown complete")
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}")
@@ -200,6 +240,9 @@ app.include_router(performance_router, tags=["Performance Monitoring"])
 
 # Careers routes (public job postings & applications)
 app.include_router(careers_routes.router, prefix="/api/careers", tags=["Careers & Public Applications"])
+
+# Email processing routes (Azure integration)
+app.include_router(email_router, prefix="/api/email", tags=["Email Processing & Azure Integration"])
 
 
 

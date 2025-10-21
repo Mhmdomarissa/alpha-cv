@@ -169,6 +169,13 @@ export default function ApplicationsList() {
                       <h3 className="font-semibold text-neutral-900">
                         {application.applicant_name}
                       </h3>
+                      {/* Email/Naukri Source Badge */}
+                      {application.source === 'email_application' && (
+                        <Badge variant="secondary" className="bg-purple-100 text-purple-800 border border-purple-300">
+                          <Mail className="w-3 h-3 mr-1" />
+                          From Naukri
+                        </Badge>
+                      )}
                       {application.expected_salary && (
                         <Badge variant="secondary" className="bg-green-100 text-green-800">
                           AED {application.expected_salary.toLocaleString()}

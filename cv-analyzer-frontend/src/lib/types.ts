@@ -356,6 +356,9 @@ export interface JobPostingResponse {
   company_name?: string;
   posted_by_user?: string;
   posted_by_role?: string;
+  // Email integration fields
+  email_subject_id?: string;
+  email_subject_template?: string;
 }
 
 export interface PublicJobView {
@@ -396,6 +399,9 @@ export interface JobPostingListItem {
   posted_by_role?: string;
   can_edit?: boolean;
   can_delete?: boolean;
+  // Email integration fields
+  email_subject_id?: string;
+  email_subject_template?: string;
 }
 
 export interface JobApplicationListItem {
@@ -410,6 +416,7 @@ export interface JobApplicationListItem {
   years_of_experience?: number;
   match_score?: number;
   status?: string;
+  source?: string; // 'email_application' for Naukri/email CVs, 'website' for direct applications
   // Note fields added by backend
   notes?: any[];
   notes_count?: number;

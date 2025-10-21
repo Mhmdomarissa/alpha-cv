@@ -29,6 +29,9 @@ class JobPostingResponse(BaseModel):
     company_name: Optional[str] = Field(None, description="Company name associated with posting")
     posted_by_user: Optional[str] = Field(None, description="Username of the user who posted this job")
     posted_by_role: Optional[str] = Field(None, description="Role of the user who posted this job (admin/user)")
+    # Email integration fields
+    email_subject_id: Optional[str] = Field(None, description="Unique ID for email subject matching (e.g., SE-2025-001)")
+    email_subject_template: Optional[str] = Field(None, description="Full email subject template for Naukri (e.g., 'Software Engineer | SE-2025-001')")
 
 class PublicJobView(BaseModel):
     """Public-facing model for job postings (no sensitive data)"""
@@ -76,6 +79,7 @@ class JobApplicationSummary(BaseModel):
     years_of_experience: Optional[float] = Field(None, description="Years of experience")
     match_score: Optional[float] = Field(None, description="AI-calculated match score if available")
     status: str = Field("pending", description="Application status (pending, reviewed, etc.)")
+    source: Optional[str] = Field(None, description="Application source: 'email_application' for Naukri/email, 'website' for direct applications")
 
 
 class JobPostingSummary(BaseModel):
@@ -96,6 +100,9 @@ class JobPostingSummary(BaseModel):
     posted_by_role: Optional[str] = Field(None, description="Role of the user who posted this job (admin/user)")
     can_edit: bool = Field(False, description="Whether current user can edit this job")
     can_delete: bool = Field(False, description="Whether current user can delete this job")
+    # Email integration fields
+    email_subject_id: Optional[str] = Field(None, description="Unique ID for email subject matching (e.g., SE-2025-001)")
+    email_subject_template: Optional[str] = Field(None, description="Full email subject template for Naukri (e.g., 'Software Engineer | SE-2025-001')")
 
 class JobPostingUpdate(BaseModel):
     """Request model for updating job posting details"""

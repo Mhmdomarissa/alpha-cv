@@ -668,7 +668,9 @@ class QdrantUtils:
         additional_info: Optional[str] = None,
         posted_by_user: Optional[str] = None,
         posted_by_role: Optional[str] = None,
-        jd_id: Optional[str] = None
+        jd_id: Optional[str] = None,
+        email_subject_id: Optional[str] = None,
+        email_subject_template: Optional[str] = None
     ) -> bool:
         """
         Store job posting metadata in job_postings_structured collection
@@ -687,7 +689,10 @@ class QdrantUtils:
                 "jd_id": jd_id,  # Link to the original JD
                 "is_active": True,
                 "created_date": datetime.utcnow().isoformat(),
-                "document_type": "job_posting_metadata"
+                "document_type": "job_posting_metadata",
+                # Email integration fields
+                "email_subject_id": email_subject_id,
+                "email_subject_template": email_subject_template
             }
             
             point = PointStruct(id=job_id, vector=dummy_vector, payload=payload)
@@ -706,7 +711,9 @@ class QdrantUtils:
         public_token: str, 
         ui_data: Dict[str, Any],
         posted_by_user: Optional[str] = None,
-        posted_by_role: Optional[str] = None
+        posted_by_role: Optional[str] = None,
+        email_subject_id: Optional[str] = None,
+        email_subject_template: Optional[str] = None
     ) -> bool:
         """
         Store UI-specific job posting data (separate from matching embeddings).
@@ -725,6 +732,8 @@ class QdrantUtils:
                 "data_type": "ui_display",  # Mark as UI data
                 "posted_by_user": posted_by_user,
                 "posted_by_role": posted_by_role,
+                "email_subject_id": email_subject_id,
+                "email_subject_template": email_subject_template,
                 
                 # UI-specific structured info
                 "structured_info": {
@@ -1197,6 +1206,12 @@ class QdrantUtils:
                     # Extract note information from structured_info
                     structured_info = application_data.get("structured_info", {})
                     hr_notes = structured_info.get("hr_notes", [])
+                    
+                    # Extract source and email_id from structured_info to top level (for API access)
+                    if "source" not in application_data and "source" in structured_info:
+                        application_data["source"] = structured_info.get("source")
+                    if "email_id" not in application_data and "email_id" in structured_info:
+                        application_data["email_id"] = structured_info.get("email_id")
                     
                     # Add note metadata to application data
                     application_data["notes"] = hr_notes
@@ -1797,6 +1812,56 @@ class QdrantUtils:
                 "success": False,
                 "error": str(e)
             }
+    
+    def get_next_email_subject_counter(self, abbreviation: str, year: int) -> int:
+        """
+        Get the next counter for email subject ID generation
+        Searches existing job postings to find the highest counter for the given abbreviation and year
+        Returns the next available counter (starting from 1)
+        """
+        try:
+            # Search for existing job postings with this abbreviation and year pattern
+            search_results = self.client.scroll(
+                collection_name="job_postings_structured",
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="doc_type",
+                            match=MatchValue(value="job_description")
+                        ),
+                        FieldCondition(
+                            key="is_active",
+                            match=MatchValue(value=True)
+                        )
+                    ]
+                ),
+                limit=1000,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            highest_counter = 0
+            pattern = f"{abbreviation}-{year}-"
+            
+            if search_results[0]:
+                for point in search_results[0]:
+                    email_subject_id = point.payload.get("email_subject_id")
+                    if email_subject_id and email_subject_id.startswith(pattern):
+                        # Extract counter from ID like "SE-2025-001"
+                        try:
+                            counter_str = email_subject_id.split('-')[-1]
+                            counter = int(counter_str)
+                            highest_counter = max(highest_counter, counter)
+                        except (ValueError, IndexError):
+                            continue
+            
+            return highest_counter + 1
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting next email subject counter: {e}")
+            # Fallback to timestamp-based counter
+            import time
+            return int(time.time()) % 1000
 
 
 # Global singleton

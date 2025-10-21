@@ -10,6 +10,7 @@ Handles:
 import logging
 import secrets
 import uuid
+import re
 from datetime import datetime
 from typing import Optional, List
 import tempfile
@@ -78,6 +79,70 @@ def validate_file_upload(file: UploadFile) -> None:
 def _now_iso() -> str:
     """Get current timestamp in ISO format"""
     return datetime.utcnow().isoformat()
+
+def generate_email_subject_id(job_title: str) -> str:
+    """
+    Generate unique email subject ID from job title
+    Format: {JobTitleAbbreviation}-{Year}-{Counter}
+    Example: "Software Engineer" -> "SE-2025-001"
+    """
+    # Extract meaningful words from job title (skip common words)
+    common_words = {'and', 'or', 'the', 'a', 'an', 'in', 'at', 'for', 'with', 'by', 'to', 'of', 'as'}
+    words = [word.strip() for word in re.split(r'[^\w]+', job_title.upper()) if word.strip() and word.lower() not in common_words]
+    
+    # Create abbreviation from first letters of meaningful words
+    if len(words) >= 2:
+        # Take first letter of first 2-3 words
+        abbreviation = ''.join([word[0] for word in words[:3]])
+    elif len(words) == 1:
+        # Single word - take first 2-3 letters
+        abbreviation = words[0][:3]
+    else:
+        # Fallback
+        abbreviation = "JOB"
+    
+    # Ensure abbreviation is 2-4 characters
+    if len(abbreviation) < 2:
+        abbreviation = abbreviation + "J"
+    elif len(abbreviation) > 4:
+        abbreviation = abbreviation[:4]
+    
+    # Get current year
+    current_year = datetime.utcnow().year
+    
+    # Get next counter for this year and abbreviation
+    qdrant = get_qdrant_utils()
+    counter = qdrant.get_next_email_subject_counter(abbreviation, current_year)
+    
+    return f"{abbreviation}-{current_year}-{counter:03d}"
+
+def generate_email_subject_template(job_title: str, subject_id: str) -> str:
+    """
+    Generate full email subject template for Naukri
+    Format: "{Job Title} | {Subject ID}"
+    Example: "Software Engineer | SE-2025-001"
+    """
+    return f"{job_title.strip()} | {subject_id}"
+
+def parse_email_subject(subject: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    Parse email subject to extract job title and subject ID
+    Handles Re:/Fwd: prefixes automatically
+    Returns: (job_title, subject_id) or (None, None) if parsing fails
+    """
+    # Remove Re:/Fwd: prefixes (case insensitive, multiple possible)
+    cleaned_subject = re.sub(r'^(re|fwd|fw):\s*', '', subject.strip(), flags=re.IGNORECASE)
+    cleaned_subject = re.sub(r'^(re|fwd|fw):\s*', '', cleaned_subject, flags=re.IGNORECASE)  # Handle multiple prefixes
+    
+    # Look for pattern: "Job Title | ID-YYYY-NNN"
+    match = re.match(r'^(.+?)\s*\|\s*([A-Z]{2,4}-\d{4}-\d{3})$', cleaned_subject.strip())
+    
+    if match:
+        job_title = match.group(1).strip()
+        subject_id = match.group(2).strip()
+        return job_title, subject_id
+    
+    return None, None
 
 # ==================== PUBLIC ENDPOINTS (No Authentication) ====================
 
@@ -622,7 +687,12 @@ async def post_job(
             raw_content = extracted_text
             final_job_title = job_title or "Position Available"
         
-        # 4. Generate embeddings
+        # 4. Generate email subject ID and template
+        email_subject_id = generate_email_subject_id(final_job_title)
+        email_subject_template = generate_email_subject_template(final_job_title, email_subject_id)
+        logger.info(f"📧 Generated email subject: {email_subject_template}")
+        
+        # 5. Generate embeddings
         embedding_service = get_embedding_service()
         embeddings_data = embedding_service.generate_document_embeddings(llm_result)
         
@@ -662,7 +732,9 @@ async def post_job(
                 job_id, public_token, company_name, additional_info,
                 posted_by_user=current_user.username,
                 posted_by_role=current_user.role,
-                jd_id=job_id  # Link job posting to its JD
+                jd_id=job_id,  # Link job posting to its JD
+                email_subject_id=email_subject_id,
+                email_subject_template=email_subject_template
             )
         )
         
@@ -687,7 +759,9 @@ async def post_job(
             is_active=True,
             company_name=company_name,
             posted_by_user=current_user.username,
-            posted_by_role=current_user.role
+            posted_by_role=current_user.role,
+            email_subject_id=email_subject_id,
+            email_subject_template=email_subject_template
         )
         
     except HTTPException:
@@ -757,7 +831,12 @@ Additional Information:
             # Use LLM extracted title if available, otherwise use form title
             final_job_title = llm_result.get("job_title")
         
-        # 4. Generate embeddings
+        # 4. Generate email subject ID and template
+        email_subject_id = generate_email_subject_id(final_job_title)
+        email_subject_template = generate_email_subject_template(final_job_title, email_subject_id)
+        logger.info(f"📧 Generated email subject: {email_subject_template}")
+        
+        # 5. Generate embeddings
         embedding_service = get_embedding_service()
         embeddings_data = embedding_service.generate_document_embeddings(llm_result)
         
@@ -794,7 +873,9 @@ Additional Information:
                 job_id, public_token, company_name, additional_info,
                 posted_by_user=current_user.username,
                 posted_by_role=current_user.role,
-                jd_id=job_id  # Link job posting to its JD
+                jd_id=job_id,  # Link job posting to its JD
+                email_subject_id=email_subject_id,
+                email_subject_template=email_subject_template
             )
         )
         
@@ -818,7 +899,9 @@ Additional Information:
             is_active=True,
             company_name=company_name,
             posted_by_user=current_user.username,
-            posted_by_role=current_user.role
+            posted_by_role=current_user.role,
+            email_subject_id=email_subject_id,
+            email_subject_template=email_subject_template
         )
         
     except HTTPException:
@@ -916,7 +999,9 @@ async def list_job_postings(
                 posted_by_user=job.get("posted_by_user"),
                 posted_by_role=job.get("posted_by_role"),
                 can_edit=can_edit,
-                can_delete=can_delete
+                can_delete=can_delete,
+                email_subject_id=job.get("email_subject_id"),
+                email_subject_template=job.get("email_subject_template")
             )
             summaries.append(summary)
         
@@ -1152,7 +1237,8 @@ async def get_job_applications(
                 expected_salary=app.get("expected_salary"),
                 years_of_experience=app.get("years_of_experience"),
                 match_score=None,  # TODO: Calculate match score if needed
-                status=app.get("status", "pending")
+                status=app.get("status", "pending"),
+                source=app.get("source", "website")  # Default to 'website' if not specified
             )
             summaries.append(summary)
         
@@ -1308,6 +1394,11 @@ async def unified_job_update(
             new_job_id = str(uuid.uuid4())
             public_token = generate_public_token()
             
+            # Generate email subject ID and template
+            email_subject_id = generate_email_subject_id(job_title)
+            email_subject_template = generate_email_subject_template(job_title, email_subject_id)
+            logger.info(f"📧 Generated email subject for new job: {email_subject_template}")
+            
             # Store UI data in job_postings_structured
             success = qdrant.store_job_posting_ui_data(
                 job_id=new_job_id,
@@ -1315,7 +1406,9 @@ async def unified_job_update(
                 public_token=public_token,
                 ui_data=ui_data,
                 posted_by_user=current_user.username,
-                posted_by_role=current_user.role
+                posted_by_role=current_user.role,
+                email_subject_id=email_subject_id,
+                email_subject_template=email_subject_template
             )
             
             if not success:

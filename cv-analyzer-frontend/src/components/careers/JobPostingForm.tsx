@@ -26,8 +26,9 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [success, setSuccess] = useState<{link: string, token: string, jobId: string} | null>(null);
+  const [success, setSuccess] = useState<{link: string, token: string, jobId: string, emailSubjectTemplate?: string} | null>(null);
   const [copied, setCopied] = useState(false);
+  const [emailSubjectCopied, setEmailSubjectCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   
@@ -294,7 +295,8 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
       setSuccess({ 
         link: result.public_link, 
           token: result.public_token,
-          jobId: result.job_id
+          jobId: result.job_id,
+          emailSubjectTemplate: result.email_subject_template
       });
       setSelectedFile(null);
         // Keep form data for editing
@@ -359,6 +361,20 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
       }
     }
   };
+
+  const handleCopyEmailSubject = async () => {
+    if (success?.emailSubjectTemplate) {
+      const copySuccess = await copyToClipboard(success.emailSubjectTemplate);
+      if (copySuccess) {
+        setEmailSubjectCopied(true);
+        setTimeout(() => setEmailSubjectCopied(false), 2000);
+        showSuccess('Email Subject Copied!', 'Paste this subject in your Naukri job posting to enable email CV processing.');
+      } else {
+        console.error('Failed to copy email subject');
+        showError('Copy Failed', 'Please try again or copy the text manually.');
+      }
+    }
+  };
   
   // Handle file input click directly
   const handleFileInputClick = () => {
@@ -420,6 +436,40 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
               <p className="text-xs">
                 {copied ? 'Link copied to clipboard!' : 'Share this professional job posting link with candidates.'}
               </p>
+
+              {/* Email Subject Template for Naukri */}
+              {success?.emailSubjectTemplate && (
+                <div className="mt-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm font-semibold text-orange-800">📧 Naukri Email Subject:</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm bg-orange-100 px-3 py-2 rounded font-mono text-orange-900 flex-1">
+                        {success.emailSubjectTemplate}
+                      </span>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={handleCopyEmailSubject}
+                        className="h-8 px-2 text-orange-700 hover:text-orange-900 hover:bg-orange-100"
+                        title="Copy email subject for Naukri"
+                      >
+                        {emailSubjectCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      </Button>
+                    </div>
+                    <div className="text-xs text-orange-700 space-y-1">
+                      <p className="font-medium">
+                        {emailSubjectCopied ? '✅ Subject copied! Paste this EXACT subject in your Naukri job posting.' : '📋 Copy this subject and paste it in your Naukri job posting.'}
+                      </p>
+                      <p>
+                        When candidates reply with CVs, they'll be automatically processed and linked to this job posting.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {success && (
                 <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-blue-800 font-medium">
