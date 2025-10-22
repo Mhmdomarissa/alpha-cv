@@ -1,12 +1,13 @@
 FROM python:3.12-slim
 
+# Environment variables for Python runtime
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
-# Minimal system deps for OCR + numpy/scipy
+# Install minimal system dependencies for OCR + numpy/scipy
 RUN apt-get update && apt-get install -y --no-install-recommends \
       tesseract-ocr \
       libtesseract5 \
@@ -15,16 +16,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install PyTorch with CUDA support for GPU acceleration
+# Install PyTorch with CUDA 12.1 support for GPU acceleration
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
+    pip install --no-cache-dir \
+      torch==2.3.1 \
+      torchvision==0.18.1 \
+      torchaudio==2.3.1 \
+      --index-url https://download.pytorch.org/whl/cu121
 
-# App deps
+# Install application dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy code
+# Copy application code
 COPY . .
 
 EXPOSE 8000
+
+# Start uvicorn with configurable worker count
 CMD uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-4}
