@@ -428,3 +428,17 @@ export interface JobApplicationListItem {
 }
 
 // Queue management types removed
+
+// Notes Summary types
+export interface NotesSummaryItem {
+  cv_id: string;
+  has_notes: boolean;
+  notes_count: number;
+  latest_note: any | null;
+}
+
+export interface NotesSummaryResponse {
+  status: string;
+  summaries: NotesSummaryItem[];
+  count: number;
+}

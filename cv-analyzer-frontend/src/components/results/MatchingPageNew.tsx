@@ -136,6 +136,7 @@ export default function MatchingPageNew() {
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState<string | null>(null);
   const [candidateNotes, setCandidateNotes] = useState<Record<string, any[]>>({});
+  const [notesSummary, setNotesSummary] = useState<Record<string, { has_notes: boolean; notes_count: number; latest_note: any | null }>>({});
   
   // Ensure default weights present
   useEffect(() => {
@@ -149,15 +150,30 @@ export default function MatchingPageNew() {
     }
   }, [matchWeights, setMatchWeights]);
 
-  // Load notes for all candidates when match results change
+  // Load batch notes summary for all candidates when match results change
   useEffect(() => {
-    if (matchResult?.candidates) {
-      matchResult.candidates.forEach((candidate: any) => {
-        if (candidate.cv_id && !candidateNotes[candidate.cv_id]) {
-          loadCandidateNotes(candidate.cv_id);
-        }
-      });
-    }
+    const loadSummary = async () => {
+      try {
+        if (!matchResult?.candidates) return;
+        const ids: string[] = Array.from(
+          new Set(
+            (matchResult.candidates as any[])
+              .map((c: any) => (c && c.cv_id ? String(c.cv_id) : ''))
+              .filter((id: string) => Boolean(id))
+          )
+        );
+        if (ids.length === 0) return;
+        const res = await api.getNotesSummary(ids);
+        const map: Record<string, { has_notes: boolean; notes_count: number; latest_note: any | null }> = {};
+        (res.summaries || []).forEach((s: any) => {
+          map[s.cv_id] = { has_notes: !!s.has_notes, notes_count: s.notes_count || 0, latest_note: s.latest_note || null };
+        });
+        setNotesSummary(map);
+      } catch (e) {
+        console.warn('Failed to load notes summary, falling back on-demand:', e);
+      }
+    };
+    loadSummary();
   }, [matchResult?.candidates]);
 
   // Queue handlers removed
@@ -287,6 +303,21 @@ export default function MatchingPageNew() {
       setCandidateNotes(prev => ({
         ...prev,
         [cvId]: response.notes || []
+      }));
+      // refresh summary cache for this id after a change/fetch
+      setNotesSummary(prev => ({
+        ...prev,
+        [cvId]: {
+          has_notes: (response.notes || []).length > 0,
+          notes_count: (response.notes || []).length,
+          latest_note: (response.notes || []).length > 0
+            ? (response.notes as any[]).reduce((latest, n) => {
+                const a = (latest?.updated_at || latest?.created_at || '') as string;
+                const b = (n?.updated_at || n?.created_at || '') as string;
+                return a >= b ? latest : n;
+              })
+            : null,
+        }
       }));
     } catch (error) {
       console.error('Failed to load notes:', error);
@@ -707,10 +738,10 @@ export default function MatchingPageNew() {
         <div>
           <div className="flex items-center gap-2">
             <h4 className="font-semibold text-gray-900">{displayName}</h4>
-            {candidateNotes[candidate.cv_id] && candidateNotes[candidate.cv_id].length > 0 && (
+            {(notesSummary[candidate.cv_id]?.notes_count || (candidateNotes[candidate.cv_id]?.length || 0)) > 0 && (
               <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                 <MessageSquare className="w-3 h-3" />
-                <span>{candidateNotes[candidate.cv_id].length}</span>
+                <span>{notesSummary[candidate.cv_id]?.notes_count ?? (candidateNotes[candidate.cv_id]?.length || 0)}</span>
               </div>
             )}
           </div>
@@ -903,10 +934,10 @@ export default function MatchingPageNew() {
               <Pencil className="w-4 h-4" />
               <span>Add Note</span>
             </Button>
-            {candidateNotes[candidate.cv_id] && candidateNotes[candidate.cv_id].length > 0 && (
+            {(notesSummary[candidate.cv_id]?.notes_count || (candidateNotes[candidate.cv_id]?.length || 0)) > 0 && (
               <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
                 <MessageSquare className="w-4 h-4" />
-                <span>{candidateNotes[candidate.cv_id].length} note{candidateNotes[candidate.cv_id].length !== 1 ? 's' : ''}</span>
+                <span>{(notesSummary[candidate.cv_id]?.notes_count ?? (candidateNotes[candidate.cv_id]?.length || 0))} note{((notesSummary[candidate.cv_id]?.notes_count ?? (candidateNotes[candidate.cv_id]?.length || 0)) !== 1) ? 's' : ''}</span>
               </div>
             )}
           </div>

@@ -1480,3 +1480,102 @@ async def get_all_cvs_with_notes() -> JSONResponse:
     except Exception as e:
         logger.error(f"❌ Failed to get CVs with notes: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get CVs with notes: {e}")
+
+
+# ------------------------------
+# Batch Notes Summary Endpoint
+# ------------------------------
+
+class NotesSummaryRequest(BaseModel):
+    cv_ids: List[str]
+
+
+@router.post("/notes/summary")
+async def get_notes_summary(payload: NotesSummaryRequest) -> JSONResponse:
+    """
+    Return a lightweight notes summary for a batch of CV IDs.
+    For each cv_id: { cv_id, has_notes, notes_count, latest_note }
+    - Optimized for UI lists (e.g., matching results) to avoid N per-CV note calls
+    - Does NOT include full notes array
+    """
+    try:
+        if not payload.cv_ids:
+            return JSONResponse({
+                "status": "success",
+                "summaries": [],
+                "count": 0
+            })
+
+        # Deduplicate while preserving order
+        seen = set()
+        ordered_ids: List[str] = []
+        for cv_id in payload.cv_ids:
+            if cv_id and cv_id not in seen:
+                seen.add(cv_id)
+                ordered_ids.append(cv_id)
+
+        qdrant = get_qdrant_utils()
+
+        # Prepare defaults for all requested IDs
+        summaries_map: Dict[str, Dict[str, Any]] = {
+            cv_id: {
+                "cv_id": cv_id,
+                "has_notes": False,
+                "notes_count": 0,
+                "latest_note": None,
+            }
+            for cv_id in ordered_ids
+        }
+
+        # Qdrant retrieve supports multiple IDs; chunk for safety
+        CHUNK_SIZE = 256
+        for i in range(0, len(ordered_ids), CHUNK_SIZE):
+            chunk = ordered_ids[i:i + CHUNK_SIZE]
+            try:
+                results = qdrant.client.retrieve(
+                    "cv_structured",
+                    ids=chunk,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to retrieve notes summary chunk {i}-{i+len(chunk)}: {e}")
+                continue
+
+            for point in results or []:
+                try:
+                    payload = point.payload or {}
+                    structured_info = payload.get("structured_info", {})
+                    notes = structured_info.get("hr_notes", []) or []
+
+                    summary = summaries_map.get(str(point.id))
+                    # Some deployments may store UUIDs as strings; ensure both lookups
+                    if summary is None:
+                        summary = summaries_map.get(point.id)  # type: ignore[index]
+
+                    if summary is not None:
+                        summary["has_notes"] = len(notes) > 0
+                        summary["notes_count"] = len(notes)
+                        if notes:
+                            latest_note = max(
+                                notes,
+                                key=lambda x: x.get("updated_at", x.get("created_at", ""))
+                            )
+                            summary["latest_note"] = latest_note
+                except Exception as inner_e:
+                    logger.warning(f"⚠️ Failed to process summary for point {getattr(point, 'id', 'unknown')}: {inner_e}")
+
+        # Preserve original order in response
+        summaries_list = [summaries_map[cid] for cid in ordered_ids]
+
+        return JSONResponse({
+            "status": "success",
+            "summaries": summaries_list,
+            "count": len(summaries_list)
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to get notes summary: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get notes summary: {e}")

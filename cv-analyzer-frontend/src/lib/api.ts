@@ -27,7 +27,8 @@ import {
   JobPostingListItem,
   PublicJobView,
   JobApplicationResponse,
-  JobApplicationListItem
+  JobApplicationListItem,
+  NotesSummaryResponse
 } from './types';
 
 class ApiClient {
@@ -137,6 +138,11 @@ class ApiClient {
 
   async getCVNotes(cvId: string): Promise<{ status: string; cv_id: string; notes: any[]; notes_count: number }> {
     const response = await this.client.get(`/api/cv/${cvId}/note`);
+    return response.data;
+  }
+
+  async getNotesSummary(cvIds: string[]): Promise<NotesSummaryResponse> {
+    const response = await this.client.post<NotesSummaryResponse>(`/api/cv/notes/summary`, { cv_ids: cvIds });
     return response.data;
   }
 
@@ -734,6 +740,7 @@ export const api = {
   // CV Notes operations
   getAllCVsWithNotes: () => RequestRetryHandler.withRetry(() => apiClient.getAllCVsWithNotes()),
   getCVNotes: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVNotes(cvId)),
+  getNotesSummary: (cvIds: string[]) => RequestRetryHandler.withRetry(() => apiClient.getNotesSummary(cvIds)),
   addOrUpdateNote: (cvId: string, note: string, hrUser: string) => RequestRetryHandler.withRetry(() => apiClient.addOrUpdateNote(cvId, note, hrUser)),
   deleteCVNote: (cvId: string, hrUser: string) => RequestRetryHandler.withRetry(() => apiClient.deleteCVNote(cvId, hrUser)),
   

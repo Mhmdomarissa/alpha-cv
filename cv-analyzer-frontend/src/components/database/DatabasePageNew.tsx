@@ -265,15 +265,34 @@ export default function DatabasePageNew() {
     loadCVsWithNotes();
   }, [loadCVs, loadJDs]);
 
-  // Load notes for CVs when they are displayed
+  // Load batch notes summary for visible CVs
   useEffect(() => {
-    if (filteredCVs.length > 0) {
-      filteredCVs.forEach(cv => {
-        if (!cvNotes[cv.id]) {
-          loadCVNotes(cv.id);
-        }
-      });
-    }
+    const loadBatchSummary = async () => {
+      if (filteredCVs.length === 0) return;
+      
+      try {
+        const ids = filteredCVs.map(cv => cv.id).filter(Boolean);
+        if (ids.length === 0) return;
+        
+        const res = await api.getNotesSummary(ids);
+        const cvIdsWithNotes: string[] = [];
+        
+        (res.summaries || []).forEach((s: any) => {
+          if (s.has_notes && s.notes_count > 0) {
+            cvIdsWithNotes.push(s.cv_id);
+          }
+        });
+        
+        // Update the set of CVs with notes (for filtering and badges)
+        setCvsWithNotes(new Set(cvIdsWithNotes));
+        
+        // Full notes will be lazy-loaded when user expands a CV
+      } catch (error) {
+        console.warn('Failed to load notes summary for database page:', error);
+      }
+    };
+    
+    loadBatchSummary();
   }, [filteredCVs]);
 
   // Load categories from API
