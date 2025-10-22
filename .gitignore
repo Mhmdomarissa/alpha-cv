@@ -7,6 +7,7 @@
 .env
 .env.*
 !.env.example
+azure_email_config.env
 
 # Python
 __pycache__/
