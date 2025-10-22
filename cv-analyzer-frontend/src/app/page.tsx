@@ -10,6 +10,7 @@ import SystemPanel from '@/components/system/SystemPanel';
 import ReportGenerator from '@/components/reports/ReportGenerator';
 import { CareersPage } from '@/components/careers';
 import PerformancePage from '@/components/performance/PerformancePage';
+import EmailPage from '@/components/email/EmailPage';
 import ErrorBanner from '@/components/common/ErrorBanner';
 import { LoadingPage } from '@/components/ui/loading';
 import Protected from '@/components/layout/Protected';
@@ -36,6 +37,8 @@ export default function HomePage() {
         return <MatchingPageNew />;
       case 'careers':
         return <CareersPage />;
+      case 'email':
+        return <EmailPage />;
       case 'reports':
         return <ReportGenerator />;
       case 'system':

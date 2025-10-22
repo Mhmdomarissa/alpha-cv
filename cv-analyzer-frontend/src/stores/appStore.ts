@@ -30,7 +30,7 @@ interface MatchingProgress {
 
 interface AppState {
   // Current tab
-  currentTab: 'dashboard' | 'upload' | 'database' | 'match' | 'careers' | 'reports' | 'system' | 'performance';
+  currentTab: 'dashboard' | 'upload' | 'database' | 'match' | 'careers' | 'email' | 'reports' | 'system' | 'performance';
   
   // Database tab state
   databaseActiveTab: 'cvs' | 'jds';
@@ -179,9 +179,8 @@ export const useAppStore = create<AppState>()(
       setCareersMatchData: (data) => {
         set({ 
           selectedJD: data.jobId,
-          selectedCVs: data.cvIds,
-          // Clear any existing match results
-          matchResult: null
+          selectedCVs: data.cvIds
+          // Don't clear matchResult - keep the careers matching results
         });
       },
       
@@ -399,10 +398,10 @@ export const useAppStore = create<AppState>()(
           }
           
           // Start matching directly
+          // Use backend default weights (no weights parameter = backend defaults)
           const matchRequest: MatchRequest = {
             jd_id: selectedJD || undefined,
             cv_ids: selectedCVs.length > 0 ? selectedCVs : undefined,
-            weights: matchWeights,
             top_alternatives: 3,
             ...request,
           };

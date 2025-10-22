@@ -1,24 +1,17 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { 
   Upload, 
   Database, 
   Users,
   FileText,
   BarChart3,
-  Clock,
   CheckCircle,
   ArrowRight,
-  Zap,
-  TrendingUp,
   Award,
-  BookOpen,
-  Play,
-  Lightbulb,
   Briefcase
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
-import QuickTutorial from '@/components/guide/QuickTutorial';
 
 export default function DashboardPage() {
   const { 
@@ -30,8 +23,6 @@ export default function DashboardPage() {
     loadCVs, 
     loadJDs
   } = useAppStore();
-  
-  const [showTutorial, setShowTutorial] = useState(false);
   
   const totalDocuments = cvs.length + jds.length;
   const totalMatches = matchResult?.candidates.length || 0;
@@ -334,15 +325,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-
-
-      
-      {/* Quick Tutorial Modal */}
-      <QuickTutorial 
-        isOpen={showTutorial}
-        onClose={() => setShowTutorial(false)}
-        onNavigate={(tab: string) => setCurrentTab(tab as any)}
-      />
 
     </div>
   );

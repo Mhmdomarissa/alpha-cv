@@ -194,6 +194,7 @@ app.middleware("http")(rate_limit_middleware)
 # Trust proxy headers middleware (for ALB)
 @app.middleware("http")
 async def trust_proxy_headers(request, call_next):
+    """Normalize request scheme when behind a proxy/ALB using X-Forwarded-Proto."""
     # Handle X-Forwarded-Proto for HTTPS detection behind ALB
     forwarded_proto = request.headers.get("X-Forwarded-Proto")
     if forwarded_proto == "https":
@@ -206,6 +207,7 @@ async def trust_proxy_headers(request, call_next):
 # Security headers middleware
 @app.middleware("http")
 async def add_security_headers(request, call_next):
+    """Add common security headers for HTTPS requests in non-development environments."""
     response = await call_next(request)
     
     # Check if request is HTTPS (including via ALB forwarding)

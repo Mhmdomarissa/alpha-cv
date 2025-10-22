@@ -1,19 +1,25 @@
-# app/routes/performance_routes.py
-import psutil
-import time
+"""Performance monitoring routes.
+
+Expose system, GPU, Docker, and application performance metrics.
+Only formatting, docstrings, and minor spacing adjustments applied.
+"""
+
 import json
 import logging
-from typing import Dict, Any, List
+import os
+import subprocess
+import time
+from typing import Any, Dict, List
+
+import psutil
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-import subprocess
-import os
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/performance", tags=["performance"])
 
 def get_gpu_stats():
-    """Get GPU statistics using nvidia-smi."""
+    """Get GPU statistics using `nvidia-smi`."""
     try:
         result = subprocess.run([
             'nvidia-smi', 

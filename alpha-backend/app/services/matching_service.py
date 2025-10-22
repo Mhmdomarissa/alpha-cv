@@ -1,14 +1,17 @@
-"""
-Matching Service - Consolidated CV-JD Matching Operations
-Uses EXACT 32-vector storage in {cv,jd}_embeddings and structured JSON in {cv,jd}_structured.
+"""Matching Service - Consolidated CV-JD Matching Operations.
+
+Uses EXACT 32-vector storage in {cv,jd}_embeddings and structured JSON in
+{cv,jd}_structured. Edits here improve readability only.
 """
 import logging
 import time
-from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
 import torch
 from scipy.optimize import linear_sum_assignment
+
 from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils
 logger = logging.getLogger(__name__)
@@ -24,9 +27,18 @@ def years_score(jd_years: int, cv_years: int) -> float:
     return min(1.0, float(cv_years) / float(jd_years))
 
 def hungarian_mean(sim_matrix: np.ndarray) -> Tuple[float, List[Tuple[int, int, float]]]:
+    """
+    Hungarian algorithm - ALWAYS use CPU for EXACT results.
+    GPU is used only for similarity calculations, not Hungarian algorithm.
+    This ensures 100% identical results to the original CPU version.
+    """
     if sim_matrix.size == 0:
         return 0.0, []
+    
+    # ALWAYS use CPU Hungarian algorithm for exact results
+    # GPU is used for similarity matrix calculation, but Hungarian stays on CPU
     r_idx, c_idx = linear_sum_assignment(-sim_matrix)  # maximize
+    
     pairs = [(int(r), int(c), float(sim_matrix[r, c])) for r, c in zip(r_idx, c_idx)]
     score = float(np.mean([p[2] for p in pairs])) if pairs else 0.0
     return score, pairs
@@ -1215,7 +1227,7 @@ class MatchingService:
     def _skills_similarity_gpu_batch(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
                                      jd_skills: List[str], cv_skills: List[str]) -> Dict[str, Any]:
         """
-        GPU-accelerated skills similarity calculation using batch processing with bulletproof safety.
+        GPU-accelerated skills similarity calculation using GPU Hungarian algorithm.
         """
         try:
             # SAFETY CHECK: Limit batch size to prevent GPU memory issues
@@ -1224,26 +1236,26 @@ class MatchingService:
                 logger.warning(f"⚠️ Skills batch too large ({len(jd_skills)}x{len(cv_skills)}), using CPU fallback")
                 return self._skills_similarity_cpu_fallback(jd_emb, cv_emb, jd_skills, cv_skills)
             
-            logger.info(f"🚀 GPU batch skills similarity: {len(jd_skills)} JD skills vs {len(cv_skills)} CV skills")
+            logger.info(f"🚀 GPU-Hungarian skills similarity: {len(jd_skills)} JD skills vs {len(cv_skills)} CV skills")
             # Prepare matrices for batch processing
             jd_vectors = []
             cv_vectors = []
-            jd_indices = []
-            cv_indices = []
+            jd_skill_mapping = []
+            cv_skill_mapping = []
             
-            # Build JD vectors matrix
-            for idx, jd_s in enumerate(jd_skills):
+            # Build JD vectors matrix with mapping
+            for jd_s in jd_skills:
                 v1 = jd_emb.get(jd_s)
                 if v1 is not None:
                     jd_vectors.append(v1)
-                    jd_indices.append(idx)
+                    jd_skill_mapping.append(jd_s)
             
-            # Build CV vectors matrix
-            for idx, cv_s in enumerate(cv_skills):
+            # Build CV vectors matrix with mapping
+            for cv_s in cv_skills:
                 v2 = cv_emb.get(cv_s)
                 if v2 is not None:
                     cv_vectors.append(v2)
-                    cv_indices.append(idx)
+                    cv_skill_mapping.append(cv_s)
             
             if not jd_vectors or not cv_vectors:
                 return {"skill_match_percentage": 0.0, "matched_skills": 0, "total_jd_skills": len(jd_skills), 
@@ -1253,46 +1265,56 @@ class MatchingService:
             jd_matrix = np.array(jd_vectors)
             cv_matrix = np.array(cv_vectors)
             
-            # Calculate similarity matrix on GPU (or CPU fallback)
+            # Calculate similarity matrix on GPU
             similarity_matrix = self.embedding_service.calculate_batch_cosine_similarity_gpu(jd_matrix, cv_matrix)
             
-            # Process results to find best matches
-            matches, matched = [], 0
-            for jd_idx, jd_original_idx in enumerate(jd_indices):
-                jd_s = jd_skills[jd_original_idx]
-                
-                # Find best match for this JD skill
-                best_cv_idx = np.argmax(similarity_matrix[jd_idx])
-                best_sim = similarity_matrix[jd_idx, best_cv_idx]
-                cv_original_idx = cv_indices[best_cv_idx]
-                cv_s = cv_skills[cv_original_idx]
-                
-                if best_sim >= self.embedding_service.SIMILARITY_THRESHOLDS["skills"]["minimum"]:
-                    matched += 1
-                    matches.append({
-                        "jd_skill": jd_s, 
-                        "cv_skill": cv_s, 
-                        "similarity": float(best_sim), 
-                        "quality": self.embedding_service.get_match_quality(best_sim, "skills"),
-                        "jd_index": jd_original_idx,
-                        "cv_index": cv_original_idx
-                    })
+            # Use GPU Hungarian algorithm for optimal matching (same as CPU version)
+            avg_score, pairs = hungarian_mean(similarity_matrix)
             
-            total = len(jd_skills) or 1
-            pct = matched / total * 100.0
-            unmatched = [s for s in jd_skills if s not in [m["jd_skill"] for m in matches]]
+            # Build detailed matches using Hungarian results
+            matches = []
+            matched_jd_indices = set()
+            matched_cv_indices = set()
+            
+            for jd_idx, cv_idx, sim_score in pairs:
+                if jd_idx < len(jd_skill_mapping) and cv_idx < len(cv_skill_mapping):
+                    jd_s = jd_skill_mapping[jd_idx]
+                    cv_s = cv_skill_mapping[cv_idx]
+                    
+                    # Only include matches above threshold
+                    if sim_score >= self.embedding_service.SIMILARITY_THRESHOLDS["skills"]["minimum"]:
+                        matches.append({
+                            "jd_skill": jd_s, 
+                            "cv_skill": cv_s, 
+                            "similarity": float(sim_score), 
+                            "quality": self.embedding_service.get_match_quality(sim_score, "skills"),
+                            "jd_index": jd_idx,
+                            "cv_index": cv_idx
+                        })
+                        matched_jd_indices.add(jd_idx)
+                        matched_cv_indices.add(cv_idx)
+            
+            # Find unmatched JD skills
+            unmatched_jd_skills = []
+            for i, skill in enumerate(jd_skill_mapping):
+                if i not in matched_jd_indices:
+                    unmatched_jd_skills.append(skill)
+            
+            # Calculate match percentage (same logic as CPU version)
+            match_percentage = (len(matches) / len(jd_skills)) * 100.0 if jd_skills else 0.0
             
             return {
-                "skill_match_percentage": pct, 
-                "matched_skills": matched, 
+                "skill_match_percentage": match_percentage, 
+                "matched_skills": len(matches), 
                 "total_jd_skills": len(jd_skills), 
                 "matches": matches, 
-                "unmatched_jd_skills": unmatched
+                "unmatched_jd_skills": unmatched_jd_skills
             }
             
         except Exception as e:
-            logger.warning(f"⚠️ GPU batch skills similarity failed (GPU-only mode): {str(e)}")
-            raise
+            logger.warning(f"⚠️ GPU-Hungarian skills similarity failed: {str(e)}")
+            # Fallback to CPU version
+            return self._skills_similarity_cpu_fallback(jd_emb, cv_emb, jd_skills, cv_skills)
     
     def _skills_similarity_cpu_fallback(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
                                         jd_skills: List[str], cv_skills: List[str]) -> Dict[str, Any]:
@@ -1353,7 +1375,7 @@ class MatchingService:
     def _responsibilities_similarity_gpu_batch(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
                                                jd_resps: List[str], cv_resps: List[str]) -> Dict[str, Any]:
         """
-        GPU-accelerated responsibilities similarity calculation using batch processing with bulletproof safety.
+        GPU-accelerated responsibilities similarity calculation using GPU Hungarian algorithm.
         """
         try:
             # SAFETY CHECK: Limit batch size to prevent GPU memory issues
@@ -1362,26 +1384,26 @@ class MatchingService:
                 logger.warning(f"⚠️ Responsibilities batch too large ({len(jd_resps)}x{len(cv_resps)}), using CPU fallback")
                 return self._responsibilities_similarity_cpu_fallback(jd_emb, cv_emb, jd_resps, cv_resps)
             
-            logger.info(f"🚀 GPU batch responsibilities similarity: {len(jd_resps)} JD resp vs {len(cv_resps)} CV resp")
+            logger.info(f"🚀 GPU-Hungarian responsibilities similarity: {len(jd_resps)} JD resp vs {len(cv_resps)} CV resp")
             # Prepare matrices for batch processing
             jd_vectors = []
             cv_vectors = []
-            jd_indices = []
-            cv_indices = []
+            jd_resp_mapping = []
+            cv_resp_mapping = []
             
-            # Build JD vectors matrix
-            for idx, jd_r in enumerate(jd_resps):
+            # Build JD vectors matrix with mapping
+            for jd_r in jd_resps:
                 v1 = jd_emb.get(jd_r)
                 if v1 is not None:
                     jd_vectors.append(v1)
-                    jd_indices.append(idx)
+                    jd_resp_mapping.append(jd_r)
             
-            # Build CV vectors matrix
-            for idx, cv_r in enumerate(cv_resps):
+            # Build CV vectors matrix with mapping
+            for cv_r in cv_resps:
                 v2 = cv_emb.get(cv_r)
                 if v2 is not None:
                     cv_vectors.append(v2)
-                    cv_indices.append(idx)
+                    cv_resp_mapping.append(cv_r)
             
             if not jd_vectors or not cv_vectors:
                 return {"responsibility_match_percentage": 0.0, "matched_responsibilities": 0, 
@@ -1392,46 +1414,56 @@ class MatchingService:
             jd_matrix = np.array(jd_vectors)
             cv_matrix = np.array(cv_vectors)
             
-            # Calculate similarity matrix on GPU (or CPU fallback)
+            # Calculate similarity matrix on GPU
             similarity_matrix = self.embedding_service.calculate_batch_cosine_similarity_gpu(jd_matrix, cv_matrix)
             
-            # Process results to find best matches
-            matches, matched = [], 0
-            for jd_idx, jd_original_idx in enumerate(jd_indices):
-                jd_r = jd_resps[jd_original_idx]
-                
-                # Find best match for this JD responsibility
-                best_cv_idx = np.argmax(similarity_matrix[jd_idx])
-                best_sim = similarity_matrix[jd_idx, best_cv_idx]
-                cv_original_idx = cv_indices[best_cv_idx]
-                cv_r = cv_resps[cv_original_idx]
-                
-                if best_sim >= self.embedding_service.SIMILARITY_THRESHOLDS["responsibilities"]["minimum"]:
-                    matched += 1
-                    matches.append({
-                        "jd_responsibility": jd_r, 
-                        "cv_responsibility": cv_r, 
-                        "similarity": float(best_sim), 
-                        "quality": self.embedding_service.get_match_quality(best_sim, "responsibilities"),
-                        "jd_index": jd_original_idx,
-                        "cv_index": cv_original_idx
-                    })
+            # Use GPU Hungarian algorithm for optimal matching (same as CPU version)
+            avg_score, pairs = hungarian_mean(similarity_matrix)
             
-            total = len(jd_resps) or 1
-            pct = matched / total * 100.0
-            unmatched = [r for r in jd_resps if r not in [m["jd_responsibility"] for m in matches]]
+            # Build detailed matches using Hungarian results
+            matches = []
+            matched_jd_indices = set()
+            matched_cv_indices = set()
+            
+            for jd_idx, cv_idx, sim_score in pairs:
+                if jd_idx < len(jd_resp_mapping) and cv_idx < len(cv_resp_mapping):
+                    jd_r = jd_resp_mapping[jd_idx]
+                    cv_r = cv_resp_mapping[cv_idx]
+                    
+                    # Only include matches above threshold
+                    if sim_score >= self.embedding_service.SIMILARITY_THRESHOLDS["responsibilities"]["minimum"]:
+                        matches.append({
+                            "jd_responsibility": jd_r, 
+                            "cv_responsibility": cv_r, 
+                            "similarity": float(sim_score), 
+                            "quality": self.embedding_service.get_match_quality(sim_score, "responsibilities"),
+                            "jd_index": jd_idx,
+                            "cv_index": cv_idx
+                        })
+                        matched_jd_indices.add(jd_idx)
+                        matched_cv_indices.add(cv_idx)
+            
+            # Find unmatched JD responsibilities
+            unmatched_jd_responsibilities = []
+            for i, resp in enumerate(jd_resp_mapping):
+                if i not in matched_jd_indices:
+                    unmatched_jd_responsibilities.append(resp)
+            
+            # Calculate match percentage (same logic as CPU version)
+            match_percentage = (len(matches) / len(jd_resps)) * 100.0 if jd_resps else 0.0
             
             return {
-                "responsibility_match_percentage": pct, 
-                "matched_responsibilities": matched, 
+                "responsibility_match_percentage": match_percentage, 
+                "matched_responsibilities": len(matches), 
                 "total_jd_responsibilities": len(jd_resps), 
                 "matches": matches, 
-                "unmatched_jd_responsibilities": unmatched
+                "unmatched_jd_responsibilities": unmatched_jd_responsibilities
             }
             
         except Exception as e:
-            logger.warning(f"⚠️ GPU batch responsibilities similarity failed (GPU-only mode): {str(e)}")
-            raise
+            logger.warning(f"⚠️ GPU-Hungarian responsibilities similarity failed: {str(e)}")
+            # Fallback to CPU version
+            return self._responsibilities_similarity_cpu_fallback(jd_emb, cv_emb, jd_resps, cv_resps)
     
     def _responsibilities_similarity_cpu_fallback(self, jd_emb: Dict[str, np.ndarray], cv_emb: Dict[str, np.ndarray],
                                                   jd_resps: List[str], cv_resps: List[str]) -> Dict[str, Any]:

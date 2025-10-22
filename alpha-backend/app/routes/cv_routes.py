@@ -1,5 +1,5 @@
-"""
-CV Routes - Consolidated CV API endpoints
+"""CV Routes - Consolidated CV API endpoints.
+
 Handles ALL CV operations: upload, processing, listing, and management.
 Single responsibility: CV document management through REST API.
 """
@@ -10,8 +10,8 @@ import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
-from fastapi.responses import JSONResponse,FileResponse, StreamingResponse
+from fastapi import APIRouter, File, HTTPException, Form, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from app.services.parsing_service import get_parsing_service
 from app.services.llm_service import get_llm_service
@@ -75,7 +75,7 @@ async def get_cv_upload_progress(cv_id: str):
         raise HTTPException(status_code=500, detail=f"Progress tracking error: {str(e)}")
 
 def update_cv_upload_progress(cv_id: str, **kwargs):
-    """Update CV upload progress"""
+    """Update CV upload progress."""
     if cv_id not in _cv_upload_progress:
         _cv_upload_progress[cv_id] = {}
     _cv_upload_progress[cv_id].update(kwargs)
@@ -537,6 +537,7 @@ async def list_cvs() -> JSONResponse:
             if not next_offset:
                 break
             offset = next_offset
+        # Suggestion: could extract into helper function to DRY Qdrant pagination
 
         # Documents map id -> payload
         docs_map: Dict[str, Dict[str, Any]] = {}
@@ -555,6 +556,7 @@ async def list_cvs() -> JSONResponse:
             if not next_offset:
                 break
             offset = next_offset
+        # Suggestion: could extract into helper function to DRY Qdrant pagination
 
         enhanced = []
         for p in all_structured:

@@ -77,6 +77,9 @@ class EmailScheduler:
         logger.info("🚀 Starting email processing scheduler")
         
         try:
+            # Set initial check time
+            self.last_check_time = datetime.utcnow()
+            
             while self.is_running:
                 try:
                     await self._process_emails_batch()
@@ -180,13 +183,16 @@ class EmailScheduler:
     
     def get_scheduler_status(self) -> Dict[str, Any]:
         """Get current scheduler status and statistics"""
+        next_check_seconds = self._get_next_check_in_minutes()
+        
         return {
             "is_running": self.is_running,
             "check_interval_minutes": self.check_interval_minutes,
             "max_emails_per_batch": self.max_emails_per_batch,
             "last_check_time": self.last_check_time.isoformat() if self.last_check_time else None,
             "last_processing_time": self.last_processing_time.isoformat() if self.last_processing_time else None,
-            "next_check_in_minutes": self._get_next_check_in_minutes(),
+            "next_check_in_minutes": next_check_seconds,  # Now returns seconds for precision
+            "next_check_in_seconds": next_check_seconds,  # Explicit seconds field
             "statistics": self.processing_stats.copy()
         }
     
@@ -199,7 +205,9 @@ class EmailScheduler:
         now = datetime.utcnow()
         
         if next_check > now:
-            return int((next_check - now).total_seconds() / 60)
+            # Return exact seconds remaining for more precision
+            seconds_remaining = (next_check - now).total_seconds()
+            return max(0, int(seconds_remaining))
         else:
             return 0  # Should check now
     

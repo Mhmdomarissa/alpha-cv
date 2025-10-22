@@ -1,6 +1,13 @@
+"""Application core configuration.
+
+Defines typed settings loaded from environment variables using pydantic.
+Only readability/docstrings and import ordering adjusted; behavior unchanged.
+"""
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
+    """Runtime settings loaded from `.env` and environment variables."""
     ENABLE_AUTH: bool = True
     AUTH_DB_URL: str = "sqlite:///./auth.db"
     SECRET_KEY: str = "change-me"

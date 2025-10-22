@@ -1,6 +1,4 @@
-"""
-Redis Cache Service
-==================
+"""Redis Cache Service.
 
 Production-grade Redis caching with fallback to in-memory cache.
 Optimized for the CV matching application.
@@ -8,11 +6,12 @@ Optimized for the CV matching application.
 
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, Optional, Union
+
 import redis
-from redis.exceptions import ConnectionError, TimeoutError, RedisError
-import os
+from redis.exceptions import ConnectionError, RedisError, TimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +28,15 @@ class RedisCacheService:
     - Error handling and recovery
     """
     
-    def __init__(self, 
-                 host: str = None, 
-                 port: int = None, 
-                 password: str = None,
-                 username: str = None,
-                 db: int = 0,
-                 max_connections: int = 10):
+    def __init__(
+        self,
+        host: str = None,
+        port: int = None,
+        password: str = None,
+        username: str = None,
+        db: int = 0,
+        max_connections: int = 10,
+    ):
         """
         Initialize Redis cache service.
         
@@ -130,11 +131,13 @@ class RedisCacheService:
             logger.error(f"Deserialization failed: {e}")
             return value
     
-    def set(self, 
-            key: str, 
-            value: Any, 
-            ttl_seconds: Optional[int] = None,
-            namespace: str = "default") -> bool:
+    def set(
+        self,
+        key: str,
+        value: Any,
+        ttl_seconds: Optional[int] = None,
+        namespace: str = "default",
+    ) -> bool:
         """
         Set a value in cache.
         

@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.services.azure_email_service import get_azure_email_service
 from app.services.email_cv_processor import get_email_cv_processor
+from app.services.email_scheduler import get_email_scheduler
 from app.deps.auth import require_admin, require_user
 from app.models.user import User
 
@@ -168,19 +169,20 @@ async def get_email_processing_status(
     """
     Get current email processing status
     
-    Returns information about the last processing run and statistics.
+    Returns information about the last processing run and statistics from the scheduler.
     """
     try:
-        # This would need to be implemented with proper state tracking
-        # For now, return basic status information
+        scheduler = get_email_scheduler()
+        status = scheduler.get_scheduler_status()
+        stats = status.get("statistics", {})
         
         return EmailProcessingStatus(
-            is_processing=False,  # Would need to track this
-            last_processed=None,  # Would need to track this
-            total_processed_today=0,  # Would need to track this
-            successful_today=0,  # Would need to track this
-            failed_today=0,  # Would need to track this
-            next_scheduled_run=None  # Would need to implement scheduling
+            is_processing=status.get("is_running", False),
+            last_processed=status.get("last_check_time"),
+            total_processed_today=stats.get("total_processed", 0),
+            successful_today=stats.get("successful_today", 0),
+            failed_today=stats.get("failed_today", 0),
+            next_scheduled_run=status.get("last_check_time")
         )
         
     except Exception as e:
@@ -355,4 +357,5 @@ async def get_processed_emails_count(
             status_code=500,
             detail=f"Failed to get count: {str(e)}"
         )
+
 

@@ -208,18 +208,11 @@ export default function MatchingPageNew() {
   // Compute display scores using current (normalized) weights
   const candidatesWithComputed = useMemo(() => {
     return candidates.map((c) => {
-      const skills = Number(c.skills_score ?? 0);
-      const resp = Number(c.responsibilities_score ?? 0);
-      const title = Number(c.job_title_score ?? 0);
-      const years = Number(c.years_score ?? 0);
-      const computed_overall =
-        skills * normWeights.skills +
-        resp * normWeights.responsibilities +
-        title * normWeights.job_title +
-        years * normWeights.experience;
+      // Use the backend's overall_score directly instead of recalculating
+      const computed_overall = Number(c.overall_score ?? 0);
       return { ...c, computed_overall };
     });
-  }, [candidates, normWeights]);
+  }, [candidates]);
   
   const sortedCandidates = useMemo(() => {
     const filtered = [...candidatesWithComputed]

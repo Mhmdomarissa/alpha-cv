@@ -20,7 +20,7 @@ import {
   User,
   Briefcase,
   Activity,
-  BookOpen
+  Mail
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -90,6 +90,16 @@ const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
     console.log('DEBUG: No userRole provided, careers tab not added');
   }
 
+  // Add email tab for all authenticated users
+  if (userRole) {
+    baseTabs.push({
+      id: 'email',
+      label: 'Email',
+      icon: Mail,
+      description: 'Email CV processing',
+    });
+  }
+
   return baseTabs;
 };
 
@@ -125,6 +135,8 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         return 'System monitoring';
       case 'careers':
         return 'Job postings & applications';
+      case 'email':
+        return 'Process email CVs';
       default:
         return '';
     }
@@ -144,6 +156,8 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         return true; // Always available for monitoring
       case 'careers':
         return true; // Always available for admin users
+      case 'email':
+        return true; // Always available for authenticated users
       default:
         return false;
     }
@@ -222,20 +236,6 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
 
             {/* User Info & Actions - Enhanced */}
             <div className="flex items-center space-x-4">
-              {/* Guide Button */}
-              <button
-                onClick={() => window.open('/guide', '_blank')}
-                className="hidden sm:flex items-center space-x-2 px-3 py-2 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl hover:-translate-y-0.5"
-                style={{ 
-                  background: 'rgba(0, 82, 155, 0.8)',
-                  color: '#ffffff'
-                }}
-                title="User Guide"
-              >
-                <BookOpen className="w-4 h-4" style={{ color: '#ffffff' }} />
-                <span className="text-sm font-medium" style={{ color: '#ffffff' }}>Guide</span>
-              </button>
-
               {user && (
                 <div className="hidden sm:flex items-center space-x-3">
                   <div className="flex items-center space-x-3 bg-white/80 backdrop-blur-sm rounded-xl px-3 py-2 border border-white/30 shadow-sm">

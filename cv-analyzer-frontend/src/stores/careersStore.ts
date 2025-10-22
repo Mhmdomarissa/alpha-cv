@@ -350,6 +350,7 @@ loadJobPostings: async () => {
       logger.info('Using JD ID for matching', { jobId, originalJdId });
       
       // Use the existing /match API with the original JD ID
+      // Use backend default weights (no weights parameter = backend defaults)
       const matchResults = await api.matchCandidates({
         jd_id: originalJdId,
         cv_ids: cvIds
