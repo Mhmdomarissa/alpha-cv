@@ -5,6 +5,7 @@ Uses EXACT 32-vector storage in {cv,jd}_embeddings and structured JSON in
 """
 import logging
 import time
+import gc
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -152,8 +153,13 @@ class MatchingService:
         self.max_cpu_usage = 85.0  # Maximum CPU usage before throttling
         self.max_memory_usage = 90.0  # Maximum memory usage before throttling
         
+        # Memory management
+        self.memory_cleanup_threshold = 100  # Clean up every 100 operations
+        self.operation_count = 0
+        
         logger.info("🎯 MatchingService initialized (uses *_structured & *_embeddings)")
         logger.info("🛡️ Safety limits: CPU < 85%, Memory < 90%, GPU memory checks enabled")
+        logger.info("🧹 Memory cleanup enabled with automatic garbage collection")
 
     def _check_system_resources(self) -> bool:
         """
@@ -180,6 +186,52 @@ class MatchingService:
         except Exception as e:
             logger.warning(f"⚠️ System resource check failed: {e}, proceeding with caution")
             return True  # Proceed if check fails
+
+    def _cleanup_memory(self, force: bool = False) -> None:
+        """
+        Comprehensive memory cleanup for both CPU and GPU memory.
+        Called automatically after operations or when memory usage is high.
+        """
+        try:
+            # Increment operation counter
+            self.operation_count += 1
+            
+            # Check if cleanup is needed
+            if not force and self.operation_count % self.memory_cleanup_threshold != 0:
+                return
+            
+            logger.debug(f"🧹 Performing memory cleanup (operation #{self.operation_count})")
+            
+            # Clean up GPU memory if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                logger.debug("🧹 GPU memory cache cleared")
+            
+            # Force Python garbage collection
+            collected = gc.collect()
+            if collected > 0:
+                logger.debug(f"🧹 Python garbage collection freed {collected} objects")
+            
+            # Log memory usage after cleanup
+            try:
+                import psutil
+                memory = psutil.virtual_memory()
+                logger.debug(f"🧹 Memory after cleanup: {memory.percent:.1f}% ({memory.used/1024**3:.1f}GB/{memory.total/1024**3:.1f}GB)")
+            except Exception:
+                pass
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Memory cleanup failed: {e}")
+
+    def _log_memory_usage(self, context: str = "") -> None:
+        """Log current memory usage for monitoring"""
+        try:
+            import psutil
+            memory = psutil.virtual_memory()
+            logger.info(f"📊 Memory usage {context}: {memory.percent:.1f}% ({memory.used/1024**3:.1f}GB/{memory.total/1024**3:.1f}GB)")
+        except Exception as e:
+            logger.debug(f"Memory logging failed: {e}")
 
     # ---------- Universal Dynamic Job Title Similarity Methods ----------
     
@@ -443,6 +495,7 @@ class MatchingService:
         try:
             logger.info("---------- MATCHING START ----------")
             logger.info(f"CV ID: {cv_id} | JD ID: {jd_id}")
+            self._log_memory_usage("before matching")
             t0 = time.time()
             # ---- structured JSON ----
             cv_std = self._get_structured(cv_id, "cv")
@@ -490,7 +543,8 @@ class MatchingService:
             
             # ---- Apply business rules and bonuses ----
             business_rule_modifier = self.apply_business_rules(cv_title, jd_title, title_sim)
-            overall = base_score + (business_rule_modifier * 100.0)  # Convert to percentage
+            # Business rule modifier is a relative percentage (-0.20 to +0.30), apply it as a percentage of base score
+            overall = base_score * (1.0 + business_rule_modifier)
             
             # Ensure score stays within bounds
             overall = max(0.0, min(100.0, overall))
@@ -498,6 +552,11 @@ class MatchingService:
                 skills_pct, skills_analysis, resp_pct, responsibilities_analysis, title_sim, meets
             )
             match_details = self._build_details(cv_std, jd_std, skills_analysis, responsibilities_analysis, title_sim, exp_score_pct)
+            
+            # Clean up memory after matching
+            self._cleanup_memory()
+            self._log_memory_usage("after matching")
+            
             return MatchResult(
                 cv_id=cv_id, jd_id=jd_id, overall_score=overall,
                 skills_score=skills_pct, responsibilities_score=resp_pct,
@@ -602,7 +661,8 @@ class MatchingService:
             
             # ---- Apply business rules and bonuses (same as legacy method) ----
             business_rule_modifier = self.apply_business_rules(cv_title, jd_title, title_sim)
-            overall_score = base_score + (business_rule_modifier * 100.0)  # Convert to percentage
+            # Business rule modifier is a relative percentage (-0.20 to +0.30), apply it as a percentage of base score
+            overall_score = base_score * (1.0 + business_rule_modifier)
             
             # Ensure score stays within bounds
             overall_score = max(0.0, min(100.0, overall_score))
@@ -717,7 +777,8 @@ class MatchingService:
             
             # ---- Apply business rules and bonuses ----
             business_rule_modifier = self.apply_business_rules(cv_title, jd_title, title_sim)
-            overall = base_score + (business_rule_modifier * 100.0)  # Convert to percentage
+            # Business rule modifier is a relative percentage (-0.20 to +0.30), apply it as a percentage of base score
+            overall = base_score * (1.0 + business_rule_modifier)
             
             # Ensure score stays within bounds
             overall = max(0.0, min(100.0, overall))
@@ -785,6 +846,8 @@ class MatchingService:
                     # Log progress for large batches
                     if len(cv_ids) > 50 and processed_count % 10 == 0:
                         logger.info(f"📊 Bulk matching progress: {processed_count}/{len(cv_ids)} CVs processed")
+                        # Clean up memory every 10 matches
+                        self._cleanup_memory()
                         
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to match CV {cid}: {e}")
@@ -793,6 +856,9 @@ class MatchingService:
             # Sort results and return top_k
             results.sort(key=lambda x: x.overall_score, reverse=True)
             final_results = results[:top_k]
+            
+            # Final memory cleanup
+            self._cleanup_memory(force=True)
             
             logger.info(f"✅ Bulk matching completed: {processed_count}/{len(cv_ids)} CVs processed, {len(final_results)} results returned")
             return final_results
@@ -1166,7 +1232,7 @@ class MatchingService:
     
     def _avg_best_similarity_gpu(self, A: List[List[float]], B: List[List[float]]) -> float:
         """
-        GPU-accelerated average best similarity calculation.
+        GPU-accelerated average best similarity calculation with memory cleanup.
         """
         try:
             # Convert to numpy matrices
@@ -1179,10 +1245,20 @@ class MatchingService:
             # Find best similarity for each vector in A
             best_similarities = np.max(similarity_matrix, axis=1)
             
-            # Return average of best similarities
-            return float(np.mean(best_similarities))
+            # Calculate result
+            result = float(np.mean(best_similarities))
+            
+            # Clean up large matrices immediately
+            del matrix_a, matrix_b, similarity_matrix, best_similarities
+            
+            # Trigger memory cleanup
+            self._cleanup_memory()
+            
+            return result
             
         except Exception as e:
+            # Clean up on error
+            self._cleanup_memory(force=True)
             logger.warning(f"⚠️ GPU avg best similarity calculation failed (GPU-only mode): {str(e)}")
             raise
     
@@ -1271,6 +1347,9 @@ class MatchingService:
             # Use GPU Hungarian algorithm for optimal matching (same as CPU version)
             avg_score, pairs = hungarian_mean(similarity_matrix)
             
+            # Clean up large matrices immediately
+            del jd_matrix, cv_matrix, similarity_matrix
+            
             # Build detailed matches using Hungarian results
             matches = []
             matched_jd_indices = set()
@@ -1303,6 +1382,9 @@ class MatchingService:
             # Calculate match percentage (same logic as CPU version)
             match_percentage = (len(matches) / len(jd_skills)) * 100.0 if jd_skills else 0.0
             
+            # Trigger memory cleanup
+            self._cleanup_memory()
+            
             return {
                 "skill_match_percentage": match_percentage, 
                 "matched_skills": len(matches), 
@@ -1312,6 +1394,8 @@ class MatchingService:
             }
             
         except Exception as e:
+            # Clean up on error
+            self._cleanup_memory(force=True)
             logger.warning(f"⚠️ GPU-Hungarian skills similarity failed: {str(e)}")
             # Fallback to CPU version
             return self._skills_similarity_cpu_fallback(jd_emb, cv_emb, jd_skills, cv_skills)
@@ -1420,6 +1504,9 @@ class MatchingService:
             # Use GPU Hungarian algorithm for optimal matching (same as CPU version)
             avg_score, pairs = hungarian_mean(similarity_matrix)
             
+            # Clean up large matrices immediately
+            del jd_matrix, cv_matrix, similarity_matrix
+            
             # Build detailed matches using Hungarian results
             matches = []
             matched_jd_indices = set()
@@ -1452,6 +1539,9 @@ class MatchingService:
             # Calculate match percentage (same logic as CPU version)
             match_percentage = (len(matches) / len(jd_resps)) * 100.0 if jd_resps else 0.0
             
+            # Trigger memory cleanup
+            self._cleanup_memory()
+            
             return {
                 "responsibility_match_percentage": match_percentage, 
                 "matched_responsibilities": len(matches), 
@@ -1461,6 +1551,8 @@ class MatchingService:
             }
             
         except Exception as e:
+            # Clean up on error
+            self._cleanup_memory(force=True)
             logger.warning(f"⚠️ GPU-Hungarian responsibilities similarity failed: {str(e)}")
             # Fallback to CPU version
             return self._responsibilities_similarity_cpu_fallback(jd_emb, cv_emb, jd_resps, cv_resps)

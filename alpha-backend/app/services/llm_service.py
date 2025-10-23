@@ -39,7 +39,7 @@ YEARS OF EXPERIENCE (total professional experience by seeing the date the candid
 JOB CATEGORY: Classify the candidate's role as one of (Technical/Management/Sales/Finance/HR/Marketing/Operations/Specialized).
 SENIORITY LEVEL: Determine the seniority as one of (Entry/Junior/Mid/Senior/Lead/Manager/Director/VP/C-Level).
 ROLE FAMILY: Identify the role family such as (Engineering/Management/Sales/Finance/HR/Marketing/Operations/Healthcare/Education/etc).
-CATEGORY: Classify the candidate's primary domain as one of (Software Engineering/AI/ML Engineering/Security Engineering/Cloud/DevOps Engineering/Data Science/General). Base this on their primary skills, experience, and job titles.
+CATEGORY: Classify the candidate's primary domain as one of (Cloud & Infrastructure Engineering/Software & Application Development/Data & Analytics/Cybersecurity & Governance/Project & Program Management/Business Applications & Functional Consulting/IT Operations & Support/Networking & Systems/Specialized Technical Roles/Non IT). Base this on their primary skills, experience, and job titles.
 General Rules:
 Output valid JSON only. No markdown, no comments, no trailing commas.
 Use English only.
@@ -98,7 +98,7 @@ YEARS OF EXPERIENCE (minimum required). Look for explicit mentions like "5+ year
 JOB CATEGORY: Classify the role as one of (Technical/Management/Sales/Finance/HR/Marketing/Operations/Specialized).
 SENIORITY LEVEL: Determine the seniority as one of (Entry/Junior/Mid/Senior/Lead/Manager/Director/VP/C-Level).
 ROLE FAMILY: Identify the role family such as (Engineering/Management/Sales/Finance/HR/Marketing/Operations/Healthcare/Education/etc).
-CATEGORY: Classify the job's primary domain as one of (Software Engineering/AI/ML Engineering/Security Engineering/Cloud/DevOps Engineering/Data Science/General). Base this on the required skills, technologies, and job responsibilities.
+CATEGORY: Classify the job's primary domain as one of (Cloud & Infrastructure Engineering/Software & Application Development/Data & Analytics/Cybersecurity & Governance/Project & Program Management/Business Applications & Functional Consulting/IT Operations & Support/Networking & Systems/Specialized Technical Roles/Non IT). Base this on the required skills, technologies, and job responsibilities.
 General Rules:
 Output valid JSON only. No markdown, no comments, no trailing commas.
 Use English only.

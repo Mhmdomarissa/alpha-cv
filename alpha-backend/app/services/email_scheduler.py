@@ -42,28 +42,27 @@ class EmailScheduler:
             "last_error": None
         }
         
-        # Statistics file
-        self.stats_file = "/data/email_processing_stats.json"
+        # Import database service
+        from app.services.email_database_service import email_db_service
+        self.db_service = email_db_service
         self._load_stats()
         
         logger.info(f"📅 EmailScheduler initialized (check interval: {self.check_interval_minutes} minutes)")
     
     def _load_stats(self):
-        """Load processing statistics from file"""
+        """Load processing statistics from database"""
         try:
-            if os.path.exists(self.stats_file):
-                with open(self.stats_file, 'r') as f:
-                    saved_stats = json.load(f)
-                    self.processing_stats.update(saved_stats)
+            saved_stats = self.db_service.get_processing_stats()
+            self.processing_stats.update(saved_stats)
+            logger.info(f"📊 Loaded processing stats from database: {saved_stats}")
         except Exception as e:
             logger.warning(f"⚠️ Failed to load email processing stats: {e}")
     
     def _save_stats(self):
-        """Save processing statistics to file"""
+        """Save processing statistics to database"""
         try:
-            os.makedirs(os.path.dirname(self.stats_file), exist_ok=True)
-            with open(self.stats_file, 'w') as f:
-                json.dump(self.processing_stats, f, indent=2)
+            self.db_service.update_processing_stats(self.processing_stats)
+            logger.info("📊 Updated processing stats in database")
         except Exception as e:
             logger.warning(f"⚠️ Failed to save email processing stats: {e}")
     

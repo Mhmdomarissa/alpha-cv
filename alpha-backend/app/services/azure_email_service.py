@@ -62,9 +62,12 @@ class AzureEmailService:
         self.auth_url = f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token"
         
         # Email processing settings
-        self.processed_emails_file = "/data/processed_emails.json"
         self.max_emails_per_batch = 50
         self.supported_attachment_types = ['.pdf', '.docx', '.doc', '.txt']
+        
+        # Import database service
+        from app.services.email_database_service import email_db_service
+        self.db_service = email_db_service
         
         # Initialize processed emails tracking
         self._load_processed_emails()
@@ -73,25 +76,20 @@ class AzureEmailService:
         logger.info(f"📧 Monitoring mailbox: {self.mailbox_email}")
     
     def _load_processed_emails(self):
-        """Load list of already processed email IDs"""
+        """Load list of already processed email IDs from database"""
         try:
-            if os.path.exists(self.processed_emails_file):
-                with open(self.processed_emails_file, 'r') as f:
-                    self.processed_emails = set(json.load(f))
-            else:
-                self.processed_emails = set()
+            processed_list = self.db_service.get_processed_emails()
+            self.processed_emails = set(processed_list)
+            logger.info(f"📋 Loaded {len(self.processed_emails)} processed emails from database")
         except Exception as e:
             logger.warning(f"⚠️ Failed to load processed emails: {e}")
             self.processed_emails = set()
     
     def _save_processed_emails(self):
-        """Save list of processed email IDs"""
-        try:
-            os.makedirs(os.path.dirname(self.processed_emails_file), exist_ok=True)
-            with open(self.processed_emails_file, 'w') as f:
-                json.dump(list(self.processed_emails), f)
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to save processed emails: {e}")
+        """Save processed email IDs to database (no longer needed - handled in real-time)"""
+        # This method is kept for compatibility but no longer saves to files
+        # Email processing now saves to database in real-time
+        pass
     
     async def get_access_token(self) -> str:
         """Get access token for Microsoft Graph API"""
@@ -423,9 +421,13 @@ class AzureEmailService:
                     error_message="No CV attachments found"
                 )
             
-            # Mark email as processed
+            # Mark email as processed in database
             self.processed_emails.add(email.id)
-            self._save_processed_emails()
+            self.db_service.mark_email_processed(
+                email_id=email.id,
+                subject=email.subject,
+                sender_email=email.sender
+            )
             
             logger.info(f"✅ Successfully processed email {email.id} with {len(cv_attachments)} CV attachments")
             

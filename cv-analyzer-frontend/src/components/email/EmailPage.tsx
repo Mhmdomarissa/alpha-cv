@@ -125,7 +125,7 @@ export default function EmailPage() {
       <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] flex items-center justify-center">
               <Mail className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -147,7 +147,7 @@ export default function EmailPage() {
       </div>
 
       {/* Automatic Processing Info */}
-      <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl p-6 border border-white/30 shadow-lg text-white">
+      <div className="bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] rounded-2xl p-6 border border-white/30 shadow-lg text-white">
         <div className="flex items-center space-x-3 mb-4">
           <PlayCircle className="w-6 h-6" />
           <h2 className="text-xl font-semibold">Automatic Email Processing</h2>
@@ -234,8 +234,8 @@ export default function EmailPage() {
           disabled={isProcessing}
           className="w-full px-6 py-3 rounded-xl font-semibold text-white transition-all duration-200 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ 
-            background: isProcessing ? '#64748b' : 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
-            boxShadow: isProcessing ? 'none' : '0 4px 16px rgba(59, 130, 246, 0.3)',
+            background: isProcessing ? '#64748b' : 'linear-gradient(135deg, rgba(0,82,155,0.7) 0%, rgba(0,61,115,0.7) 100%)',
+            boxShadow: isProcessing ? 'none' : '0 4px 16px rgba(0, 61, 115, 0.3)',
           }}
         >
           <RefreshCw className={`w-5 h-5 ${isProcessing ? 'animate-spin' : ''}`} />

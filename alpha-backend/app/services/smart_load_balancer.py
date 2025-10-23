@@ -20,11 +20,16 @@ class RequestType(Enum):
     HEALTH_CHECK = "health_check"
 
 class CategoryType(Enum):
-    SOFTWARE_ENGINEERING = "Software Engineering"
-    AI_ML_ENGINEERING = "AI/ML Engineering"
-    SECURITY_ENGINEERING = "Security Engineering"
-    CLOUD_DEVOPS_ENGINEERING = "Cloud/DevOps Engineering"
-    DATA_SCIENCE = "Data Science"
+    CLOUD_INFRASTRUCTURE_ENGINEERING = "Cloud & Infrastructure Engineering"
+    SOFTWARE_APPLICATION_DEVELOPMENT = "Software & Application Development"
+    DATA_ANALYTICS = "Data & Analytics"
+    CYBERSECURITY_GOVERNANCE = "Cybersecurity & Governance"
+    PROJECT_PROGRAM_MANAGEMENT = "Project & Program Management"
+    BUSINESS_APPLICATIONS_FUNCTIONAL_CONSULTING = "Business Applications & Functional Consulting"
+    IT_OPERATIONS_SUPPORT = "IT Operations & Support"
+    NETWORKING_SYSTEMS = "Networking & Systems"
+    SPECIALIZED_TECHNICAL_ROLES = "Specialized Technical Roles"
+    NON_IT = "Non IT"
     GENERAL = "General"
 
 @dataclass
@@ -57,11 +62,16 @@ class SmartLoadBalancer:
     
     def __init__(self):
         self.category_weights = {
-            CategoryType.SOFTWARE_ENGINEERING: 1.0,
-            CategoryType.AI_ML_ENGINEERING: 1.2,  # Higher weight for AI/ML (GPU intensive)
-            CategoryType.SECURITY_ENGINEERING: 1.1,
-            CategoryType.CLOUD_DEVOPS_ENGINEERING: 1.0,
-            CategoryType.DATA_SCIENCE: 1.3,  # Higher weight for Data Science (GPU intensive)
+            CategoryType.CLOUD_INFRASTRUCTURE_ENGINEERING: 1.1,  # Infrastructure intensive
+            CategoryType.SOFTWARE_APPLICATION_DEVELOPMENT: 1.0,  # Standard processing
+            CategoryType.DATA_ANALYTICS: 1.3,  # Higher weight for Data Analytics (GPU intensive)
+            CategoryType.CYBERSECURITY_GOVERNANCE: 1.1,  # Security processing
+            CategoryType.PROJECT_PROGRAM_MANAGEMENT: 0.9,  # Lower processing needs
+            CategoryType.BUSINESS_APPLICATIONS_FUNCTIONAL_CONSULTING: 0.9,  # Lower processing needs
+            CategoryType.IT_OPERATIONS_SUPPORT: 1.0,  # Standard processing
+            CategoryType.NETWORKING_SYSTEMS: 1.0,  # Standard processing
+            CategoryType.SPECIALIZED_TECHNICAL_ROLES: 1.2,  # Higher weight for specialized roles
+            CategoryType.NON_IT: 0.8,  # Lower processing needs
             CategoryType.GENERAL: 0.8
         }
         
@@ -173,7 +183,7 @@ class SmartLoadBalancer:
     def _determine_routing_strategy(self, request_type: RequestType, category: Optional[CategoryType]) -> str:
         """Determine the best routing strategy for the request."""
         if request_type == RequestType.CV_UPLOAD:
-            if category in [CategoryType.AI_ML_ENGINEERING, CategoryType.DATA_SCIENCE]:
+            if category in [CategoryType.DATA_ANALYTICS, CategoryType.SPECIALIZED_TECHNICAL_ROLES]:
                 return "gpu_optimized_processing"
             else:
                 return "standard_processing"

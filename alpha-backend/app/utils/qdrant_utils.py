@@ -1845,8 +1845,8 @@ class QdrantUtils:
                 scroll_filter=Filter(
                     must=[
                         FieldCondition(
-                            key="doc_type",
-                            match=MatchValue(value="job_description")
+                            key="data_type",
+                            match=MatchValue(value="ui_display")
                         ),
                         FieldCondition(
                             key="is_active",
@@ -1862,19 +1862,27 @@ class QdrantUtils:
             highest_counter = 0
             pattern = f"{abbreviation}-{year}-"
             
+            logger.info(f"🔍 Searching for existing email subject IDs with pattern: {pattern}")
+            logger.info(f"📊 Found {len(search_results[0]) if search_results[0] else 0} job postings to check")
+            
             if search_results[0]:
                 for point in search_results[0]:
                     email_subject_id = point.payload.get("email_subject_id")
+                    logger.debug(f"🔍 Checking job {point.id}: email_subject_id = {email_subject_id}")
                     if email_subject_id and email_subject_id.startswith(pattern):
                         # Extract counter from ID like "SE-2025-001"
                         try:
                             counter_str = email_subject_id.split('-')[-1]
                             counter = int(counter_str)
                             highest_counter = max(highest_counter, counter)
+                            logger.info(f"✅ Found existing subject ID: {email_subject_id} (counter: {counter})")
                         except (ValueError, IndexError):
+                            logger.warning(f"⚠️ Could not parse counter from {email_subject_id}")
                             continue
             
-            return highest_counter + 1
+            next_counter = highest_counter + 1
+            logger.info(f"📧 Next counter for {abbreviation}-{year}: {next_counter} (highest found: {highest_counter})")
+            return next_counter
             
         except Exception as e:
             logger.error(f"❌ Error getting next email subject counter: {e}")
