@@ -407,13 +407,15 @@ loadJobPostings: async () => {
       };
     } catch (error: any) {
       logger.error('Failed to match candidates:', error);
+      // Extract error message from detail (backend) or message (network)
+      const errorMessage = error?.detail || error?.response?.data?.detail || error?.message || 'Failed to match candidates';
       set({ 
         isLoading: false, 
-        error: error.message || 'Failed to match candidates' 
+        error: errorMessage
       });
       
       // Clear careers matching loading state on error
-      appStore.setLoading('careersMatching', false);
+      appStore.setLoading('careersMatching', false, errorMessage);
       
       throw error;
     }

@@ -90,8 +90,8 @@ const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
     console.log('DEBUG: No userRole provided, careers tab not added');
   }
 
-  // Add email tab for all authenticated users
-  if (userRole) {
+  // Add email tab only for admin users
+  if (userRole === 'admin') {
     baseTabs.push({
       id: 'email',
       label: 'Email',
@@ -157,7 +157,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
       case 'careers':
         return true; // Always available for admin users
       case 'email':
-        return true; // Always available for authenticated users
+        return true; // Always available for admin users
       default:
         return false;
     }

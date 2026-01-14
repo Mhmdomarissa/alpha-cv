@@ -25,6 +25,7 @@ export default function UploadPanel() {
   const [selectedJD, setSelectedJD] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{[key: string]: number}>({});
   const [processingStage, setProcessingStage] = useState<string>('');
+  const [ocrUsed, setOcrUsed] = useState<boolean>(false);
 
   const isUploading = loadingStates.upload.isLoading;
   const uploadError = loadingStates.upload.error;
@@ -70,6 +71,7 @@ export default function UploadPanel() {
   const handleUploadCVs = async () => {
     if (selectedCVs.length > 0) {
       setProcessingStage('Parsing documents...');
+      setOcrUsed(false); // Reset OCR status
       
       // Simulate progress for each file
       selectedCVs.forEach(file => simulateProgress(file.name));
@@ -79,6 +81,7 @@ export default function UploadPanel() {
         setProcessingStage('Extraction complete!');
         setSelectedCVs([]);
         setUploadProgress({});
+        setOcrUsed(false);
         
         // Refresh CV list
         setTimeout(() => {
@@ -88,6 +91,7 @@ export default function UploadPanel() {
       } catch (error) {
         setProcessingStage('');
         setUploadProgress({});
+        setOcrUsed(false);
       }
     }
   };
@@ -179,16 +183,34 @@ export default function UploadPanel() {
 
       {/* Processing Status */}
       {(isUploading || processingStage) && (
-        <Card className="border-primary-200 bg-primary-50/50">
+        <Card className={`border-primary-200 ${ocrUsed ? 'bg-amber-50/50 border-amber-300' : 'bg-primary-50/50'}`}>
           <CardContent className="p-6">
             <div className="flex items-center space-x-4">
               <div className="flex-shrink-0">
                 <LoadingSpinner size="lg" />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-primary-900 mb-2">
-                  {processingStage || 'Processing files...'}
-                </h3>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-lg font-semibold text-primary-900">
+                    {processingStage || 'Processing files...'}
+                  </h3>
+                  {ocrUsed && (
+                    <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-300">
+                      <Clock className="h-3 w-3 mr-1" />
+                      OCR Processing
+                    </Badge>
+                  )}
+                </div>
+                {ocrUsed && (
+                  <div className="mb-3 p-3 bg-amber-100/50 rounded-lg border border-amber-200">
+                    <p className="text-sm text-amber-800 font-medium">
+                      🔍 OCR (Optical Character Recognition) is being used for this document.
+                    </p>
+                    <p className="text-xs text-amber-700 mt-1">
+                      This may take longer as we extract text from images. Please be patient...
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-3">
                   {Object.entries(uploadProgress).map(([filename, progress]) => (
                     <div key={filename} className="space-y-1">

@@ -138,6 +138,7 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
         # Generate CV ID
         import uuid
         cv_id = str(uuid.uuid4())
+        logger.info(f"📝 Generated CV ID: {cv_id} for application: {application_id}")
         
         # Store raw CV document
         await asyncio.to_thread(

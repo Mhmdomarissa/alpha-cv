@@ -438,8 +438,10 @@ export default function MatchingPageNew() {
     }
   };
   
-  // Loading state - show matching animation when matching is in progress
-  if (loadingStates.matching.isLoading || loadingStates.careersMatching.isLoading) {
+  // Loading state - show matching animation when matching is in progress (check FIRST before error)
+  // This ensures we show the animation while matching is actually in progress
+  if ((loadingStates.matching.isLoading || loadingStates.careersMatching.isLoading) && 
+      !loadingStates.matching.error && !loadingStates.careersMatching.error) {
     return (
       <div className="space-y-8">
         <div className="text-center">
@@ -460,6 +462,49 @@ export default function MatchingPageNew() {
               <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
               <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state - show error message if matching failed (check AFTER loading state)
+  const matchError = loadingStates.matching.error || loadingStates.careersMatching.error;
+  if (matchError) {
+    return (
+      <div className="space-y-8">
+        <div className="text-center">
+          <h1 className="text-3xl font-semibold text-gray-900">AI Matching Results</h1>
+          <p className="text-base mt-2 text-gray-600">Matching Error</p>
+        </div>
+        <div className="text-center py-16">
+          <div className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 bg-red-100">
+            <Target className="w-10 h-10 text-red-600" />
+          </div>
+          <h3 className="text-xl font-semibold text-gray-800 mb-4">Matching Failed</h3>
+          <div className="max-w-2xl mx-auto p-6 rounded-lg border bg-red-50 border-red-200">
+            <div>
+              <p className="text-sm text-red-800 font-medium mb-2">Error Message:</p>
+              <p className="text-base text-red-900">{matchError}</p>
+            </div>
+          </div>
+          <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center items-center">
+            <button
+              onClick={() => useAppStore.getState().setCurrentTab?.('database')}
+              className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              Go to Database
+            </button>
+            <button
+              onClick={() => {
+                // Clear error and allow user to try again
+                useAppStore.getState().setLoading?.('matching', false, undefined);
+                useAppStore.getState().setLoading?.('careersMatching', false, undefined);
+              }}
+              className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              Try Again
+            </button>
           </div>
         </div>
       </div>

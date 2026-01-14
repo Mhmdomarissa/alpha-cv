@@ -466,7 +466,9 @@ export const useAppStore = create<AppState>()(
         } catch (error: any) {
           logger.error('Failed to run matching', error);
           hideMatchingProgress();
-          setLoading('matching', false, error.message);
+          // Extract error message from detail (backend) or message (network)
+          const errorMessage = error?.detail || error?.response?.data?.detail || error?.message || 'Failed to run matching';
+          setLoading('matching', false, errorMessage);
           
           // Queue session completion removed
         }

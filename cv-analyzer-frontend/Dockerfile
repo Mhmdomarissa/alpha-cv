@@ -38,6 +38,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+# PERMANENT MALWARE FIX: Block malware IP at DNS level
+RUN echo "127.0.0.1 89.144.31.18" >> /etc/hosts
+
 # Copy built application
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
@@ -48,6 +51,8 @@ USER nextjs
 EXPOSE 3000
 
 ENV PORT=3000
+# Listen on all interfaces within Docker network
+# AWS Security Group blocks external access
 ENV HOSTNAME="0.0.0.0"
 
 CMD ["node", "server.js"]

@@ -114,7 +114,8 @@ class EmailScheduler:
             
             # Update statistics
             successful_count = sum(1 for r in results if r.get("success", False))
-            failed_count = len(results) - successful_count
+            duplicate_count = sum(1 for r in results if r.get("duplicate", False))
+            failed_count = len(results) - successful_count - duplicate_count
             
             self.processing_stats["total_processed"] += len(results)
             self.processing_stats["successful_today"] += successful_count
@@ -127,7 +128,7 @@ class EmailScheduler:
             self._save_stats()
             
             if results:
-                logger.info(f"✅ Processed {len(results)} emails: {successful_count} successful, {failed_count} failed")
+                logger.info(f"✅ Processed {len(results)} emails: {successful_count} successful, {duplicate_count} duplicates, {failed_count} failed")
             else:
                 logger.info("📧 No emails to process")
         
@@ -147,7 +148,8 @@ class EmailScheduler:
             processing_time = (datetime.utcnow() - start_time).total_seconds()
             
             successful_count = sum(1 for r in results if r.get("success", False))
-            failed_count = len(results) - successful_count
+            duplicate_count = sum(1 for r in results if r.get("duplicate", False))
+            failed_count = len(results) - successful_count - duplicate_count
             
             # Update statistics
             self.processing_stats["total_processed"] += len(results)
@@ -163,6 +165,7 @@ class EmailScheduler:
                 "success": True,
                 "processed_count": len(results),
                 "successful_count": successful_count,
+                "duplicate_count": duplicate_count,
                 "failed_count": failed_count,
                 "processing_time": processing_time,
                 "results": results

@@ -208,30 +208,35 @@ async def process_single_candidate(candidate_data: dict, jd_structured: dict, ma
             "responsibilities": cv_resps
         }
         
-        # Use MatchingService to get match result (run in thread pool to avoid blocking)
+        # Use MatchingService to get match result (run in shared thread pool to avoid blocking)
         import asyncio
         from concurrent.futures import ThreadPoolExecutor
         
+        # Use a shared thread pool executor to prevent thread exhaustion
+        # Create a module-level executor if it doesn't exist
+        if not hasattr(process_single_candidate, '_executor'):
+            # Increased to 20 workers for better performance with large batches (104+ CVs)
+            process_single_candidate._executor = ThreadPoolExecutor(max_workers=20, thread_name_prefix="match_worker")
+        
         loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            if jd_structured.get("id") != "text_jd":
-                # OPTIMIZED: Use stored embeddings for both CV and JD
-                match_result = await loop.run_in_executor(
-                    executor, 
-                    matching_service.match_by_ids,
-                    cv_id,
-                    jd_structured.get("id"),
-                    weights
-                )
-            else:
-                # LEGACY: Generate embeddings for text JD, use stored for CV if available
-                match_result = await loop.run_in_executor(
-                    executor,
-                    matching_service.match_structured_data,
-                    cv_structured,
-                    jd_structured,
-                    weights
-                )
+        if jd_structured.get("id") != "text_jd":
+            # OPTIMIZED: Use stored embeddings for both CV and JD
+            match_result = await loop.run_in_executor(
+                process_single_candidate._executor, 
+                matching_service.match_by_ids,
+                cv_id,
+                jd_structured.get("id"),
+                weights
+            )
+        else:
+            # LEGACY: Generate embeddings for text JD, use stored for CV if available
+            match_result = await loop.run_in_executor(
+                process_single_candidate._executor,
+                matching_service.match_structured_data,
+                cv_structured,
+                jd_structured,
+                weights
+            )
         
         return {
             "candidate_data": candidate_data,
@@ -332,9 +337,35 @@ async def match_candidates(req: NewMatchRequest):
     """
     Deterministic, explainable matching using Hungarian assignment on
     sentence-level embeddings. Delegates to MatchingService helpers.
+    
+    Note: Large matching operations (>100 CVs) may take several minutes.
+    The operation has a maximum timeout of 15 minutes to prevent indefinite hangs.
     """
     try:
+        # ========================================================================
+        # EARLY VALIDATION: No CV limit - removed per user request
+        # ========================================================================
+        # MAX_CV_LIMIT = 250  # REMOVED - No limit
+        MATCHING_TIMEOUT = 900  # 15 minutes maximum for matching operation
+        
+        # CV limit check removed - system can now handle any number of CVs
+        # if req.cv_ids and len(req.cv_ids) > MAX_CV_LIMIT:
+        #     error_message = (
+        #         f"Currently, our system supports matching up to {MAX_CV_LIMIT} CVs at a time. "
+        #         f"You selected {len(req.cv_ids)} CVs. "
+        #         f"Please reduce your selection to {MAX_CV_LIMIT} CVs or fewer and try again. "
+        #         f"We are working on expanding this limit in future updates to support larger batch matching."
+        #     )
+        #     logger.warning(f"⚠️ Matching request rejected early: {len(req.cv_ids)} CVs requested (max: {MAX_CV_LIMIT})")
+        #     raise HTTPException(
+        #         status_code=400,
+        #         detail=error_message
+        #     )
+        
+        # If no CV IDs specified (matching all), we'll check after counting
+        # but log the request first
         logger.info(f"🎯 Starting matching request: JD={req.jd_id or 'text'}, CVs={len(req.cv_ids) if req.cv_ids else 'all'}")
+        
         qdrant = get_qdrant_utils()
         matching_service = get_matching_service()  # Get the matching service instance
         
@@ -364,21 +395,27 @@ async def match_candidates(req: NewMatchRequest):
         jd_skills = [s for s in jd.get("skills_sentences", []) if s]
         jd_resps = [r for r in jd.get("responsibility_sentences", []) if r]
         
-        # Candidate set
+        # Candidate set - OPTIMIZED: Use batch retrieval for speed (2 Qdrant calls instead of 62)
         candidates_meta = []
         if req.cv_ids:
-            for cid in req.cv_ids:
-                c = qdrant.get_structured_cv(cid)
-                if c:
-                    candidates_meta.append(c)
+            # If CV IDs were provided, fetch all of them in batch (much faster)
+            candidates_meta = qdrant.get_structured_cvs_batch(req.cv_ids)
         else:
-            for meta in qdrant.list_all_cvs():
+            # If matching all CVs, fetch all (no limit)
+            all_cv_metas = qdrant.list_all_cvs()
+            logger.info(f"📊 Matching all CVs in database: {len(all_cv_metas)} CVs")
+            
+            # Fetch all CVs
+            for meta in all_cv_metas:
                 c = qdrant.get_structured_cv(meta["id"])
                 if c:
                     candidates_meta.append(c)
         
         if not candidates_meta:
             raise HTTPException(status_code=404, detail="No CVs available for matching")
+        
+        # Log the number of CVs being matched
+        logger.info(f"🎯 Matching {len(candidates_meta)} CVs with JD")
         
         # Weights
         W = req.weights.dict() if req.weights else MatchWeights().dict()
@@ -864,33 +901,67 @@ async def clear_database(confirm: bool = False, _: User = Depends(require_admin)
 async def get_system_stats() -> JSONResponse:
     """
     Count items and provide light analytics.
+    OPTIMIZED: Uses Qdrant collection info for instant counts, samples for analytics if needed.
     """
     try:
         q = get_qdrant_utils().client
-        cvs = _scroll_all("cv_structured")
-        jds = _scroll_all("jd_structured")
-        def _skills_count(points):
+        
+        # OPTIMIZED: Get counts instantly from collection info (no scrolling needed)
+        cv_collection = q.get_collection("cv_structured")
+        jd_collection = q.get_collection("jd_structured")
+        total_cvs = cv_collection.points_count
+        total_jds = jd_collection.points_count
+        
+        # For skills analytics, sample a subset if collection is large (faster)
+        # Sample up to 100 CVs/JDs for analytics calculation (representative sample)
+        def _skills_count_sampled(collection_name: str, total_count: int):
+            """Calculate skills stats from a sample for performance"""
+            if total_count == 0:
+                return []
+            
+            sample_size = min(100, total_count)  # Sample up to 100 items
+            
+            if sample_size >= total_count:
+                # Small collection, get all
+                points = _scroll_all(collection_name, with_vectors=False, limit=500)
+            else:
+                # Large collection, sample randomly
+                # Get a random sample by scrolling with offset
+                import random
+                offset = random.randint(0, max(0, total_count - sample_size))
+                scroll_result = q.scroll(
+                    collection_name=collection_name,
+                    limit=sample_size,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                points = scroll_result[0] or []
+            
             vals = []
             for p in points:
                 info = (p.payload or {}).get("structured_info", p.payload or {})
                 vals.append(len(info.get("skills", [])))
             return vals
-        cv_sk_counts = _skills_count(cvs)
-        jd_sk_counts = _skills_count(jds)
+        
+        # Calculate skills analytics from sample (fast, representative)
+        cv_sk_counts = _skills_count_sampled("cv_structured", total_cvs)
+        jd_sk_counts = _skills_count_sampled("jd_structured", total_jds)
+        
         stats = {
             "database_stats": {
-                "total_cvs": len(cvs),
-                "total_jds": len(jds),
-                "total_documents": len(cvs) + len(jds),
+                "total_cvs": total_cvs,
+                "total_jds": total_jds,
+                "total_documents": total_cvs + total_jds,
             },
             "cv_analytics": {
-                "total_cvs": len(cvs),
+                "total_cvs": total_cvs,
                 "avg_skills_per_cv": (sum(cv_sk_counts) / len(cv_sk_counts)) if cv_sk_counts else 0,
                 "max_skills_per_cv": max(cv_sk_counts) if cv_sk_counts else 0,
                 "min_skills_per_cv": min(cv_sk_counts) if cv_sk_counts else 0,
             },
             "jd_analytics": {
-                "total_jds": len(jds),
+                "total_jds": total_jds,
                 "avg_skills_per_jd": (sum(jd_sk_counts) / len(jd_sk_counts)) if jd_sk_counts else 0,
                 "max_skills_per_jd": max(jd_sk_counts) if jd_sk_counts else 0,
                 "min_skills_per_jd": min(jd_sk_counts) if jd_sk_counts else 0,

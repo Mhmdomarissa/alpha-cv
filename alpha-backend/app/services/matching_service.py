@@ -48,8 +48,8 @@ def safe_parse_years(years_value) -> int:
     """Safely parse years of experience, handling string values like 'Not specified' or '5-8'."""
     if not years_value:
         return 0
-    if isinstance(years_value, int):
-        return years_value
+    if isinstance(years_value, (int, float)):
+        return int(years_value)
     if isinstance(years_value, str):
         s = years_value.strip()
         if not s or s.lower() in {"not specified", "x years", "not applicable", "n/a"}:
@@ -820,16 +820,17 @@ class MatchingService:
             # SAFETY CHECK: Add timeout protection for individual matches
             import time
             start_time = time.time()
-            max_processing_time = 300  # 5 minutes max for bulk operation
+            max_processing_time = 480  # 8 minutes max for bulk operation (leaves buffer under nginx 20min timeout)
             
             results: List[MatchResult] = []
             processed_count = 0
             
             for cid in cv_ids:
                 try:
-                    # Check timeout
-                    if time.time() - start_time > max_processing_time:
-                        logger.warning(f"⚠️ Bulk matching timeout after {processed_count} CVs, returning partial results")
+                    # Check timeout (with 30s buffer for cleanup)
+                    elapsed_time = time.time() - start_time
+                    if elapsed_time > (max_processing_time - 30):
+                        logger.warning(f"⚠️ Bulk matching timeout approaching ({elapsed_time:.1f}s), stopping after {processed_count} CVs, returning partial results")
                         break
                     
                     # SAFETY CHECK: Monitor system resources every 10 CVs
@@ -939,10 +940,17 @@ class MatchingService:
                     future = executor.submit(self._process_batch, jd_id, batch_cv_ids)
                     futures.append(future)
                 
-                # Collect results from all batches
+                # Collect results from all batches with timeout protection
+                import time
+                batch_start_time = time.time()
+                max_batch_time = 600  # 10 minutes max for all batches combined (leaves buffer under nginx 20min timeout)
+                
                 for future in futures:
                     try:
-                        batch_results = future.result(timeout=60)  # 60 second timeout per batch
+                        # Calculate remaining time
+                        elapsed = time.time() - batch_start_time
+                        remaining_time = max(10, max_batch_time - elapsed)  # At least 10s per batch
+                        batch_results = future.result(timeout=min(60, remaining_time))  # 60 second timeout per batch or remaining time
                         all_results.extend(batch_results)
                     except Exception as e:
                         logger.warning(f"⚠️ Batch processing failed: {e}")

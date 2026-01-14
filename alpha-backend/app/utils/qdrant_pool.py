@@ -81,9 +81,19 @@ class QdrantConnectionPool:
     
     def get_client(self) -> QdrantClient:
         """Get a client from the pool (sync version)"""
+        # Check if we're in an async context (running event loop)
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context - cannot use asyncio.run()
+            # Use fallback: create a direct client (not from pool)
+            logger.debug("🔄 Async context detected in get_client(), using direct client")
+            return QdrantClient(host=self.host, port=self.port)
+        except RuntimeError:
+            # No event loop running - safe to use asyncio.run()
+            pass
+        
         if not self._initialized:
-            # Initialize synchronously
-            import asyncio
+            # Initialize synchronously (only if no event loop is running)
             asyncio.run(self.initialize())
         
         # Try to get existing connection
@@ -93,13 +103,11 @@ class QdrantConnectionPool:
             # Create new connection if under limit
             with self._lock:
                 if self._created_connections < self.max_connections:
-                    import asyncio
                     client = asyncio.run(self._create_client())
                     self._created_connections += 1
                     logger.info(f"🔗 Created new Qdrant connection ({self._created_connections}/{self.max_connections})")
                 else:
                     # Wait for available connection
-                    import asyncio
                     client = asyncio.run(self._pool.get())
         
         return client

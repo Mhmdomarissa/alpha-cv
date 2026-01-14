@@ -6,10 +6,13 @@ Single responsibility: Extract clean text from documents.
 import logging
 import os
 import re
+import subprocess
+import signal
 from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
 import tempfile
 import shutil
+import threading
 
 # Document processing libraries
 import fitz  # PyMuPDF for PDF
@@ -31,6 +34,8 @@ class ParsingService:
     # Supported file extensions
     SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt', '.png', '.jpg', '.jpeg', '.tiff', '.bmp']
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+    OCR_TIMEOUT = 60  # 60 seconds timeout for OCR operations
+    OCR_USE_TIMEOUT = True  # Flag to enable/disable timeout protection
     
     def __init__(self):
         """Initialize the parsing service."""
@@ -64,14 +69,18 @@ class ParsingService:
             self.logger.info(f"📄 Processing document: {file_path} ({file_size:,} bytes)")
             
             # Extract text based on file type
+            ocr_used = False
             if file_ext == '.pdf':
-                raw_text = self.extract_text_from_pdf(file_path)
+                raw_text, ocr_used = self.extract_text_from_pdf(file_path)
             elif file_ext in ['.docx', '.doc']:
                 raw_text = self.extract_text_from_docx(file_path)
+                ocr_used = False
             elif file_ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']:
                 raw_text = self.extract_with_ocr(file_path)
+                ocr_used = True
             elif file_ext == '.txt':
                 raw_text = self._extract_text_from_txt(file_path)
+                ocr_used = False
             else:
                 raise ValueError(f"No extraction method for: {file_ext}")
             
@@ -90,7 +99,8 @@ class ParsingService:
         "file_size": file_size,
         "file_extension": file_ext,
         "character_count": len(clean_text),
-        "processing_status": "success"
+        "processing_status": "success",
+        "ocr_used": ocr_used  # Track if OCR was used
     }
 
             self.logger.info(f"✅ Document processed successfully: {len(clean_text):,} characters")
@@ -100,7 +110,7 @@ class ParsingService:
             self.logger.error(f"❌ Document processing failed: {str(e)}")
             raise Exception(f"Document processing failed: {str(e)}")
     
-    def extract_text_from_pdf(self, file_path: str) -> str:
+    def extract_text_from_pdf(self, file_path: str) -> Tuple[str, bool]:
         """
         Extract text from PDF files using PyMuPDF.
         Combines all PDF extraction logic into one optimized function.
@@ -110,6 +120,7 @@ class ParsingService:
             
             doc = fitz.open(file_path)
             text_parts = []
+            ocr_used = False
             
             for page_num in range(len(doc)):
                 page = doc.load_page(page_num)
@@ -124,6 +135,8 @@ class ParsingService:
                     for img_index, img in enumerate(image_list):
                         # Extract image and perform OCR if text is sparse
                         if len(page_text.strip()) < 100:  # Fallback to OCR for image-heavy pages
+                            ocr_used = True
+                            self.logger.info(f"🔍 OCR needed for page {page_num + 1} (sparse text: {len(page_text.strip())} chars)")
                             xref = img[0]
                             pix = fitz.Pixmap(doc, xref)
                             if pix.n - pix.alpha < 4:  # GRAY or RGB
@@ -141,9 +154,12 @@ class ParsingService:
             
             if not extracted_text:
                 raise ValueError("No text could be extracted from PDF")
-                
-            self.logger.info(f"✅ PDF extraction successful: {len(extracted_text):,} characters")
-            return extracted_text
+            
+            if ocr_used:
+                self.logger.info(f"✅ PDF extraction successful with OCR: {len(extracted_text):,} characters")
+            else:
+                self.logger.info(f"✅ PDF extraction successful: {len(extracted_text):,} characters")
+            return extracted_text, ocr_used
             
         except Exception as e:
             self.logger.error(f"❌ PDF extraction failed: {str(e)}")
@@ -194,13 +210,13 @@ class ParsingService:
     
     def extract_with_ocr(self, file_path: str) -> str:
         """
-        OCR fallback for image-based documents using pytesseract.
+        OCR fallback for image-based documents using pytesseract with timeout protection.
         """
         try:
-            self.logger.info(f"🔍 Performing OCR on image: {file_path}")
+            self.logger.info(f"🔍 Performing OCR on image: {file_path} (timeout: {self.OCR_TIMEOUT}s)")
             
             image = Image.open(file_path)
-            text = pytesseract.image_to_string(image, config='--psm 1')
+            text = self._perform_ocr_with_timeout(image, config='--psm 1')
             
             if not text.strip():
                 raise ValueError("No text could be extracted via OCR")
@@ -208,6 +224,9 @@ class ParsingService:
             self.logger.info(f"✅ OCR extraction successful: {len(text):,} characters")
             return text.strip()
             
+        except TimeoutError:
+            self.logger.error(f"⏱️ OCR timeout after {self.OCR_TIMEOUT}s for: {file_path}")
+            raise Exception(f"OCR processing timed out after {self.OCR_TIMEOUT} seconds. The image may be too complex or corrupted.")
         except Exception as e:
             self.logger.error(f"❌ OCR extraction failed: {str(e)}")
             raise Exception(f"OCR extraction failed: {str(e)}")
@@ -235,13 +254,82 @@ class ParsingService:
             raise Exception(f"Failed to read text file: {str(e)}")
     
     def _perform_ocr_on_bytes(self, image_bytes: bytes) -> str:
-        """Perform OCR on image bytes."""
+        """Perform OCR on image bytes with timeout protection."""
         try:
             image = Image.open(BytesIO(image_bytes))
-            text = pytesseract.image_to_string(image, config='--psm 1')
+            text = self._perform_ocr_with_timeout(image, config='--psm 1')
             return text.strip()
+        except TimeoutError:
+            self.logger.warning("⏱️ OCR timeout for image bytes, skipping...")
+            return ""
         except Exception:
             return ""
+    
+    def _perform_ocr_with_timeout(self, image: Image.Image, config: str = '--psm 1') -> str:
+        """
+        Perform OCR with timeout protection using subprocess.
+        This prevents Tesseract from hanging indefinitely on problematic images.
+        """
+        if not self.OCR_USE_TIMEOUT:
+            # Fallback to direct pytesseract call if timeout is disabled
+            return pytesseract.image_to_string(image, config=config)
+        
+        try:
+            # Save image to temporary file for subprocess
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+                image.save(tmp_path, 'PNG')
+            
+            try:
+                # Get tesseract command
+                tesseract_cmd = pytesseract.pytesseract.tesseract_cmd
+                if not tesseract_cmd:
+                    # Fallback if tesseract_cmd is not set
+                    tesseract_cmd = 'tesseract'
+                
+                # Build command
+                cmd = [tesseract_cmd, tmp_path, 'stdout', '-', config]
+                
+                # Run with timeout
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.OCR_TIMEOUT,
+                    check=False
+                )
+                
+                if result.returncode == 0:
+                    return result.stdout.strip()
+                else:
+                    self.logger.warning(f"Tesseract returned error code {result.returncode}: {result.stderr}")
+                    return ""
+                    
+            except subprocess.TimeoutExpired:
+                self.logger.error(f"⏱️ OCR subprocess timeout after {self.OCR_TIMEOUT}s")
+                raise TimeoutError(f"OCR processing timed out after {self.OCR_TIMEOUT} seconds")
+            except FileNotFoundError:
+                self.logger.warning("Tesseract not found, falling back to direct pytesseract call")
+                # Fallback to direct call if subprocess fails
+                return pytesseract.image_to_string(image, config=config)
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+                    
+        except TimeoutError:
+            raise  # Re-raise timeout errors
+        except Exception as e:
+            self.logger.warning(f"Subprocess OCR failed, falling back to direct call: {str(e)}")
+            # Fallback to direct pytesseract call if subprocess fails
+            try:
+                return pytesseract.image_to_string(image, config=config)
+            except Exception as fallback_error:
+                self.logger.error(f"OCR fallback also failed: {str(fallback_error)}")
+                raise
     
     def remove_pii_data(self, text: str) -> tuple[str, dict]:
         """

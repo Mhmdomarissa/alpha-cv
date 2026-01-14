@@ -41,9 +41,13 @@ docker-compose.override.yml
 
 # IDE & Editor
 .vscode/
+.vscode-server/
 .idea/
 .cursor/
 .cursor-server/
+.antigravity-server/
+.dotnet/
+.gemini/
 *.swp
 *.swo
 *.sublime-*

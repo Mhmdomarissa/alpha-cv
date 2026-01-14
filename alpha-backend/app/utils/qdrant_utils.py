@@ -6,6 +6,8 @@ import hashlib
 import uuid
 import gzip
 import base64
+import asyncio
+import threading
 
 import numpy as np
 from qdrant_client import QdrantClient
@@ -77,33 +79,52 @@ class QdrantUtils:
             # Production: Use connection pool with proper async handling
             if self._pool is None:
                 try:
-                    import asyncio
-                    import threading
-                    
                     # Check if we're in an async context
                     try:
                         loop = asyncio.get_running_loop()
-                        # We're in an async context, use fallback client
-                        logger.debug("🔄 Async context detected, using fallback client")
-                        return self._get_fallback_client()
+                        # We're in an async context, cannot use asyncio.run()
+                        # FIXED: Cache fallback client to prevent connection exhaustion
+                        if self._client is None:
+                            self._client = self._get_fallback_client()
+                        return self._client
                     except RuntimeError:
                         # No event loop running, safe to use sync pool initialization
-                        from app.utils.qdrant_pool import get_qdrant_pool
-                        self._pool = asyncio.run(get_qdrant_pool())
-                        logger.info("✅ Qdrant connection pool initialized")
+                        try:
+                            from app.utils.qdrant_pool import get_qdrant_pool
+                            # Double-check no loop is running before using asyncio.run()
+                            try:
+                                asyncio.get_running_loop()
+                                # If we get here, there IS a loop - use cached fallback
+                                if self._client is None:
+                                    self._client = self._get_fallback_client()
+                                return self._client
+                            except RuntimeError:
+                                # No loop - safe to use asyncio.run()
+                                self._pool = asyncio.run(get_qdrant_pool())
+                                logger.info("✅ Qdrant connection pool initialized")
+                        except Exception as pool_error:
+                            logger.warning(f"⚠️ Pool initialization failed: {pool_error}, using cached fallback client")
+                            if self._client is None:
+                                self._client = self._get_fallback_client()
+                            return self._client
                         
                 except Exception as e:
-                    logger.error(f"❌ Failed to get Qdrant pool: {e}, using fallback client")
-                    return self._get_fallback_client()
+                    logger.error(f"❌ Failed to get Qdrant pool: {e}, using cached fallback client")
+                    if self._client is None:
+                        self._client = self._get_fallback_client()
+                    return self._client
             
             # Return client from pool (sync access)
-            try:
-                return self._pool.get_client()
-            except Exception as e:
-                logger.warning(f"⚠️ Pool client access failed: {e}, using fallback")
-                return self._get_fallback_client()
+            # FIXED: Cache the pool client to prevent creating new connections
+            if self._client is None:
+                try:
+                    self._client = self._pool.get_client()
+                except Exception as e:
+                    logger.warning(f"⚠️ Pool client access failed: {e}, using fallback")
+                    self._client = self._get_fallback_client()
+            return self._client
         else:
-            # Development: Use direct client
+            # Development: Use direct client (cached)
             if self._client is None:
                 self._client = self._get_fallback_client()
             return self._client
@@ -586,7 +607,8 @@ class QdrantUtils:
             if not doc:
                 return None
             s = doc.get("structured_info", {})
-            return {
+            
+            result = {
                 "id": cv_id,
                 "name": s.get("full_name", s.get("name", cv_id)),
                 "job_title": s.get("job_title", ""),
@@ -595,9 +617,59 @@ class QdrantUtils:
                 "skills_sentences": (s.get("skills_sentences", []) or s.get("skills", []) or [])[:20],
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
             }
+            return result
         except Exception as e:
             logger.error(f"❌ get_structured_cv({cv_id}) failed: {e}")
             return None
+
+    def get_structured_cvs_batch(self, cv_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        OPTIMIZED: Batch retrieve multiple CVs at once (reduces 62 calls to 2 calls for 31 CVs).
+        Returns list of structured CVs in the same order as input IDs.
+        """
+        if not cv_ids:
+            return []
+        
+        try:
+            # Batch retrieve from both collections in parallel (2 calls instead of 62)
+            docs = self.client.retrieve(collection_name="cv_documents", ids=cv_ids)
+            structs = self.client.retrieve(collection_name="cv_structured", ids=cv_ids)
+            
+            # Create lookup dictionaries
+            docs_dict = {point.id: point.payload for point in docs if point.payload}
+            structs_dict = {point.id: point.payload.get("structured_info", {}) for point in structs if point.payload}
+            
+            # Build results in same order as input IDs
+            results = []
+            for cv_id in cv_ids:
+                doc_payload = docs_dict.get(cv_id, {})
+                s = structs_dict.get(cv_id, doc_payload.get("structured_info", {}))
+                
+                if not s and not doc_payload:
+                    continue  # Skip if CV doesn't exist
+                
+                result = {
+                    "id": cv_id,
+                    "name": s.get("full_name", s.get("name", cv_id)),
+                    "job_title": s.get("job_title", ""),
+                    "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
+                    "category": s.get("category", ""),
+                    "skills_sentences": (s.get("skills_sentences", []) or s.get("skills", []) or [])[:20],
+                    "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
+                }
+                results.append(result)
+            
+            return results
+        except Exception as e:
+            logger.error(f"❌ get_structured_cvs_batch({len(cv_ids)} CVs) failed: {e}")
+            # Fallback to individual retrieval
+            logger.warning("⚠️ Falling back to individual CV retrieval")
+            results = []
+            for cv_id in cv_ids:
+                cv = self.get_structured_cv(cv_id)
+                if cv:
+                    results.append(cv)
+            return results
 
     def get_structured_jd(self, jd_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -609,7 +681,8 @@ class QdrantUtils:
             st = self.client.retrieve(collection_name="jd_structured", ids=[jd_id])
             if st and st[0].payload:
                 s = st[0].payload.get("structured_info", st[0].payload)
-                return {
+                
+                result = {
                     "id": jd_id,
                     "job_title": s.get("job_title", ""),
                     "years_of_experience": s.get("years_of_experience", s.get("experience_years", 0)),
@@ -618,6 +691,7 @@ class QdrantUtils:
                     "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],  # Matching system expects this field name
                     "structured_info": s,  # Keep original structure
                 }
+                return result
             
             # Fallback to retrieve_document method
             doc = self.retrieve_document(jd_id, "jd")
@@ -1145,57 +1219,77 @@ class QdrantUtils:
         """
         Store application data linking it to a specific job posting
         Uses cv_structured collection with job_id field
+        Includes retry logic to handle Qdrant commit delays
         """
-        try:
-            collection_name = "cv_structured"
-            
-            if not application_date:
-                application_date = datetime.utcnow().isoformat()
-            
-            # Get existing CV structured data
-            current_point = self.client.scroll(
-                collection_name=collection_name,
-                scroll_filter=Filter(
-                    must=[FieldCondition(key="id", match=MatchValue(value=application_id))]
-                ),
-                limit=1,
-                with_payload=True,
-                with_vectors=True
-            )[0]
-            
-            if not current_point:
-                logger.error(f"❌ CV structured data not found for application {application_id}")
-                return False
+        import time
+        
+        collection_name = "cv_structured"
+        
+        if not application_date:
+            application_date = datetime.utcnow().isoformat()
+        
+        # Retry logic: CV might not be immediately available after storage
+        max_retries = 5
+        retry_delay = 0.5  # Start with 500ms delay
+        
+        for attempt in range(max_retries):
+            try:
+                # Small delay on retries to allow Qdrant to commit
+                if attempt > 0:
+                    time.sleep(retry_delay * attempt)  # Exponential backoff: 0.5s, 1s, 1.5s, 2s, 2.5s
+                    logger.debug(f"🔄 Retry {attempt}/{max_retries-1} linking application {application_id} to job {job_id}")
                 
-            point = current_point[0]
-            payload = point.payload.copy()
-            
-            # Add application linking data
-            payload.update({
-                "job_id": job_id,  # Link to job posting
-                "applicant_name": applicant_data.get("applicant_name"),
-                "applicant_email": applicant_data.get("applicant_email"),
-                "applicant_phone": applicant_data.get("applicant_phone"),
-                "cv_filename": cv_filename,
-                "application_date": application_date,
-                "application_status": "pending",
-                "cover_letter": applicant_data.get("cover_letter"),
-                "expected_salary": applicant_data.get("expected_salary"),
-                "years_of_experience": applicant_data.get("years_of_experience"),
-                "experience_warning": applicant_data.get("experience_warning"),
-                "is_job_application": True
-            })
-            
-            # Update the point
-            updated_point = PointStruct(id=application_id, vector=point.vector, payload=payload)
-            self.client.upsert(collection_name=collection_name, points=[updated_point])
-            
-            logger.info(f"✅ Linked application {application_id} to job {job_id}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to link application {application_id} to job {job_id}: {e}")
-            return False
+                # Get existing CV structured data
+                scroll_result = self.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=Filter(
+                        must=[FieldCondition(key="id", match=MatchValue(value=application_id))]
+                    ),
+                    limit=1,
+                    with_payload=True,
+                    with_vectors=True
+                )
+                
+                if not scroll_result or len(scroll_result[0]) == 0:
+                    if attempt < max_retries - 1:
+                        continue  # Retry if CV not found yet
+                    logger.error(f"❌ CV structured data not found for application {application_id} after {max_retries} attempts")
+                    return False
+                
+                point = scroll_result[0][0]
+                payload = point.payload.copy()
+                
+                # Add application linking data
+                payload.update({
+                    "job_id": job_id,  # Link to job posting
+                    "applicant_name": applicant_data.get("applicant_name"),
+                    "applicant_email": applicant_data.get("applicant_email"),
+                    "applicant_phone": applicant_data.get("applicant_phone"),
+                    "cv_filename": cv_filename,
+                    "application_date": application_date,
+                    "application_status": "pending",
+                    "cover_letter": applicant_data.get("cover_letter"),
+                    "expected_salary": applicant_data.get("expected_salary"),
+                    "years_of_experience": applicant_data.get("years_of_experience"),
+                    "experience_warning": applicant_data.get("experience_warning"),
+                    "is_job_application": True
+                })
+                
+                # Update the point
+                updated_point = PointStruct(id=application_id, vector=point.vector, payload=payload)
+                self.client.upsert(collection_name=collection_name, points=[updated_point])
+                
+                logger.info(f"✅ Linked application {application_id} to job {job_id} (attempt {attempt + 1})")
+                return True
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"⚠️ Attempt {attempt + 1} failed to link application {application_id}: {e}, retrying...")
+                    continue
+                logger.error(f"❌ Failed to link application {application_id} to job {job_id} after {max_retries} attempts: {e}")
+                return False
+        
+        return False
 
     def get_applications_for_job(self, job_id: str) -> List[Dict]:
         """
@@ -1889,6 +1983,58 @@ class QdrantUtils:
             # Fallback to timestamp-based counter
             import time
             return int(time.time()) % 1000
+    
+    def check_existing_application(self, applicant_email: str, job_posting_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Check if an application already exists for the given email and job posting.
+        Returns the existing application data if found, None otherwise.
+        """
+        try:
+            logger.info(f"🔍 Checking for existing application: {applicant_email} -> {job_posting_id}")
+            
+            # Search in cv_structured collection for existing application
+            search_results = self.client.scroll(
+                collection_name="cv_structured",
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="email",
+                            match=MatchValue(value=applicant_email)
+                        ),
+                        FieldCondition(
+                            key="job_posting_id",
+                            match=MatchValue(value=job_posting_id)
+                        ),
+                        FieldCondition(
+                            key="is_job_application",
+                            match=MatchValue(value=True)
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            if search_results[0]:
+                existing_app = search_results[0][0]
+                logger.warning(f"⚠️ Duplicate application found: {applicant_email} already applied to job {job_posting_id}")
+                logger.info(f"📋 Existing application ID: {existing_app.id}")
+                return {
+                    "id": existing_app.id,
+                    "applicant_email": applicant_email,
+                    "job_posting_id": job_posting_id,
+                    "application_date": existing_app.payload.get("application_date"),
+                    "cv_filename": existing_app.payload.get("cv_filename"),
+                    "status": existing_app.payload.get("status", "pending")
+                }
+            
+            logger.info(f"✅ No existing application found for {applicant_email} -> {job_posting_id}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Error checking existing application: {e}")
+            return None
 
 
 # Global singleton

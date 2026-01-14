@@ -6,7 +6,7 @@ Pydantic models for the careers page functionality where:
 - Applications are processed through existing CV pipeline
 """
 
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -80,6 +80,19 @@ class JobApplicationSummary(BaseModel):
     match_score: Optional[float] = Field(None, description="AI-calculated match score if available")
     status: str = Field("pending", description="Application status (pending, reviewed, etc.)")
     source: Optional[str] = Field(None, description="Application source: 'email_application' for Naukri/email, 'website' for direct applications")
+    
+    @validator('applicant_name', pre=True)
+    def validate_applicant_name(cls, v):
+        """Ensure applicant_name is never null/empty to prevent API failures"""
+        if v is None or v == "" or str(v).strip() == "":
+            return "Applicant"
+        
+        # Clean up common invalid values
+        v_str = str(v).strip()
+        if v_str.lower() in ["not specified", "unknown", "null", "none"]:
+            return "Applicant"
+        
+        return v_str
 
 
 class JobPostingSummary(BaseModel):

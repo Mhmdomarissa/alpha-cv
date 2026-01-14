@@ -18,6 +18,7 @@ from app.services.llm_service import get_llm_service
 from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils, get_decompressed_content
 from app.services.s3_storage import get_s3_storage_service
+from app.utils.cache import get_cache_service
 # at top of the file
 import mimetypes
 import shutil
@@ -68,7 +69,8 @@ async def get_cv_upload_progress(cv_id: str):
             "filename": progress.get("filename", ""),
             "start_time": progress.get("start_time"),
             "estimated_completion": progress.get("estimated_completion"),
-            "processing_stats": progress.get("processing_stats", {})
+            "processing_stats": progress.get("processing_stats", {}),
+            "ocr_used": progress.get("ocr_used", False)  # Track if OCR is being used
         })
     except Exception as e:
         logger.error(f"❌ Failed to get CV upload progress: {e}")
@@ -325,6 +327,15 @@ async def upload_cv(
                 filename = file.filename
                 # Get PII from parsed document
                 extracted_pii = parsed.get("extracted_pii", {"email": [], "phone": []})
+                # Check if OCR was used
+                ocr_used = parsed.get("ocr_used", False)
+                if ocr_used:
+                    logger.info(f"🔍 OCR was used for processing: {filename}")
+                    update_cv_upload_progress(cv_id,
+                        status="processing",
+                        current_step="Performing OCR (Optical Character Recognition) - This may take longer for image-based documents...",
+                        ocr_used=True
+                    )
             finally:
                 # leave tmp for now; we may copy it into our storage folder below
                 pass
@@ -489,6 +500,11 @@ async def upload_cv(
         
         logger.info(f"✅ CV processed and stored: {cv_id}")
         
+        # Invalidate CV list cache since we added a new CV
+        cache = get_cache_service()
+        cache.delete("cv_list", namespace="cv_data")
+        logger.debug("🗑️ Invalidated CV list cache after upload")
+        
         return JSONResponse({
             "status": "success",
             "message": f"CV '{filename}' processed successfully",
@@ -518,8 +534,21 @@ async def list_cvs() -> JSONResponse:
     """
     List all processed CVs with metadata.
     Reads from cv_structured (for structured_info) and cv_documents (for filename/upload_date).
+    
+    CACHED: Results are cached for 60 seconds to improve performance.
+    Cache is automatically invalidated when CVs are uploaded/updated.
     """
     try:
+        # Try to get from cache first
+        cache = get_cache_service()
+        cached_result = cache.get("cv_list", namespace="cv_data")
+        
+        if cached_result is not None:
+            logger.debug("✅ Returning cached CV list")
+            return JSONResponse(cached_result)
+        
+        logger.debug("🔄 Cache miss - fetching CV list from database")
+        
         qdrant = get_qdrant_utils()
 
         # Structured rows
@@ -588,7 +617,13 @@ async def list_cvs() -> JSONResponse:
 
         enhanced.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
 
-        return JSONResponse({"status": "success", "count": len(enhanced), "cvs": enhanced})
+        result = {"status": "success", "count": len(enhanced), "cvs": enhanced}
+        
+        # Cache the result for 60 seconds
+        cache.set("cv_list", result, ttl_seconds=60, namespace="cv_data")
+        logger.debug(f"💾 Cached CV list ({len(enhanced)} CVs) for 60 seconds")
+
+        return JSONResponse(result)
 
     except Exception as e:
         logger.error(f"❌ Failed to list CVs: {e}")
@@ -817,6 +852,11 @@ async def delete_cv(cv_id: str) -> JSONResponse:
         # Delete structured + document
         qdrant.client.delete(collection_name="cv_structured", points_selector=[cv_id])
         qdrant.client.delete(collection_name="cv_documents", points_selector=[cv_id])
+
+        # Invalidate CV list cache since we deleted a CV
+        cache = get_cache_service()
+        cache.delete("cv_list", namespace="cv_data")
+        logger.debug("🗑️ Invalidated CV list cache after deletion")
 
         return JSONResponse({
             "status": "success",

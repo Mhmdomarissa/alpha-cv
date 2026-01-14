@@ -87,6 +87,36 @@ class EmailCVProcessor:
             if not processed_email.cv_attachments:
                 raise Exception("No CV attachments to process")
             
+            # Check for duplicate application (same email + job posting)
+            if processed_email.job_posting_id:
+                existing_application = self.qdrant.check_existing_application(
+                    applicant_email=processed_email.applicant_email,
+                    job_posting_id=processed_email.job_posting_id
+                )
+                
+                if existing_application:
+                    logger.warning(f"⚠️ Duplicate application detected: {processed_email.applicant_email} already applied to job {processed_email.job_posting_id}")
+                    logger.info(f"📋 Existing application ID: {existing_application['id']}, Date: {existing_application['application_date']}")
+                    
+                    # Mark email as processed even though it's a duplicate (to prevent reprocessing)
+                    self.azure_email_service.processed_emails.add(processed_email.email_id)
+                    self.azure_email_service.db_service.mark_email_processed(
+                        email_id=processed_email.email_id,
+                        subject=f"DUPLICATE: {processed_email.job_title or 'Job Application'}",
+                        sender_email=processed_email.applicant_email
+                    )
+                    
+                    return {
+                        "success": False,
+                        "duplicate": True,
+                        "email_id": processed_email.email_id,
+                        "applicant_email": processed_email.applicant_email,
+                        "job_posting_id": processed_email.job_posting_id,
+                        "existing_application_id": existing_application['id'],
+                        "existing_application_date": existing_application['application_date'],
+                        "message": f"Application already exists for this job. Previous application submitted on {existing_application['application_date']}"
+                    }
+            
             # Use the first CV attachment (could be extended to handle multiple)
             cv_attachment = processed_email.cv_attachments[0]
             
@@ -227,6 +257,14 @@ class EmailCVProcessor:
                     "processing_time": datetime.utcnow().isoformat(),
                     "message": f"CV processed and saved - manual matching required for {cv_standardized.get('name', 'Applicant')}"
                 }
+                
+                # Mark email as processed after successful CV processing
+                self.azure_email_service.processed_emails.add(processed_email.email_id)
+                self.azure_email_service.db_service.mark_email_processed(
+                    email_id=processed_email.email_id,
+                    subject=processed_email.job_title or "Job Application",
+                    sender_email=processed_email.applicant_email
+                )
                 
                 logger.info(f"✅ Successfully processed CV from email: {application_id}")
                 return result

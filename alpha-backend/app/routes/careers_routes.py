@@ -80,6 +80,47 @@ def _now_iso() -> str:
     """Get current timestamp in ISO format"""
     return datetime.utcnow().isoformat()
 
+def _get_safe_applicant_name(app_data: dict) -> str:
+    """
+    Get applicant name with fallback logic to prevent API failures.
+    This ensures the API never breaks due to null/empty applicant names.
+    """
+    # Try to get applicant_name first
+    name = app_data.get("applicant_name")
+    if name and name.strip() and name.lower() not in ["not specified", "unknown", "null"]:
+        return name.strip()
+    
+    # Fallback 1: Try candidate.full_name from structured data
+    candidate = app_data.get("candidate", {})
+    if isinstance(candidate, dict):
+        candidate_name = candidate.get("full_name")
+        if candidate_name and candidate_name.strip() and candidate_name.lower() not in ["not specified", "unknown", "null"]:
+            return candidate_name.strip()
+    
+    # Fallback 2: Try structured_info.name
+    structured_info = app_data.get("structured_info", {})
+    if isinstance(structured_info, dict):
+        structured_name = structured_info.get("name")
+        if structured_name and structured_name.strip() and structured_name.lower() not in ["not specified", "unknown", "null"]:
+            return structured_name.strip()
+    
+    # Fallback 3: Derive from email
+    email = app_data.get("applicant_email") or app_data.get("email", "")
+    if email and "@" in email:
+        # Extract name from email (part before @)
+        name_part = email.split("@")[0]
+        # Clean up the name: replace dots/underscores with spaces and title case
+        derived_name = name_part.replace(".", " ").replace("_", " ").replace("-", " ").title()
+        # Remove extra spaces
+        derived_name = " ".join(derived_name.split())
+        if derived_name:
+            logger.info(f"🔄 Derived applicant name from email {email}: {derived_name}")
+            return derived_name
+    
+    # Final fallback: Generic name
+    logger.warning(f"⚠️ No valid applicant name found for application {app_data.get('id', 'unknown')}, using fallback")
+    return "Applicant"
+
 def generate_email_subject_id(job_title: str) -> str:
     """
     Generate unique email subject ID from job title
@@ -425,6 +466,8 @@ async def apply_to_job(
             except (ValueError, TypeError):
                 pass  # Skip validation if parsing fails
 
+        # DISABLED: Enterprise queue is not working properly - applications get queued but never processed
+        # This was causing applications to be lost. Using the working async path below instead.
         if background_processing:
             # ENTERPRISE ASYNC PROCESSING: Queue for background processing with priority
             from app.services.enhanced_job_queue import get_enterprise_job_queue, JobPriority
@@ -472,6 +515,7 @@ async def apply_to_job(
                     next_steps="Due to high volume, your application is being processed. You'll receive an email confirmation within 15-30 minutes.",
                     job_id=None
                 )
+        
         
         # OPTIMIZED ASYNC PROCESSING: Use the same optimized processing as regular CVs
         logger.info(f"🚀 Processing CV asynchronously for application {application_id}")
@@ -1227,10 +1271,13 @@ async def get_job_applications(
         
         summaries = []
         for app in applications:
+            # Use safe applicant name function to prevent API failures
+            safe_applicant_name = _get_safe_applicant_name(app)
+            
             summary = JobApplicationSummary(
                 application_id=app["id"],
                 job_id=job_id,
-                applicant_name=app.get("applicant_name", "Unknown"),
+                applicant_name=safe_applicant_name,
                 applicant_email=app.get("applicant_email", "unknown@email.com"),
                 application_date=app.get("application_date", "Unknown"),
                 cv_filename=app.get("cv_filename", "unknown.pdf"),

@@ -6,8 +6,9 @@ services:
   # ============================================================================
   backend:
     build: ./alpha-backend
-    ports:
-      - "8000:8000"
+    # Port 8000 removed - internal only, accessed via nginx
+    # ports:
+    #   - "8000:8000"
     env_file:
       - ./.env
       - ./security_hardening.env
@@ -22,7 +23,6 @@ services:
     environment:
       NODE_ENV: "production"
       ENVIRONMENT: "production"
-      SECRET_KEY: "49X9pTJHdRQxMimtGsIHiCkhVltsw6keJbUUPRrUsu0="
       CUDA_VISIBLE_DEVICES: "0"
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
@@ -44,7 +44,7 @@ services:
       MEMORY_THRESHOLD_MB: "12288"
       CPU_THRESHOLD_PERCENT: "85"
       PYTHON_MEMORY_LIMIT: "12288"
-      UVICORN_WORKERS: "8"
+      UVICORN_WORKERS: "6"
       # Heavy load optimizations for 20 conc
       # Heavy load optimizations for 20 concurrent users
       WORKER_CONNECTIONS: "4096"
@@ -73,7 +73,6 @@ services:
     volumes:
       - ./alpha-backend:/app
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - email_data:/data
     networks:
       - cv-network
     healthcheck:
@@ -98,8 +97,22 @@ services:
     build: 
       context: ./cv-analyzer-frontend
       dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
+    # Port 3000 removed - internal only, accessed via nginx
+    # THIS PREVENTS MALWARE ATTACKS - attackers cannot reach frontend directly
+    # ports:
+    #   - "3000:3000"
+    
+    # PERMANENT MALWARE FIX: Block malware IP at DNS level
+    extra_hosts:
+      - "89.144.31.18:127.0.0.1"
+      - "176.117.107.158:127.0.0.1"
+    
+    # Read-only filesystem prevents malware from writing files
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+    
     env_file:
       - ./.env
     environment:
@@ -135,8 +148,9 @@ services:
       # Security: Create auth database
       POSTGRES_MULTIPLE_DATABASES: "auth_db"
       
-    ports:
-      - "5433:5432"
+    # Port 5433 removed - internal only, prevents direct database access
+    # ports:
+    #   - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-optimized.conf:/etc/postgresql/postgresql.conf:ro
@@ -184,9 +198,10 @@ services:
   # ============================================================================
   qdrant:
     image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-      - "6334:6334"
+    # Ports 6333/6334 removed - internal only
+    # ports:
+    #   - "6333:6333"
+    #   - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
       - ./qdrant-optimized.yaml:/qdrant/config/production.yaml:ro
@@ -218,8 +233,9 @@ services:
   # ============================================================================
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # Port 6379 removed - internal only
+    # ports:
+    #   - "6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 8gb --maxmemory-policy allkeys-lru --tcp-keepalive 60 --timeout 300 --maxclients 1000
@@ -332,8 +348,6 @@ volumes:
   prometheus_data:
     driver: local
   nginx-cache:
-    driver: local
-  email_data:
     driver: local
 
 networks:

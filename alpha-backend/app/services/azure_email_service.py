@@ -120,19 +120,32 @@ class AzureEmailService:
             raise
     
     async def get_unread_emails(self, access_token: str, max_emails: int = None) -> List[EmailMessage]:
-        """Get unread emails from the mailbox"""
+        """Get unread emails from the mailbox, including read emails with job posting IDs"""
         try:
             if max_emails is None:
                 max_emails = self.max_emails_per_batch
             
+            # Reload processed emails to avoid duplicates
+            self._load_processed_emails()
+            
             # Build Graph API URL for mailbox
             mailbox_url = f"{self.graph_base_url}/users/{self.mailbox_email}/messages"
             
-            # Simplified filter - remove orderby to avoid "InefficientFilter" error
+            # Get active job posting IDs from Qdrant
+            from app.utils.qdrant_utils import get_qdrant_utils
+            qdrant = get_qdrant_utils()
+            job_postings = qdrant.get_all_job_postings(include_inactive=False)
+            job_ids = [job.get('email_subject_id') for job in job_postings if job.get('email_subject_id')]
+            
+            all_emails = []
+            
+            # First, get unread emails with attachments
+            # Increase limit to catch more emails (Graph API allows up to 999)
+            unread_limit = min(max_emails * 2, 200)  # Get up to 200 unread emails
             filter_params = {
                 '$filter': "isRead eq false and hasAttachments eq true",
-                '$top': max_emails,
-                '$select': 'id,subject,sender,receivedDateTime,hasAttachments,bodyPreview'
+                '$top': unread_limit,
+                '$select': 'id,subject,sender,receivedDateTime,hasAttachments,bodyPreview,isRead'
             }
             
             headers = {
@@ -141,10 +154,10 @@ class AzureEmailService:
             }
             
             async with aiohttp.ClientSession() as session:
+                # Process unread emails first
                 async with session.get(mailbox_url, params=filter_params, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        emails = []
                         
                         for email_data in data.get('value', []):
                             # Skip already processed emails
@@ -169,13 +182,86 @@ class AzureEmailService:
                                 attachments=[],  # Will be loaded separately
                                 body_preview=email_data.get('bodyPreview', '')
                             )
-                            emails.append(email)
+                            all_emails.append(email)
                         
-                        logger.info(f"📧 Found {len(emails)} unread emails with attachments")
-                        return emails
+                        logger.info(f"📧 Found {len(data.get('value', []))} unread emails with attachments")
                     else:
                         error_text = await response.text()
-                        raise Exception(f"Failed to get emails: {response.status} - {error_text}")
+                        logger.warning(f"⚠️ Failed to get unread emails: {response.status} - {error_text}")
+                
+                # Now search for emails containing job posting IDs (both read and unread)
+                if job_ids:
+                    logger.info(f"🔍 Searching for emails with job posting IDs: {job_ids}")
+                    
+                    for job_id in job_ids:
+                        try:
+                            # Search for emails containing this job posting ID
+                            # Search both read and unread emails with job IDs
+                            search_params = {
+                                '$search': f'"{job_id}"',
+                                '$top': 50,  # Increased limit per job ID to catch more emails
+                                '$select': 'id,subject,sender,receivedDateTime,hasAttachments,bodyPreview,isRead'
+                            }
+                            
+                            async with session.get(mailbox_url, params=search_params, headers=headers) as response:
+                                if response.status == 200:
+                                    data = await response.json()
+                                    
+                                    for email_data in data.get('value', []):
+                                        # Process both read and unread emails with attachments
+                                        # (unread emails with job IDs should also be processed)
+                                        is_read = email_data.get('isRead', False)
+                                        has_attachments = email_data.get('hasAttachments', False)
+                                        
+                                        # Skip if no attachments
+                                        if not has_attachments:
+                                            continue
+                                        
+                                        email_id = email_data.get('id')
+                                        
+                                        # Skip already processed emails
+                                        if email_id in self.processed_emails:
+                                            continue
+                                        
+                                        # Check if email already in all_emails (avoid duplicates)
+                                        if any(e.id == email_id for e in all_emails):
+                                            continue
+                                        
+                                        # Parse sender email
+                                        sender_info = email_data.get('sender', {}).get('emailAddress', {})
+                                        sender_email = sender_info.get('address', 'unknown@email.com')
+                                        
+                                        # Parse received datetime
+                                        received_str = email_data.get('receivedDateTime')
+                                        received_datetime = datetime.fromisoformat(received_str.replace('Z', '+00:00'))
+                                        
+                                        subject = email_data.get('subject', '')
+                                        
+                                        # Check if this email actually contains the job posting ID
+                                        if job_id not in subject:
+                                            continue
+                                        
+                                        logger.info(f"📧 Found email with job ID: '{subject}' from {sender_email} (read: {is_read})")
+                                        
+                                        email = EmailMessage(
+                                            id=email_id,
+                                            subject=subject,
+                                            sender=sender_email,
+                                            received_datetime=received_datetime,
+                                            has_attachments=has_attachments,
+                                            attachments=[],
+                                            body_preview=email_data.get('bodyPreview', '')
+                                        )
+                                        all_emails.append(email)
+                                else:
+                                    logger.warning(f"⚠️ Search failed for job ID {job_id}: {response.status}")
+                                    
+                        except Exception as e:
+                            logger.warning(f"⚠️ Error searching for job ID {job_id}: {e}")
+                            continue
+                
+                logger.info(f"📧 Found {len(all_emails)} total emails with attachments (unread + read with job IDs)")
+                return all_emails
         
         except Exception as e:
             logger.error(f"❌ Failed to get unread emails: {e}")
@@ -342,8 +428,9 @@ class AzureEmailService:
             cleaned_subject = re.sub(r'^(re|fwd|fw):\s*', '', subject.strip(), flags=re.IGNORECASE)
             cleaned_subject = re.sub(r'^(re|fwd|fw):\s*', '', cleaned_subject, flags=re.IGNORECASE)
             
-            # Look for pattern: "Job Title | ID-YYYY-NNN"
-            match = re.match(r'^(.+?)\s*\|\s*([A-Z]{2,4}-\d{4}-\d{3})$', cleaned_subject.strip())
+            # Look for pattern: "Job Title | ID-YYYY-NNN" or "Job Title - ID-YYYY-NNN"
+            # Also handle "Application for Job Title | ID-YYYY-NNN"
+            match = re.match(r'^(.+?)\s*[|\-]\s*([A-Z]{2,4}-\d{4}-\d{3})$', cleaned_subject.strip())
             
             if match:
                 job_title = match.group(1).strip()
@@ -421,13 +508,8 @@ class AzureEmailService:
                     error_message="No CV attachments found"
                 )
             
-            # Mark email as processed in database
-            self.processed_emails.add(email.id)
-            self.db_service.mark_email_processed(
-                email_id=email.id,
-                subject=email.subject,
-                sender_email=email.sender
-            )
+            # Don't mark email as processed yet - wait until CV processing is complete
+            # This will be done in the CV processor after duplication check
             
             logger.info(f"✅ Successfully processed email {email.id} with {len(cv_attachments)} CV attachments")
             
@@ -456,18 +538,18 @@ class AzureEmailService:
             )
     
     async def process_all_unread_emails(self) -> List[ProcessedEmail]:
-        """Process all unread emails with CV attachments"""
+        """Process all unread emails with CV attachments, including read emails with job posting IDs"""
         try:
             logger.info("🔄 Starting email processing batch")
             
             # Get access token
             access_token = await self.get_access_token()
             
-            # Get unread emails
+            # Get unread emails and read emails with job posting IDs
             emails = await self.get_unread_emails(access_token)
             
             if not emails:
-                logger.info("📧 No unread emails with attachments found")
+                logger.info("📧 No emails with attachments found")
                 return []
             
             # Process each email
