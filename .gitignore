@@ -117,3 +117,6 @@ docker-compose.yml.backup*
 
 # Certbot
 certbot/
+
+#data
+uploads/

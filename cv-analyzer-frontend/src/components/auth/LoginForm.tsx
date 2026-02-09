@@ -7,16 +7,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, X, Zap, Eye, EyeOff, Lock, User } from 'lucide-react';
+import { AlertCircle, X, Zap, Eye, EyeOff, Lock, User, Mail, KeyRound } from 'lucide-react';
 import { config } from '@/lib/config';
 
 export default function LoginForm() {
   const router = useRouter();
-  const { login, loading, error, clearError, user } = useAuthStore();
+  const { verifyPassword, sendOTP, verifyOTP, login, loading, error, clearError, user } = useAuthStore();
+  
+  const [step, setStep] = useState<'password' | 'otp'>('password');
+  const [otpSent, setOtpSent] = useState(false);
+  const [userEmail, setUserEmail] = useState<string>(''); // Store email for display
   
   const [formData, setFormData] = useState({
     username: '',
     password: '',
+    otp: '',
   });
 
   const [formError, setFormError] = useState<string | null>(null);
@@ -30,7 +35,7 @@ export default function LoginForm() {
     if (formError) setFormError(null);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handlePasswordVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Basic validation
@@ -43,7 +48,58 @@ export default function LoginForm() {
       return;
     }
 
-    const result = await login(formData.username, formData.password);
+    // Verify password
+    const result = await verifyPassword(formData.username, formData.password);
+    
+    if (result && result.success) {
+      // Check if OTP is required
+      // Admin users: requires_otp === false -> login directly
+      // Regular users: requires_otp === true -> send OTP automatically
+      if (result.requires_otp === false) {
+        // Admin user - login directly (no OTP needed)
+        setFormError(null);
+        const loginResult = await login(formData.username, formData.password);
+        if (loginResult && loginResult.success) {
+          // Redirect based on role
+          if (loginResult.role === 'admin') {
+            router.push('/admin/users');
+          } else {
+            router.push('/');
+          }
+        }
+        // Don't proceed to OTP step for admin
+        return;
+      } else {
+        // Regular user (requires_otp === true or undefined) - send OTP automatically
+        // No need to manually enter email - it's stored in the database
+        setFormError(null);
+        const otpResult = await sendOTP(formData.username, formData.password);
+        if (otpResult && otpResult.success) {
+          setOtpSent(true);
+          setStep('otp');
+          // Use masked email from response if available
+          setUserEmail(otpResult.masked_email || 'your registered email');
+        }
+      }
+    }
+    // Error handling is done by the store
+  };
+
+
+  const handleVerifyOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Basic validation
+    if (!formData.otp.trim()) {
+      setFormError('OTP is required');
+      return;
+    }
+    if (formData.otp.length !== 6) {
+      setFormError('OTP must be 6 digits');
+      return;
+    }
+
+    const result = await verifyOTP(formData.username, formData.otp);
     
     if (result && result.success) {
       // Redirect immediately based on role
@@ -54,6 +110,19 @@ export default function LoginForm() {
       }
     }
     // Error handling is done by the store
+  };
+
+
+  const handleResendOTP = async () => {
+    setOtpSent(false);
+    setFormData(prev => ({ ...prev, otp: '' }));
+    
+    const result = await sendOTP(formData.username, formData.password);
+    
+    if (result && result.success) {
+      setOtpSent(true);
+      setFormError(null);
+    }
   };
 
   const displayError = formError || error;
@@ -118,78 +187,167 @@ export default function LoginForm() {
             </div>
           )}
 
-          {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Username Field */}
-            <div className="space-y-2">
-              <label htmlFor="username" className="text-sm font-semibold text-slate-700">
-                Username
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <User className="h-5 w-5 text-slate-400" />
+          {/* Login Form - Sequential Steps */}
+          {step === 'password' && (
+            <form onSubmit={handlePasswordVerify} className="space-y-6">
+              {/* Username Field */}
+              <div className="space-y-2">
+                <label htmlFor="username" className="text-sm font-semibold text-slate-700">
+                  Username
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <User className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    id="username"
+                    name="username"
+                    type="text"
+                    value={formData.username}
+                    onChange={handleInputChange}
+                    placeholder="Enter your username"
+                    disabled={loading}
+                    required
+                    className="w-full pl-12 pr-4 py-4 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/70 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
                 </div>
-                <input
-                  id="username"
-                  name="username"
-                  type="text"
-                  value={formData.username}
-                  onChange={handleInputChange}
-                  placeholder="Enter your username"
-                  disabled={loading}
-                  required
-                  className="w-full pl-12 pr-4 py-4 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/70 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                />
               </div>
-            </div>
 
-            {/* Password Field */}
-            <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-semibold text-slate-700">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-slate-400" />
+              {/* Password Field */}
+              <div className="space-y-2">
+                <label htmlFor="password" className="text-sm font-semibold text-slate-700">
+                  Password
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Lock className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    placeholder="Enter your password"
+                    disabled={loading}
+                    required
+                    className="w-full pl-12 pr-12 py-4 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/70 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition-colors duration-200"
+                  >
+                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
                 </div>
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  value={formData.password}
-                  onChange={handleInputChange}
-                  placeholder="Enter your password"
-                  disabled={loading}
-                  required
-                  className="w-full pl-12 pr-12 py-4 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/70 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition-colors duration-200"
-                >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                </button>
               </div>
-            </div>
 
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-4 px-6 rounded-xl text-white font-semibold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-lg"
-              style={{ background: 'linear-gradient(135deg, rgba(0, 82, 155, 0.7) 0%, rgba(0, 61, 115, 0.7) 100%)' }}
-            >
-              {loading ? (
-                <div className="flex items-center justify-center space-x-2">
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  <span>Signing in...</span>
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-4 px-6 rounded-xl text-white font-semibold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-lg"
+                style={{ background: 'linear-gradient(135deg, rgba(0, 82, 155, 0.7) 0%, rgba(0, 61, 115, 0.7) 100%)' }}
+              >
+                {loading ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <span>Verifying...</span>
+                  </div>
+                ) : (
+                  'Continue'
+                )}
+              </button>
+            </form>
+          )}
+
+          {step === 'otp' && (
+            <form onSubmit={handleVerifyOTP} className="space-y-6">
+              {/* Success Message */}
+              <div className="p-4 rounded-xl bg-green-50/90 backdrop-blur-sm border border-green-200/70">
+                <div className="flex items-center space-x-3">
+                  <Mail className="h-5 w-5 text-green-600" />
+                  <div>
+                    <p className="text-sm font-medium text-green-800">
+                      OTP sent to {userEmail || 'your registered email'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleResendOTP}
+                      className="text-xs text-green-600 hover:text-green-800 underline mt-1"
+                      disabled={loading}
+                    >
+                      Resend OTP
+                    </button>
+                  </div>
                 </div>
-              ) : (
-                'Sign In'
-              )}
-            </button>
-          </form>
+              </div>
+
+              {/* OTP Field */}
+              <div className="space-y-2">
+                <label htmlFor="otp" className="text-sm font-semibold text-slate-700">
+                  Enter OTP
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <KeyRound className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    id="otp"
+                    name="otp"
+                    type="text"
+                    value={formData.otp}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      setFormData(prev => ({ ...prev, otp: value }));
+                      if (formError) setFormError(null);
+                    }}
+                    placeholder="Enter 6-digit OTP"
+                    disabled={loading}
+                    required
+                    maxLength={6}
+                    pattern="[0-9]{6}"
+                    className="w-full pl-12 pr-4 py-4 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/70 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-center text-2xl tracking-widest"
+                  />
+                </div>
+                <p className="text-xs text-slate-500">
+                  Check your email for the 6-digit code. It expires in 5 minutes.
+                </p>
+              </div>
+
+              {/* Verify OTP Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-4 px-6 rounded-xl text-white font-semibold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-lg"
+                style={{ background: 'linear-gradient(135deg, rgba(0, 82, 155, 0.7) 0%, rgba(0, 61, 115, 0.7) 100%)' }}
+              >
+                {loading ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <span>Verifying...</span>
+                  </div>
+                ) : (
+                  'Verify OTP'
+                )}
+              </button>
+
+              {/* Back Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setStep('password');
+                  setFormData(prev => ({ ...prev, otp: '' }));
+                  setOtpSent(false);
+                  setFormError(null);
+                }}
+                className="w-full py-2 text-sm text-slate-600 hover:text-slate-800 transition-colors duration-200"
+              >
+                ← Back
+              </button>
+            </form>
+          )}
 
           {/* Footer */}
           <div className="mt-8 text-center">

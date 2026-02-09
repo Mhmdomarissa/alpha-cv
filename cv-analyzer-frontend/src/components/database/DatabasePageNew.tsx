@@ -1,5 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import {
   FileText,
   Users,
@@ -58,6 +59,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import MatchingProgressBar from '@/components/ui/MatchingProgressBar';
+import { config } from '@/lib/config';
+
+const FilePreviewModal = dynamic(() => import('@/components/ui/file-preview-modal').then(mod => mod.FilePreviewModal), {
+  ssr: false,
+});
 
 /* ----------------------------- Types ---------------------------- */
 interface CVData {
@@ -203,15 +209,15 @@ export const getCVBasics = (cv: CVData) => {
 const getJDBasics = (jd: JDData) => {
   const jdData = jd?.jd || jd;
   const src = jdData?.job_requirements || jdData?.structured_info || {};
-  
+
   const title = src.job_title ?? jdData?.job_title ?? 'N/A';
   const years = src.years_of_experience ?? src.experience_years ?? jdData?.years_of_experience ?? '0';
   const skills = src.skills ?? jdData?.skills ?? [];
   const responsibilities = src.responsibilities ?? src.responsibility_sentences ?? jdData?.responsibilities ?? [];
-  
+
   const skillsCount = src.skills_count ?? jdData?.skills_count ?? (Array.isArray(skills) ? skills.length : 0);
   const responsibilitiesCount = src.responsibilities_count ?? jdData?.responsibilities_count ?? (Array.isArray(responsibilities) ? responsibilities.length : 0);
-  
+
   return { title, years, skills, responsibilities, skillsCount, responsibilitiesCount };
 };
 
@@ -238,9 +244,9 @@ export default function DatabasePageNew() {
     runMatch,
     matchingProgress,
   } = useAppStore();
-  
+
   const { user } = useAuthStore();
-  
+
   const [selectedCVForDetails, setSelectedCVForDetails] = useState<string | null>(null);
   const [selectedJDForDetails, setSelectedJDForDetails] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -252,24 +258,34 @@ export default function DatabasePageNew() {
   const [savingNote, setSavingNote] = useState<string | null>(null);
   const [filteredCVs, setFilteredCVs] = useState<CVData[]>([]);
   const [filteredJDs, setFilteredJDs] = useState<JDData[]>([]);
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(20);
-  
+
   // Sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
-  
+
   // Category-related state
   const [categories, setCategories] = useState<Record<string, number>>({});
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [cvsInCategory, setCvsInCategory] = useState<CVData[]>([]);
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [currentView, setCurrentView] = useState<'all' | 'categories'>('all');
-  
+
+  // File preview state
+  const [previewData, setPreviewData] = useState<{ isOpen: boolean; url: string; name: string; id: string; type: string; extractedText?: string }>({
+    isOpen: false,
+    url: '',
+    name: '',
+    id: '',
+    type: '',
+    extractedText: ''
+  });
+
   useEffect(() => {
     loadCVs();
     loadJDs();
@@ -286,27 +302,27 @@ export default function DatabasePageNew() {
   useEffect(() => {
     const loadNotesSummary = async () => {
       if (cvs.length === 0) return;
-      
+
       try {
         const ids = cvs.map(cv => cv.id).filter(Boolean);
         if (ids.length === 0) return;
-        
+
         const res = await api.getNotesSummary(ids);
         const cvIdsWithNotes: string[] = [];
-        
+
         (res.summaries || []).forEach((s: any) => {
           if (s.has_notes && s.notes_count > 0) {
             cvIdsWithNotes.push(s.cv_id);
           }
         });
-        
+
         // Update the set of CVs with notes (for filtering and badges)
         setCvsWithNotes(new Set(cvIdsWithNotes));
       } catch (error) {
         console.warn('Failed to load notes summary for database page:', error);
       }
     };
-    
+
     loadNotesSummary();
   }, [cvs]); // Only depend on the main cvs array, not filteredCVs
 
@@ -335,7 +351,7 @@ export default function DatabasePageNew() {
       setCategoryLoading(false);
     }
   };
-  
+
   useEffect(() => {
     let filtered = cvs;
 
@@ -371,7 +387,7 @@ export default function DatabasePageNew() {
     // Reset to first page when filters change
     setCurrentPage(1);
   }, [cvs, searchQuery, notesFilter, cvsWithNotes, selectedCategories]);
-  
+
   useEffect(() => {
     if (!searchQuery.trim()) {
       setFilteredJDs(jds);
@@ -387,7 +403,7 @@ export default function DatabasePageNew() {
       setFilteredJDs(filtered);
     }
   }, [jds, searchQuery]);
-  
+
   const isLoadingCVs = loadingStates.cvs.isLoading;
   const isLoadingJDs = loadingStates.jds.isLoading;
   const isDeleting = loadingStates.upload.isLoading;
@@ -403,40 +419,68 @@ export default function DatabasePageNew() {
   const startJDIndex = (currentPage - 1) * itemsPerPage;
   const endJDIndex = startJDIndex + itemsPerPage;
   const paginatedJDs = filteredJDs.slice(startJDIndex, endJDIndex);
-  
+
   const handleDeleteCV = async (cvId: string) => {
     if (window.confirm('Are you sure you want to delete this CV?')) {
       await deleteCV(cvId);
     }
   };
-  
+
   const handleDeleteJD = async (jdId: string) => {
     if (window.confirm('Are you sure you want to delete this job description?')) {
       await deleteJD(jdId);
     }
   };
-  
+
   const handleReprocessCV = async (cvId: string) => {
     await reprocessCV(cvId);
   };
-  
+
   const handleReprocessJD = async (jdId: string) => {
     await reprocessJD(jdId);
   };
-  
+
   const canStartMatching = selectedCVs.length > 0 && selectedJD;
-  
+
   const handleStartMatching = async () => {
     await runMatch();
     setCurrentTab('match');
   };
-  
+
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
   };
-  
+
   const clearSearch = () => {
     setSearchQuery('');
+  };
+
+  // Handle file preview
+  const handlePreviewFile = async (id: string, type: string, filename: string) => {
+    console.log('handlePreviewFile called:', { id, type, filename });
+    const fileUrl = `${config.apiUrl}/api/storage/files/${type}/${id}`;
+
+    let extractedText = '';
+
+    // For non-PDFs, fetch the extracted text
+    if (!filename.toLowerCase().endsWith('.pdf')) {
+      try {
+        const details = type === 'cv' ? await api.getCVDetails(id) : await api.getJDDetails(id);
+        extractedText = details?.text_info?.extracted_text_preview || '';
+      } catch (err) {
+        console.error('Failed to fetch extracted text:', err);
+      }
+    }
+
+    console.log('Setting preview data:', { fileUrl, filename, id, type });
+    setPreviewData({
+      isOpen: true,
+      url: fileUrl,
+      name: filename,
+      id: id,
+      type: type,
+      extractedText: extractedText
+    });
   };
 
   // Load CVs with notes
@@ -445,7 +489,7 @@ export default function DatabasePageNew() {
       const response = await api.getAllCVsWithNotes();
       const cvIdsWithNotes = new Set(response.cvs_with_notes.map((cv: any) => cv.cv_id));
       setCvsWithNotes(cvIdsWithNotes);
-      
+
       // Also load the actual notes for each CV
       const notesMap: Record<string, any[]> = {};
       response.cvs_with_notes.forEach((cv: any) => {
@@ -523,18 +567,18 @@ export default function DatabasePageNew() {
   const toggleCategory = (category: string) => {
     setSelectedCategories(prev => {
       const isCurrentlySelected = prev.includes(category);
-      const newSelection = isCurrentlySelected 
+      const newSelection = isCurrentlySelected
         ? prev.filter(c => c !== category)
         : [...prev, category];
-      
+
       // Get all CVs in this category
       const cvsInCategory = cvs.filter(cv => {
         const basics = getCVBasics(cv);
         return basics.category === category;
       });
-      
+
       const cvIdsInCategory = cvsInCategory.map(cv => cv.id);
-      
+
       if (isCurrentlySelected) {
         // Category is being deselected - deselect all CVs in this category
         cvIdsInCategory.forEach(cvId => {
@@ -550,11 +594,11 @@ export default function DatabasePageNew() {
           }
         });
       }
-      
+
       // Always stay in 'all' view and let the filtering logic handle the display
       setCurrentView('all');
       setSelectedCategory(null);
-      
+
       return newSelection;
     });
   };
@@ -563,7 +607,7 @@ export default function DatabasePageNew() {
     setSelectedCategories(Object.keys(categories));
     setCurrentView('all');
     setSelectedCategory(null);
-    
+
     // Select all CVs from all categories
     cvs.forEach(cv => {
       if (!selectedCVs.includes(cv.id)) {
@@ -576,7 +620,7 @@ export default function DatabasePageNew() {
     setSelectedCategories([]);
     setCurrentView('all');
     setSelectedCategory(null);
-    
+
     // Deselect all CVs
     selectedCVs.forEach(cvId => {
       deselectCV(cvId);
@@ -586,7 +630,7 @@ export default function DatabasePageNew() {
   // Function to update category selection based on CV selection
   const updateCategorySelectionFromCVs = () => {
     const selectedCategoriesFromCVs = new Set<string>();
-    
+
     selectedCVs.forEach(cvId => {
       const cv = cvs.find(c => c.id === cvId);
       if (cv) {
@@ -594,16 +638,15 @@ export default function DatabasePageNew() {
         selectedCategoriesFromCVs.add(basics.category);
       }
     });
-    
+
     // Update selected categories to match CV selection
     setSelectedCategories(Array.from(selectedCategoriesFromCVs));
   };
 
   // Sidebar component
   const Sidebar = () => (
-    <div className={`bg-gradient-to-b from-white to-blue-50/30 border-r border-blue-200 shadow-xl transition-all duration-300 ${
-      sidebarCollapsed ? 'w-0 overflow-hidden opacity-0' : 'w-80 opacity-100'
-    }`}>
+    <div className={`bg-gradient-to-b from-white to-blue-50/30 border-r border-blue-200 shadow-xl transition-all duration-300 ${sidebarCollapsed ? 'w-0 overflow-hidden opacity-0' : 'w-80 opacity-100'
+      }`}>
       <div className="p-6 space-y-6">
         {/* Sidebar Header */}
         <div className="flex items-center justify-between bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] text-white p-3 rounded-lg">
@@ -653,7 +696,7 @@ export default function DatabasePageNew() {
               </Button>
             </div>
           </div>
-          
+
           {/* Selection Summary */}
           {selectedCategories.length > 0 && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-2">
@@ -662,18 +705,17 @@ export default function DatabasePageNew() {
               </div>
             </div>
           )}
-          
+
           <div className="space-y-2 max-h-40 overflow-y-auto">
             {Object.entries(categories).map(([category, count]) => {
               const isSelected = selectedCategories.includes(category);
               return (
-                <div 
-                  key={category} 
-                  className={`flex items-center space-x-2 p-3 rounded-lg transition-all duration-200 cursor-pointer group ${
-                    isSelected 
-                      ? 'bg-blue-100 border border-blue-300 shadow-sm' 
-                      : 'hover:bg-blue-50 border border-transparent hover:border-blue-200'
-                  }`}
+                <div
+                  key={category}
+                  className={`flex items-center space-x-2 p-3 rounded-lg transition-all duration-200 cursor-pointer group ${isSelected
+                    ? 'bg-blue-100 border border-blue-300 shadow-sm'
+                    : 'hover:bg-blue-50 border border-transparent hover:border-blue-200'
+                    }`}
                   onClick={() => toggleCategory(category)}
                 >
                   <input
@@ -683,7 +725,7 @@ export default function DatabasePageNew() {
                     onChange={() => toggleCategory(category)}
                     className="h-4 w-4 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
                   />
-                  <label 
+                  <label
                     htmlFor={`category-${category}`}
                     className="flex-1 text-sm font-medium cursor-pointer flex items-center justify-between"
                   >
@@ -691,11 +733,10 @@ export default function DatabasePageNew() {
                       <span className={`truncate ${isSelected ? 'text-blue-800 font-semibold' : 'text-gray-700'}`}>
                         {category}
                       </span>
-                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                        isSelected 
-                          ? 'bg-blue-200 text-blue-800' 
-                          : 'bg-blue-100 text-blue-700'
-                      }`}>
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${isSelected
+                        ? 'bg-blue-200 text-blue-800'
+                        : 'bg-blue-100 text-blue-700'
+                        }`}>
                         {count}
                       </span>
                     </div>
@@ -723,7 +764,7 @@ export default function DatabasePageNew() {
             </div>
             <h4 className="font-semibold text-gray-900 text-sm">Notes Filter</h4>
           </div>
-          
+
           <select
             value={notesFilter}
             onChange={(e) => setNotesFilter(e.target.value as 'all' | 'with_notes' | 'without_notes')}
@@ -754,7 +795,7 @@ export default function DatabasePageNew() {
                 <span className="text-blue-800 font-medium">{selectedJD ? '1 JD selected' : 'No JD selected'}</span>
               </div>
             </div>
-            
+
             {selectedCVs.length > 0 && selectedJD && (
               <Button
                 onClick={handleMatchSelected}
@@ -799,7 +840,7 @@ export default function DatabasePageNew() {
             <ChevronLeft className="w-4 h-4" />
             Previous
           </Button>
-          
+
           <div className="flex items-center space-x-1">
             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
               let pageNum;
@@ -812,7 +853,7 @@ export default function DatabasePageNew() {
               } else {
                 pageNum = currentPage - 2 + i;
               }
-              
+
               return (
                 <Button
                   key={pageNum}
@@ -826,7 +867,7 @@ export default function DatabasePageNew() {
               );
             })}
           </div>
-          
+
           <Button
             variant="outline"
             size="sm"
@@ -841,7 +882,7 @@ export default function DatabasePageNew() {
       </div>
     );
   };
-  
+
   const handleClearDatabase = async () => {
     setIsClearing(true);
     try {
@@ -875,10 +916,10 @@ export default function DatabasePageNew() {
       deselectCV(cvId);
     }
   };
-  
+
   // Check if user is admin
   const isAdmin = user?.role === 'admin';
-  
+
   return (
     <div className="space-y-8">
       {/* Progress Bar */}
@@ -889,14 +930,14 @@ export default function DatabasePageNew() {
         estimatedTimeRemaining={matchingProgress.estimatedTimeRemaining}
         isVisible={matchingProgress.isVisible}
       />
-      
+
       {/* Enhanced Header */}
       <div className="text-center space-y-6">
         <div className="flex justify-center">
           <div className="w-20 h-20 rounded-3xl group hover:scale-105 transition-all duration-300 shadow-2xl">
-            <div 
+            <div
               className="w-full h-full rounded-3xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300"
-              style={{ 
+              style={{
                 background: 'linear-gradient(135deg, rgba(0, 82, 155, 0.8) 0%, rgba(0, 61, 115, 0.8) 100%)',
                 boxShadow: '0 8px 32px rgba(0, 82, 155, 0.3)'
               }}
@@ -924,87 +965,87 @@ export default function DatabasePageNew() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex justify-center md:justify-end">
           <div className="flex items-center space-x-3">
-          {isAdmin && (
-            <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
-              <DialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="text-red-600 border-red-300 hover:bg-red-50"
-                  aria-label="Clear all data from database"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Clear Database
-                </Button>
-              </DialogTrigger>
-              <DialogContent
-                className="bg-rose-50 border border-rose-300 shadow-xl rounded-lg p-6 data-[state=open]:animate-in 
+            {isAdmin && (
+              <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="text-red-600 border-red-300 hover:bg-red-50"
+                    aria-label="Clear all data from database"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Clear Database
+                  </Button>
+                </DialogTrigger>
+                <DialogContent
+                  className="bg-rose-50 border border-rose-300 shadow-xl rounded-lg p-6 data-[state=open]:animate-in 
                            data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 
                            data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
-              >
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2 text-rose-700">
-                    <AlertTriangle className="h-5 w-5 text-rose-500" />
-                    Confirm Database Clear
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <p className="text-gray-800">
-                    Are you sure you want to permanently delete all CVs and job descriptions?
-                  </p>
-                  <p className="text-sm text-rose-600 font-medium">This action cannot be undone.</p>
-                  <div className="flex justify-end space-x-2">
-                    <Button variant="outline" onClick={() => setShowClearDialog(false)}>
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="error"
-                      onClick={handleClearDatabase}
-                      disabled={isClearing}
-                      className="bg-rose-600 hover:bg-rose-700"
-                    >
-                      {isClearing ? 'Clearing...' : 'Clear All Data'}
-                    </Button>
+                >
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-rose-700">
+                      <AlertTriangle className="h-5 w-5 text-rose-500" />
+                      Confirm Database Clear
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <p className="text-gray-800">
+                      Are you sure you want to permanently delete all CVs and job descriptions?
+                    </p>
+                    <p className="text-sm text-rose-600 font-medium">This action cannot be undone.</p>
+                    <div className="flex justify-end space-x-2">
+                      <Button variant="outline" onClick={() => setShowClearDialog(false)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="error"
+                        onClick={handleClearDatabase}
+                        disabled={isClearing}
+                        className="bg-rose-600 hover:bg-rose-700"
+                      >
+                        {isClearing ? 'Clearing...' : 'Clear All Data'}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
-          <Button
-            variant="outline"
-            onClick={() => {
-              loadCVs();
-              loadJDs();
-            }}
-            disabled={isLoadingCVs || isLoadingJDs}
-            aria-label="Refresh database content"
-            className="px-4 py-2 rounded-xl border-2 border-slate-200 hover:border-slate-300 transition-all duration-300 hover:-translate-y-0.5"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${(isLoadingCVs || isLoadingJDs) ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          {canStartMatching && (
+                </DialogContent>
+              </Dialog>
+            )}
             <Button
-              variant="primary"
-              onClick={handleStartMatching}
-              disabled={loadingStates.matching.isLoading}
-              aria-label="Start matching selected CVs with job description"
-              className="px-6 py-2 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+              variant="outline"
+              onClick={() => {
+                loadCVs();
+                loadJDs();
+              }}
+              disabled={isLoadingCVs || isLoadingJDs}
+              aria-label="Refresh database content"
+              className="px-4 py-2 rounded-xl border-2 border-slate-200 hover:border-slate-300 transition-all duration-300 hover:-translate-y-0.5"
             >
-              <Play className="w-4 h-4 mr-2" />
-              {loadingStates.matching.isLoading ? 'Matching...' : 'Match Selected'}
+              <RefreshCw className={`w-4 h-4 mr-2 ${(isLoadingCVs || isLoadingJDs) ? 'animate-spin' : ''}`} />
+              Refresh
             </Button>
-          )}
+            {canStartMatching && (
+              <Button
+                variant="primary"
+                onClick={handleStartMatching}
+                disabled={loadingStates.matching.isLoading}
+                aria-label="Start matching selected CVs with job description"
+                className="px-6 py-2 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                {loadingStates.matching.isLoading ? 'Matching...' : 'Match Selected'}
+              </Button>
+            )}
           </div>
         </div>
       </div>
-      
+
       {/* Enhanced Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
           <div className="flex justify-center mb-4">
-            <div 
+            <div
               className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-110"
-              style={{ 
+              style={{
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                 boxShadow: '0 8px 32px rgba(16, 185, 129, 0.3)'
               }}
@@ -1017,12 +1058,12 @@ export default function DatabasePageNew() {
           <p className="text-xs text-slate-500 text-center">Ready for matching</p>
           <div className="absolute top-4 right-4 w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
         </div>
-        
+
         <div className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
           <div className="flex justify-center mb-4">
-            <div 
+            <div
               className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-110"
-              style={{ 
+              style={{
                 background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
                 boxShadow: '0 8px 32px rgba(245, 158, 11, 0.3)'
               }}
@@ -1035,12 +1076,12 @@ export default function DatabasePageNew() {
           <p className="text-xs text-slate-500 text-center">Available for matching</p>
           <div className="absolute top-4 right-4 w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></div>
         </div>
-        
+
         <div className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
           <div className="flex justify-center mb-4">
-            <div 
+            <div
               className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-110"
-              style={{ 
+              style={{
                 background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
                 boxShadow: '0 8px 32px rgba(139, 92, 246, 0.3)'
               }}
@@ -1087,8 +1128,8 @@ export default function DatabasePageNew() {
       {/* Main Tabs */}
       <Tabs value={databaseActiveTab} onValueChange={(value) => setDatabaseActiveTab(value as "cvs" | "jds")} className="space-y-6">
         <TabsList className="grid w-full grid-cols-2 bg-slate-800/90 backdrop-blur-sm border border-slate-700/30 shadow-lg rounded-xl p-1 h-auto">
-          <TabsTrigger 
-            value="cvs" 
+          <TabsTrigger
+            value="cvs"
             className="flex items-center justify-start space-x-3 text-white data-[state=active]:bg-gradient-to-r data-[state=active]:from-[rgba(0,82,155,0.7)] data-[state=active]:to-[rgba(0,61,115,0.7)] data-[state=active]:text-white transition-all duration-300 rounded-lg p-4 h-auto min-h-[60px] data-[state=inactive]:hover:bg-slate-700/50"
           >
             <Users className="w-5 h-5 text-white flex-shrink-0" />
@@ -1097,8 +1138,8 @@ export default function DatabasePageNew() {
               <div className="text-xs text-white opacity-75 !text-white">{filteredCVs.length} candidates</div>
             </div>
           </TabsTrigger>
-          <TabsTrigger 
-            value="jds" 
+          <TabsTrigger
+            value="jds"
             className="flex items-center justify-start space-x-3 text-white data-[state=active]:bg-gradient-to-r data-[state=active]:from-[rgba(0,82,155,0.7)] data-[state=active]:to-[rgba(0,61,115,0.7)] data-[state=active]:text-white transition-all duration-300 rounded-lg p-4 h-auto min-h-[60px] data-[state=inactive]:hover:bg-slate-700/50"
           >
             <FileText className="w-5 h-5 text-white flex-shrink-0" />
@@ -1108,13 +1149,13 @@ export default function DatabasePageNew() {
             </div>
           </TabsTrigger>
         </TabsList>
-        
+
         {/* CVs Tab */}
         <TabsContent value="cvs" className="space-y-4">
           <div className="flex gap-4">
             {/* Sidebar */}
             <Sidebar />
-            
+
             {/* Main Content */}
             <div className="flex-1 transition-all duration-300">
               {/* Sidebar Toggle Button (when collapsed) */}
@@ -1131,269 +1172,281 @@ export default function DatabasePageNew() {
                   </Button>
                 </div>
               )}
-              
+
               {/* Main CV Listing - Only show when not in category view */}
               {currentView === 'all' && (
-               <Card className="shadow-lg border-0 bg-gradient-to-br from-white via-blue-50/10 to-indigo-50/20 rounded-xl">
-             <CardHeader className="pb-4 bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] text-white rounded-t-xl">
-               <div className="flex items-center justify-between">
-                 <div className="flex items-center space-x-3">
-                   <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
-                     <Users className="w-5 h-5 text-white" />
-                   </div>
-                   <div>
-                     <CardTitle className="text-xl font-bold text-white mb-1">Candidate Profiles</CardTitle>
-                     <p className="text-white text-sm">Discover and manage your talent pool</p>
-                   </div>
-                 </div>
-                 <div className="flex items-center space-x-3">
-                   <div className="text-center bg-white/20 rounded-lg p-3 backdrop-blur-sm">
-                     <div className="text-lg font-bold text-white">{selectedCVs.length}</div>
-                     <div className="text-white text-xs">Selected</div>
-                   </div>
-                 </div>
-               </div>
-             </CardHeader>
-            <CardContent>
-              {isLoadingCVs ? (
-                <div className="flex items-center justify-center py-8">
-                  <Clock className="w-6 h-6 animate-spin mr-2" />
-                  <span>Loading CVs...</span>
-                </div>
-              ) : filteredCVs.length === 0 ? (
-                <div className="text-center py-8">
-                  <AlertCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    {searchQuery ? 'No CVs match your search' : 'No CVs uploaded'}
-                  </h3>
-                  <p className="text-gray-500 mb-4">
-                    {searchQuery 
-                      ? 'Try adjusting your search terms' 
-                      : 'Upload CVs to get started with matching'}
-                  </p>
-                  {!searchQuery && (
-                    <Button onClick={() => setCurrentTab('upload')}>Upload CVs</Button>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {paginatedCVs.map((cv) => {
-                    const b = getCVBasics(cv);
-                    return (
-                      <div
-                        key={cv.id}
-                        className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
-                      >
-                        <div className="flex items-start space-x-3">
-                          <input
-                            type="checkbox"
-                            checked={selectedCVs.includes(cv.id)}
-                            onChange={() => {
-                              if (selectedCVs.includes(cv.id)) {
-                                deselectCV(cv.id);
-                              } else {
-                                selectCV(cv.id);
-                              }
-                            }}
-                            className="h-4 w-4 text-blue-600 rounded mt-1"
-                            aria-label={`Select CV for ${b.name}`}
-                          />
-                          <div className="p-2 bg-blue-100 rounded-lg">
-                            <Users className="w-5 h-5 text-blue-600" />
-                          </div>
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900">{b.name}</h4>
-                            <p className="text-sm text-gray-500">
-                              {b.title} • {b.years} years
-                            </p>
-                            <div className="flex items-center space-x-2 mt-1">
-                              <Badge variant="secondary">{b.skillsCount} skills</Badge>
-                              <Badge variant="outline">{b.respCount} responsibilities</Badge>
-                            </div>
-                          </div>
-                          
-                          {/* Notes Section - Right Side */}
-                          <div className="w-80 ml-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-1">
-                                <MessageSquare className="w-4 h-4 text-blue-600" />
-                                <span className="text-sm font-medium text-gray-700">
-                                  Notes ({cvNotes[cv.id]?.length || 0})
-                                </span>
-                              </div>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setEditingNote({ cvId: cv.id, noteIndex: -1 });
-                                  setNoteText('');
-                                }}
-                                className="flex items-center gap-1 h-6 px-2 text-xs"
-                              >
-                                <Pencil className="w-3 h-3" />
-                                Add
-                              </Button>
-                            </div>
-                            
-                            {/* Add/Edit Note Form */}
-                            {editingNote?.cvId === cv.id && (
-                              <div className="mb-2 p-2 bg-blue-50 rounded border border-blue-200">
-                                <textarea
-                                  value={noteText}
-                                  onChange={(e) => setNoteText(e.target.value)}
-                                  placeholder="Add note..."
-                                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                                  rows={2}
-                                />
-                                <div className="flex items-center gap-1 mt-1">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleSaveNote(cv.id)}
-                                    disabled={savingNote === cv.id || !noteText.trim()}
-                                    className="flex items-center gap-1 h-5 px-2 text-xs"
-                                  >
-                                    {savingNote === cv.id ? (
-                                      <div className="w-3 h-3 border border-green-600 border-t-transparent rounded-full animate-spin" />
-                                    ) : (
-                                      <Save className="w-3 h-3" />
-                                    )}
-                                    Save
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setEditingNote(null);
-                                      setNoteText('');
-                                    }}
-                                    className="flex items-center gap-1 h-5 px-2 text-xs"
-                                  >
-                                    <X className="w-3 h-3" />
-                                    Cancel
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
-                            
-                            {/* Display Notes */}
-                            {cvNotes[cv.id] && cvNotes[cv.id].length > 0 && (
-                              <div className="space-y-1 max-h-32 overflow-y-auto">
-                                {cvNotes[cv.id].map((note: any, noteIndex: number) => (
-                                  <div key={noteIndex} className="p-2 rounded border border-gray-200 bg-gray-50">
-                                    <div className="flex justify-between items-start mb-1">
-                                      <div className="text-xs font-medium text-gray-700">
-                                        {note.hr_user}
-                                        {note.hr_user === user?.username && (
-                                          <span className="ml-1 text-xs bg-blue-200 text-blue-800 px-1 py-0.5 rounded">
-                                            You
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-1">
-                                        <div className="text-xs text-gray-500">
-                                          {new Date(note.updated_at || note.created_at).toLocaleDateString()}
-                                        </div>
-                                        {/* Only show edit/delete buttons if user owns this note */}
-                                        {note.hr_user === user?.username && (
-                                          <>
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              onClick={() => handleEditNote(cv.id, noteIndex, note.note)}
-                                              className="flex items-center gap-1 p-0.5 h-4 w-4"
-                                              title="Edit your note"
-                                            >
-                                              <Pencil className="w-2 h-2" />
-                                            </Button>
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              onClick={() => handleDeleteNote(cv.id, note.hr_user)}
-                                              className="flex items-center gap-1 p-0.5 h-4 w-4 text-red-600 hover:text-red-700"
-                                              title="Delete your note"
-                                            >
-                                              <X className="w-2 h-2" />
-                                            </Button>
-                                          </>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <div className="text-xs text-gray-800 line-clamp-2">
-                                      {note.note}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                <Card className="shadow-lg border-0 bg-gradient-to-br from-white via-blue-50/10 to-indigo-50/20 rounded-xl">
+                  <CardHeader className="pb-4 bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] text-white rounded-t-xl">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                          <Users className="w-5 h-5 text-white" />
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setSelectedCVForDetails(cv.id)}
-                                aria-label={`View details for ${b.name}`}
-                              >
-                                <Eye className="w-4 h-4" />
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl">
-                              <DialogHeader>
-                                <DialogTitle className="text-xl font-semibold">CV Details</DialogTitle>
-                              </DialogHeader>
-                              <CVDetails cvId={cv.id} />
-                            </DialogContent>
-                          </Dialog>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={() => handleReprocessCV(cv.id)} 
-                            disabled={isDeleting}
-                            aria-label={`Reprocess CV for ${b.name}`}
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteCV(cv.id)}
-                            disabled={isDeleting}
-                            className="text-red-500 hover:text-red-700"
-                            aria-label={`Delete CV for ${b.name}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                        <div>
+                          <CardTitle className="text-xl font-bold text-white mb-1">Candidate Profiles</CardTitle>
+                          <p className="text-white text-sm">Discover and manage your talent pool</p>
                         </div>
                       </div>
-                    );
-                  })}
-                  
-                  {/* Pagination Controls for CVs */}
-                  <PaginationControls
-                    totalPages={totalPages}
-                    currentPage={currentPage}
-                    onPageChange={setCurrentPage}
-                    totalItems={currentCVs.length}
-                    itemsPerPage={itemsPerPage}
-                  />
-                </div>
+                      <div className="flex items-center space-x-3">
+                        <div className="text-center bg-white/20 rounded-lg p-3 backdrop-blur-sm">
+                          <div className="text-lg font-bold text-white">{selectedCVs.length}</div>
+                          <div className="text-white text-xs">Selected</div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoadingCVs ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Clock className="w-6 h-6 animate-spin mr-2" />
+                        <span>Loading CVs...</span>
+                      </div>
+                    ) : filteredCVs.length === 0 ? (
+                      <div className="text-center py-8">
+                        <AlertCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">
+                          {searchQuery ? 'No CVs match your search' : 'No CVs uploaded'}
+                        </h3>
+                        <p className="text-gray-500 mb-4">
+                          {searchQuery
+                            ? 'Try adjusting your search terms'
+                            : 'Upload CVs to get started with matching'}
+                        </p>
+                        {!searchQuery && (
+                          <Button onClick={() => setCurrentTab('upload')}>Upload CVs</Button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {paginatedCVs.map((cv) => {
+                          const b = getCVBasics(cv);
+                          return (
+                            <div
+                              key={cv.id}
+                              className="group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
+                            >
+                              <div className="flex items-start space-x-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedCVs.includes(cv.id)}
+                                  onChange={() => {
+                                    if (selectedCVs.includes(cv.id)) {
+                                      deselectCV(cv.id);
+                                    } else {
+                                      selectCV(cv.id);
+                                    }
+                                  }}
+                                  className="h-4 w-4 text-blue-600 rounded mt-1"
+                                  aria-label={`Select CV for ${b.name}`}
+                                />
+                                <div className="p-2 bg-blue-100 rounded-lg">
+                                  <Users className="w-5 h-5 text-blue-600" />
+                                </div>
+                                <div className="flex-1">
+                                  <h4 className="font-medium text-gray-900">{b.name}</h4>
+                                  <p className="text-sm text-gray-500">
+                                    {b.title} • {b.years} years
+                                  </p>
+                                  <div className="flex items-center space-x-2 mt-1">
+                                    <Badge variant="secondary">{b.skillsCount} skills</Badge>
+                                    <Badge variant="outline">{b.respCount} responsibilities</Badge>
+                                  </div>
+                                </div>
+
+                                {/* Notes Section - Right Side */}
+                                <div className="w-80 ml-4 relative">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-1">
+                                      <MessageSquare className="w-4 h-4 text-blue-600" />
+                                      <span className="text-sm font-medium text-gray-700">
+                                        Notes ({cvNotes[cv.id]?.length || 0})
+                                      </span>
+                                    </div>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setEditingNote({ cvId: cv.id, noteIndex: -1 });
+                                        setNoteText('');
+                                      }}
+                                      className="flex items-center gap-1 h-6 px-2 text-xs"
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                      Add
+                                    </Button>
+                                  </div>
+
+                                  {/* Add/Edit Note Form */}
+                                  {editingNote?.cvId === cv.id && (
+                                    <div className="mb-2 p-2 bg-blue-50 rounded border border-blue-200">
+                                      <textarea
+                                        value={noteText}
+                                        onChange={(e) => setNoteText(e.target.value)}
+                                        placeholder="Add note..."
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                                        rows={2}
+                                      />
+                                      <div className="flex items-center gap-1 mt-1">
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => handleSaveNote(cv.id)}
+                                          disabled={savingNote === cv.id || !noteText.trim()}
+                                          className="flex items-center gap-1 h-5 px-2 text-xs"
+                                        >
+                                          {savingNote === cv.id ? (
+                                            <div className="w-3 h-3 border border-green-600 border-t-transparent rounded-full animate-spin" />
+                                          ) : (
+                                            <Save className="w-3 h-3" />
+                                          )}
+                                          Save
+                                        </Button>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setEditingNote(null);
+                                            setNoteText('');
+                                          }}
+                                          className="flex items-center gap-1 h-5 px-2 text-xs"
+                                        >
+                                          <X className="w-3 h-3" />
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Display Notes */}
+                                  {cvNotes[cv.id] && cvNotes[cv.id].length > 0 && (
+                                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                                      {cvNotes[cv.id].map((note: any, noteIndex: number) => (
+                                        <div key={noteIndex} className="p-2 rounded border border-gray-200 bg-gray-50">
+                                          <div className="flex justify-between items-start mb-1">
+                                            <div className="text-xs font-medium text-gray-700">
+                                              {note.hr_user}
+                                              {note.hr_user === user?.username && (
+                                                <span className="ml-1 text-xs bg-blue-200 text-blue-800 px-1 py-0.5 rounded">
+                                                  You
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                              <div className="text-xs text-gray-500">
+                                                {new Date(note.updated_at || note.created_at).toLocaleDateString()}
+                                              </div>
+                                              {/* Only show edit/delete buttons if user owns this note */}
+                                              {note.hr_user === user?.username && (
+                                                <>
+                                                  <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => handleEditNote(cv.id, noteIndex, note.note)}
+                                                    className="flex items-center gap-1 p-0.5 h-4 w-4"
+                                                    title="Edit your note"
+                                                  >
+                                                    <Pencil className="w-2 h-2" />
+                                                  </Button>
+                                                  <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => handleDeleteNote(cv.id, note.hr_user)}
+                                                    className="flex items-center gap-1 p-0.5 h-4 w-4 text-red-600 hover:text-red-700"
+                                                    title="Delete your note"
+                                                  >
+                                                    <X className="w-2 h-2" />
+                                                  </Button>
+                                                </>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div className="text-xs text-gray-800 line-clamp-2">
+                                            {note.note}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2 relative z-10 pointer-events-auto mt-3">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    handlePreviewFile(cv.id, 'cv', cv.filename || `CV_${cv.id}`);
+                                  }}
+                                  title="Preview Original File"
+                                  className="flex items-center gap-1"
+                                >
+                                  <FileText className="w-4 h-4" />
+                                  <span className="text-xs">Preview</span>
+                                </Button>
+                                <Dialog>
+                                  <DialogTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setSelectedCVForDetails(cv.id)}
+                                      aria-label={`View details for ${b.name}`}
+                                    >
+                                      <Eye className="w-4 h-4" />
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl">
+                                    <DialogHeader>
+                                      <DialogTitle className="text-xl font-semibold">CV Details</DialogTitle>
+                                    </DialogHeader>
+                                    <CVDetails cvId={cv.id} />
+                                  </DialogContent>
+                                </Dialog>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleReprocessCV(cv.id)}
+                                  disabled={isDeleting}
+                                  aria-label={`Reprocess CV for ${b.name}`}
+                                >
+                                  <RefreshCw className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeleteCV(cv.id)}
+                                  disabled={isDeleting}
+                                  className="text-red-500 hover:text-red-700"
+                                  aria-label={`Delete CV for ${b.name}`}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Pagination Controls for CVs */}
+                        <PaginationControls
+                          totalPages={totalPages}
+                          currentPage={currentPage}
+                          onPageChange={setCurrentPage}
+                          totalItems={currentCVs.length}
+                          itemsPerPage={itemsPerPage}
+                        />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               )}
-            </CardContent>
-          </Card>
-               )}
             </div>
           </div>
         </TabsContent>
-        
+
         {/* JDs Tab */}
         <TabsContent value="jds" className="space-y-4">
           <div className="flex gap-4">
             {/* Sidebar */}
             <Sidebar />
-            
+
             {/* Main Content */}
             <div className="flex-1 transition-all duration-300">
               {/* Sidebar Toggle Button (when collapsed) */}
@@ -1410,139 +1463,147 @@ export default function DatabasePageNew() {
                   </Button>
                 </div>
               )}
-              
-               <Card className="shadow-lg border-0 bg-gradient-to-br from-white via-green-50/10 to-emerald-50/20 rounded-xl">
-             <CardHeader className="pb-4 bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] text-white rounded-t-xl">
-               <div className="flex items-center justify-between">
-                 <div className="flex items-center space-x-3">
-                   <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
-                     <FileText className="w-5 h-5 text-white" />
-                   </div>
-                   <div>
-                     <CardTitle className="text-xl font-bold text-white mb-1">Job Descriptions</CardTitle>
-                     <p className="text-white text-sm">Define and manage position requirements</p>
-                   </div>
-                 </div>
-                 <div className="flex items-center space-x-3">
-                   <div className="text-center bg-white/20 rounded-lg p-3 backdrop-blur-sm">
-                     <div className="text-lg font-bold text-white">{selectedJD ? '1' : '0'}</div>
-                     <div className="text-white text-xs">Selected</div>
-                   </div>
-                 </div>
-               </div>
-             </CardHeader>
-            <CardContent>
-              {isLoadingJDs ? (
-                <div className="flex items-center justify-center py-8">
-                  <Clock className="w-6 h-6 animate-spin mr-2" />
-                  <span>Loading Job Descriptions...</span>
-                </div>
-              ) : filteredJDs.length === 0 ? (
-                <div className="text-center py-8">
-                  <AlertCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    {searchQuery ? 'No Job Descriptions match your search' : 'No Job Descriptions uploaded'}
-                  </h3>
-                  <p className="text-gray-500 mb-4">
-                    {searchQuery 
-                      ? 'Try adjusting your search terms' 
-                      : 'Upload job descriptions to get started with matching'}
-                  </p>
-                  {!searchQuery && (
-                    <Button onClick={() => setCurrentTab('upload')}>Upload Job Descriptions</Button>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {paginatedJDs.map((jd) => {
-                    const b = getJDBasics(jd);
-                    return (
-                      <div
-                        key={jd.id}
-                        className={`group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 ${
-                          selectedJD === jd.id ? 'ring-2 ring-blue-500 bg-blue-50/50' : ''
-                        }`}
-                      >
-                        <div className="flex items-center space-x-3">
-                          <input
-                            type="radio"
-                            name="selectedJD"
-                            checked={selectedJD === jd.id}
-                            onChange={() => selectJD(jd.id)}
-                            className="h-4 w-4 text-blue-600"
-                            aria-label={`Select job description: ${b.title}`}
-                          />
-                          <div className="p-2 bg-green-100 rounded-lg">
-                            <FileText className="w-5 h-5 text-green-600" />
-                          </div>
-                          <div>
-                            <h4 className="font-medium text-gray-900">{b.title}</h4>
-                            <p className="text-sm text-gray-500">{b.years} experience required</p>
-                            <div className="flex items-center space-x-2 mt-1">
-                              <Badge variant="secondary">{b.skillsCount} skills</Badge>
-                              <Badge variant="outline">{b.responsibilitiesCount} responsibilities</Badge>
+
+              <Card className="shadow-lg border-0 bg-gradient-to-br from-white via-green-50/10 to-emerald-50/20 rounded-xl">
+                <CardHeader className="pb-4 bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] text-white rounded-t-xl">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                        <FileText className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-xl font-bold text-white mb-1">Job Descriptions</CardTitle>
+                        <p className="text-white text-sm">Define and manage position requirements</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <div className="text-center bg-white/20 rounded-lg p-3 backdrop-blur-sm">
+                        <div className="text-lg font-bold text-white">{selectedJD ? '1' : '0'}</div>
+                        <div className="text-white text-xs">Selected</div>
+                      </div>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {isLoadingJDs ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Clock className="w-6 h-6 animate-spin mr-2" />
+                      <span>Loading Job Descriptions...</span>
+                    </div>
+                  ) : filteredJDs.length === 0 ? (
+                    <div className="text-center py-8">
+                      <AlertCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">
+                        {searchQuery ? 'No Job Descriptions match your search' : 'No Job Descriptions uploaded'}
+                      </h3>
+                      <p className="text-gray-500 mb-4">
+                        {searchQuery
+                          ? 'Try adjusting your search terms'
+                          : 'Upload job descriptions to get started with matching'}
+                      </p>
+                      {!searchQuery && (
+                        <Button onClick={() => setCurrentTab('upload')}>Upload Job Descriptions</Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {paginatedJDs.map((jd) => {
+                        const b = getJDBasics(jd);
+                        return (
+                          <div
+                            key={jd.id}
+                            className={`group relative bg-white/90 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 ${selectedJD === jd.id ? 'ring-2 ring-blue-500 bg-blue-50/50' : ''
+                              }`}
+                          >
+                            <div className="flex items-center space-x-3">
+                              <input
+                                type="radio"
+                                name="selectedJD"
+                                checked={selectedJD === jd.id}
+                                onChange={() => selectJD(jd.id)}
+                                className="h-4 w-4 text-blue-600"
+                                aria-label={`Select job description: ${b.title}`}
+                              />
+                              <div className="p-2 bg-green-100 rounded-lg">
+                                <FileText className="w-5 h-5 text-green-600" />
+                              </div>
+                              <div>
+                                <h4 className="font-medium text-gray-900">{b.title}</h4>
+                                <p className="text-sm text-gray-500">{b.years} experience required</p>
+                                <div className="flex items-center space-x-2 mt-1">
+                                  <Badge variant="secondary">{b.skillsCount} skills</Badge>
+                                  <Badge variant="outline">{b.responsibilitiesCount} responsibilities</Badge>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Dialog>
-                            <DialogTrigger asChild>
+                            <div className="flex items-center space-x-2">
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setSelectedJDForDetails(jd.id)}
+                                    aria-label={`View details for ${b.title}`}
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl">
+                                  <DialogHeader>
+                                    <DialogTitle className="text-xl font-semibold">Job Description Details</DialogTitle>
+                                  </DialogHeader>
+                                  <JDDetails jdId={jd.id} />
+                                </DialogContent>
+                              </Dialog>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => setSelectedJDForDetails(jd.id)}
-                                aria-label={`View details for ${b.title}`}
+                                onClick={() => handleReprocessJD(jd.id)}
+                                disabled={isDeleting}
+                                aria-label={`Reprocess job description: ${b.title}`}
                               >
-                                <Eye className="w-4 h-4" />
+                                <RefreshCw className="w-4 h-4" />
                               </Button>
-                            </DialogTrigger>
-                            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl">
-                              <DialogHeader>
-                                <DialogTitle className="text-xl font-semibold">Job Description Details</DialogTitle>
-                              </DialogHeader>
-                              <JDDetails jdId={jd.id} />
-                            </DialogContent>
-                          </Dialog>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={() => handleReprocessJD(jd.id)} 
-                            disabled={isDeleting}
-                            aria-label={`Reprocess job description: ${b.title}`}
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteJD(jd.id)}
-                            disabled={isDeleting}
-                            className="text-red-500 hover:text-red-700"
-                            aria-label={`Delete job description: ${b.title}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  
-                  {/* Pagination Controls for JDs */}
-                  <PaginationControls
-                    totalPages={totalJDPages}
-                    currentPage={currentPage}
-                    onPageChange={setCurrentPage}
-                    totalItems={filteredJDs.length}
-                    itemsPerPage={itemsPerPage}
-                  />
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteJD(jd.id)}
+                                disabled={isDeleting}
+                                className="text-red-500 hover:text-red-700"
+                                aria-label={`Delete job description: ${b.title}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Pagination Controls for JDs */}
+                      <PaginationControls
+                        totalPages={totalJDPages}
+                        currentPage={currentPage}
+                        onPageChange={setCurrentPage}
+                        totalItems={filteredJDs.length}
+                        itemsPerPage={itemsPerPage}
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           </div>
         </TabsContent>
       </Tabs>
+      <FilePreviewModal
+        isOpen={previewData.isOpen}
+        fileUrl={previewData.url}
+        fileName={previewData.name}
+        fileId={previewData.id}
+        fileType={previewData.type === 'cv' ? 'application/pdf' : 'application/pdf'}
+        extractedText={previewData.extractedText}
+        onClose={() => setPreviewData(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }
@@ -1553,7 +1614,7 @@ function CVDetails({ cvId }: { cvId: string }) {
   const [cv, setCV] = useState<CVData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   useEffect(() => {
     const loadCV = async () => {
       try {
@@ -1569,7 +1630,7 @@ function CVDetails({ cvId }: { cvId: string }) {
     };
     loadCV();
   }, [cvId]);
-  
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -1580,7 +1641,7 @@ function CVDetails({ cvId }: { cvId: string }) {
       </div>
     );
   }
-  
+
   if (error) {
     return (
       <div className="text-center py-12">
@@ -1592,7 +1653,7 @@ function CVDetails({ cvId }: { cvId: string }) {
       </div>
     );
   }
-  
+
   if (!cv) {
     return (
       <div className="text-center py-12">
@@ -1604,73 +1665,73 @@ function CVDetails({ cvId }: { cvId: string }) {
       </div>
     );
   }
-  
+
   const b = getCVBasics(cv);
-  
+
   // Extract contact information
   const getContactInfo = (cv: CVData): ContactInfo => {
     const cvData = cv?.cv || cv;
     const candidate = cvData?.candidate || {};
     const structured = cvData?.structured_info || {};
-    
-    const email = candidate?.contact_info?.email || 
-                  structured?.contact_info?.email ||
-                  cvData?.contact_info?.email;
-    
-    const phone = candidate?.contact_info?.phone || 
-                  structured?.contact_info?.phone ||
-                  cvData?.contact_info?.phone;
-    
+
+    const email = candidate?.contact_info?.email ||
+      structured?.contact_info?.email ||
+      cvData?.contact_info?.email;
+
+    const phone = candidate?.contact_info?.phone ||
+      structured?.contact_info?.phone ||
+      cvData?.contact_info?.phone;
+
     const textPreview = cvData?.text_info?.extracted_text_preview || '';
-    
+
     return {
       email: email || extractEmailFromText(textPreview),
       phone: phone || extractPhoneFromText(textPreview)
     };
   };
-  
+
   // Get skills data
   const getSkillsData = (cv: CVData): string[] => {
     const cvData = cv?.cv || cv;
     const candidate = cvData?.candidate || {};
     const structured = cvData?.structured_info || {};
-    
-    return candidate?.skills ?? 
-           structured?.skills ?? 
-           structured?.skills_sentences ??
-           cvData?.skills ?? 
-           [];
+
+    return candidate?.skills ??
+      structured?.skills ??
+      structured?.skills_sentences ??
+      cvData?.skills ??
+      [];
   };
-  
+
   // Get responsibilities data
   const getResponsibilitiesData = (cv: CVData): string[] => {
     const cvData = cv?.cv || cv;
     const candidate = cvData?.candidate || {};
     const structured = cvData?.structured_info || {};
-    
-    return candidate?.responsibilities ?? 
-           structured?.responsibilities ?? 
-           structured?.responsibility_sentences ??
-           cvData?.responsibilities ?? 
-           [];
+
+    return candidate?.responsibilities ??
+      structured?.responsibilities ??
+      structured?.responsibility_sentences ??
+      cvData?.responsibilities ??
+      [];
   };
-  
+
   const contactInfo = getContactInfo(cv);
   const skillsData = getSkillsData(cv);
   const responsibilitiesData = getResponsibilitiesData(cv);
   const category = cv?.cv?.candidate?.category || cv?.cv?.structured_info?.category || 'General';
   const categoryIcon = categoryIcons[category as keyof typeof categoryIcons] || categoryIcons['General'];
   const categoryColor = categoryColors[category as keyof typeof categoryColors] || categoryColors['General'];
-  
+
   return (
     <div className="space-y-8">
       {/* Enhanced Header Section */}
       <div className="bg-gradient-to-r from-blue-50/90 to-indigo-50/90 backdrop-blur-sm rounded-2xl p-8 border border-blue-100/50 shadow-lg">
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-4">
-            <div 
+            <div
               className="bg-white rounded-full p-4 shadow-lg group-hover:shadow-xl transition-all duration-300"
-              style={{ 
+              style={{
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                 boxShadow: '0 8px 32px rgba(16, 185, 129, 0.3)'
               }}
@@ -1713,9 +1774,9 @@ function CVDetails({ cvId }: { cvId: string }) {
       {/* Enhanced Contact Information */}
       <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-white/30 p-6 shadow-lg hover:shadow-xl transition-all duration-300">
         <div className="flex items-center space-x-2 mb-4">
-          <div 
+          <div
             className="bg-green-100 rounded-full p-3 shadow-lg"
-            style={{ 
+            style={{
               background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
               boxShadow: '0 8px 32px rgba(16, 185, 129, 0.3)'
             }}
@@ -1741,7 +1802,7 @@ function CVDetails({ cvId }: { cvId: string }) {
           </div>
         </div>
       </div>
-      
+
       {/* Skills Section */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-6">
@@ -1770,7 +1831,7 @@ function CVDetails({ cvId }: { cvId: string }) {
           </div>
         )}
       </div>
-      
+
       {/* Experience & Responsibilities */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-6">
@@ -1802,7 +1863,7 @@ function CVDetails({ cvId }: { cvId: string }) {
           </div>
         )}
       </div>
-      
+
       {/* Admin-only sections */}
       {user?.role === 'admin' && (
         <>
@@ -1826,7 +1887,7 @@ function CVDetails({ cvId }: { cvId: string }) {
           </div>
         </>
       )}
-      
+
       {/* Admin-only Technical Information */}
       {user?.role === 'admin' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1860,7 +1921,7 @@ function CVDetails({ cvId }: { cvId: string }) {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
             <div className="flex items-center space-x-2 mb-4">
               <div className="bg-green-100 rounded-full p-2">
@@ -1904,7 +1965,7 @@ function JDDetails({ jdId }: { jdId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showJSON, setShowJSON] = useState(false);
-  
+
   useEffect(() => {
     const loadJD = async () => {
       try {
@@ -1920,7 +1981,7 @@ function JDDetails({ jdId }: { jdId: string }) {
     };
     loadJD();
   }, [jdId]);
-  
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -1931,7 +1992,7 @@ function JDDetails({ jdId }: { jdId: string }) {
       </div>
     );
   }
-  
+
   if (error) {
     return (
       <div className="text-center py-12">
@@ -1943,7 +2004,7 @@ function JDDetails({ jdId }: { jdId: string }) {
       </div>
     );
   }
-  
+
   if (!jd) {
     return (
       <div className="text-center py-12">
@@ -1955,12 +2016,12 @@ function JDDetails({ jdId }: { jdId: string }) {
       </div>
     );
   }
-  
+
   const b = getJDBasics(jd);
   const category = jd?.jd?.job_requirements?.category || jd?.jd?.structured_info?.category || 'General';
   const categoryIcon = categoryIcons[category as keyof typeof categoryIcons] || categoryIcons['General'];
   const categoryColor = categoryColors[category as keyof typeof categoryColors] || categoryColors['General'];
-  
+
   return (
     <div className="space-y-6">
       {/* Header Section */}
@@ -2035,7 +2096,7 @@ function JDDetails({ jdId }: { jdId: string }) {
           </div>
         </div>
       </div>
-      
+
       {/* Required Skills */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-6">
@@ -2064,7 +2125,7 @@ function JDDetails({ jdId }: { jdId: string }) {
           </div>
         )}
       </div>
-      
+
       {/* Job Responsibilities */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-6">
@@ -2096,7 +2157,7 @@ function JDDetails({ jdId }: { jdId: string }) {
           </div>
         )}
       </div>
-      
+
       {/* Admin-only sections */}
       {user?.role === 'admin' && (
         <>
@@ -2120,7 +2181,7 @@ function JDDetails({ jdId }: { jdId: string }) {
           </div>
         </>
       )}
-      
+
       {/* Admin-only Technical Information */}
       {user?.role === 'admin' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -2154,7 +2215,7 @@ function JDDetails({ jdId }: { jdId: string }) {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
             <div className="flex items-center space-x-2 mb-4">
               <div className="bg-green-100 rounded-full p-2">
@@ -2187,7 +2248,7 @@ function JDDetails({ jdId }: { jdId: string }) {
           </div>
         </div>
       )}
-      
+
       {/* Admin-only: collapsible raw JSON for debugging */}
       {user?.role === 'admin' && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
@@ -2210,6 +2271,8 @@ function JDDetails({ jdId }: { jdId: string }) {
           )}
         </div>
       )}
+
+
     </div>
   );
 }

@@ -1,221 +1,139 @@
 """
-S3 Storage Service - File storage for CVs and JDs
-Handles all file operations with AWS S3 for unlimited, scalable storage.
+Local Storage Service - File storage for CVs and JDs
+Handles all file operations with local filesystem instead of S3.
 """
-import boto3
 import os
+import shutil
 import logging
 from typing import Optional
 from datetime import datetime
-from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 
 class S3StorageService:
     """
-    Service for storing and retrieving CV/JD files from S3.
-    Replaces local EBS storage to prevent disk space issues.
+    Service for storing and retrieving CV/JD files from local storage.
+    Replaced S3 implementation to work without AWS credentials.
     """
     
     def __init__(self):
-        """Initialize S3 client with AWS credentials from environment."""
-        self.s3_client = boto3.client(
-            's3',
-            region_name=os.getenv('AWS_REGION', 'eu-north-1'),
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
-        )
+        """Initialize Local storage with base directory."""
+        # Use a path relative to the app root or as specified by env
+        self.base_dir = os.getenv('LOCAL_STORAGE_DIR', os.path.join(os.getcwd(), 'uploads'))
         
-        self.bucket_name = os.getenv('S3_BUCKET_NAME', 'alphacv-files-eu-north-1')
-        logger.info(f"✅ S3StorageService initialized with bucket: {self.bucket_name}")
+        # Ensure base directories exist
+        os.makedirs(os.path.join(self.base_dir, 'cvs'), exist_ok=True)
+        os.makedirs(os.path.join(self.base_dir, 'jds'), exist_ok=True)
+        
+        logger.info(f"✅ LocalStorageService initialized at: {self.base_dir}")
     
     def upload_file(self, local_file_path: str, doc_id: str, doc_type: str, file_ext: str) -> str:
         """
-        Upload a file to S3.
+        Copy a file to local storage.
         
         Args:
-            local_file_path: Path to local file
+            local_file_path: Path to local temporary file
             doc_id: Unique document ID
             doc_type: Type of document ('cv' or 'jd')
             file_ext: File extension (e.g., '.pdf', '.docx')
             
         Returns:
-            S3 URI (e.g., 's3://bucket/cvs/uuid.pdf')
+            Absolute path to stored file
         """
         try:
-            # Create S3 key with organized structure
-            s3_key = f"{doc_type}s/{doc_id}{file_ext}"
+            # Create subfolder path
+            sub_folder = f"{doc_type}s"
+            dest_dir = os.path.join(self.base_dir, sub_folder)
+            os.makedirs(dest_dir, exist_ok=True)
             
-            # Upload file with metadata
-            self.s3_client.upload_file(
-                local_file_path,
-                self.bucket_name,
-                s3_key,
-                ExtraArgs={
-                    'Metadata': {
-                        'doc_id': doc_id,
-                        'doc_type': doc_type,
-                        'upload_date': datetime.utcnow().isoformat(),
-                        'original_extension': file_ext
-                    },
-                    'ServerSideEncryption': 'AES256',  # Encrypt at rest
-                    'ContentType': self._get_content_type(file_ext)
-                }
-            )
+            # Destination path
+            dest_filename = f"{doc_id}{file_ext}"
+            dest_path = os.path.join(dest_dir, dest_filename)
             
-            s3_uri = f"s3://{self.bucket_name}/{s3_key}"
-            logger.info(f"✅ Uploaded file to S3: {s3_uri}")
-            return s3_uri
+            # Copy file
+            shutil.copy2(local_file_path, dest_path)
             
-        except ClientError as e:
-            logger.error(f"❌ S3 upload failed: {e}")
-            raise Exception(f"Failed to upload file to S3: {str(e)}")
+            logger.info(f"✅ Stored file locally: {dest_path}")
+            return dest_path
+            
+        except Exception as e:
+            logger.error(f"❌ Local storage upload failed: {e}")
+            raise Exception(f"Failed to copy file to local storage: {str(e)}")
     
     def get_download_url(self, doc_id: str, doc_type: str, file_ext: str, expires_in: int = 3600) -> str:
         """
-        Generate a pre-signed URL for downloading a file.
-        
-        Args:
-            doc_id: Document ID
-            doc_type: Type of document ('cv' or 'jd')
-            file_ext: File extension
-            expires_in: URL expiration time in seconds (default: 1 hour)
-            
-        Returns:
-            Pre-signed URL for downloading
+        Generate a URL for downloading a file.
+        For local storage, this returns an internal API path.
         """
-        try:
-            s3_key = f"{doc_type}s/{doc_id}{file_ext}"
-            
-            url = self.s3_client.generate_presigned_url(
-                'get_object',
-                Params={
-                    'Bucket': self.bucket_name,
-                    'Key': s3_key
-                },
-                ExpiresIn=expires_in
-            )
-            
-            logger.info(f"✅ Generated download URL for {s3_key} (expires in {expires_in}s)")
-            return url
-            
-        except ClientError as e:
-            logger.error(f"❌ Failed to generate download URL: {e}")
-            raise Exception(f"Failed to generate download URL: {str(e)}")
+        # We will create an endpoint /api/storage/files/{doc_type}/{doc_id}
+        # For now, return a path that the frontend can use with the base API URL
+        return f"/api/storage/files/{doc_type}/{doc_id}{file_ext}"
     
     def download_file(self, doc_id: str, doc_type: str, file_ext: str, local_path: str) -> str:
         """
-        Download a file from S3 to local storage.
-        
-        Args:
-            doc_id: Document ID
-            doc_type: Type of document ('cv' or 'jd')
-            file_ext: File extension
-            local_path: Local path to save file
-            
-        Returns:
-            Local file path
+        Copy a file from storage to a local path.
         """
         try:
-            s3_key = f"{doc_type}s/{doc_id}{file_ext}"
+            source_path = os.path.join(self.base_dir, f"{doc_type}s", f"{doc_id}{file_ext}")
             
-            self.s3_client.download_file(
-                self.bucket_name,
-                s3_key,
-                local_path
-            )
-            
-            logger.info(f"✅ Downloaded file from S3: {s3_key} -> {local_path}")
+            if not os.path.exists(source_path):
+                raise FileNotFoundError(f"File not found: {source_path}")
+                
+            shutil.copy2(source_path, local_path)
+            logger.info(f"✅ Copied file: {source_path} -> {local_path}")
             return local_path
             
-        except ClientError as e:
-            logger.error(f"❌ Failed to download file from S3: {e}")
-            raise Exception(f"Failed to download file from S3: {str(e)}")
+        except Exception as e:
+            logger.error(f"❌ Failed to retrieve file: {e}")
+            raise Exception(f"Failed to retrieve file: {str(e)}")
     
     def delete_file(self, doc_id: str, doc_type: str, file_ext: str) -> bool:
         """
-        Delete a file from S3.
-        
-        Args:
-            doc_id: Document ID
-            doc_type: Type of document ('cv' or 'jd')
-            file_ext: File extension
-            
-        Returns:
-            True if successful
+        Delete a file from local storage.
         """
         try:
-            s3_key = f"{doc_type}s/{doc_id}{file_ext}"
+            file_path = os.path.join(self.base_dir, f"{doc_type}s", f"{doc_id}{file_ext}")
             
-            self.s3_client.delete_object(
-                Bucket=self.bucket_name,
-                Key=s3_key
-            )
-            
-            logger.info(f"✅ Deleted file from S3: {s3_key}")
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logger.info(f"✅ Deleted local file: {file_path}")
             return True
             
-        except ClientError as e:
-            logger.error(f"❌ Failed to delete file from S3: {e}")
-            raise Exception(f"Failed to delete file from S3: {str(e)}")
+        except Exception as e:
+            logger.error(f"❌ Failed to delete local file: {e}")
+            raise Exception(f"Failed to delete local file: {str(e)}")
     
     def file_exists(self, doc_id: str, doc_type: str, file_ext: str) -> bool:
         """
-        Check if a file exists in S3.
-        
-        Args:
-            doc_id: Document ID
-            doc_type: Type of document ('cv' or 'jd')
-            file_ext: File extension
-            
-        Returns:
-            True if file exists
+        Check if a file exists locally.
         """
-        try:
-            s3_key = f"{doc_type}s/{doc_id}{file_ext}"
-            
-            self.s3_client.head_object(
-                Bucket=self.bucket_name,
-                Key=s3_key
-            )
-            
-            return True
-            
-        except ClientError as e:
-            if e.response['Error']['Code'] == '404':
-                return False
-            else:
-                logger.error(f"❌ Error checking file existence: {e}")
-                raise
+        file_path = os.path.join(self.base_dir, f"{doc_type}s", f"{doc_id}{file_ext}")
+        return os.path.exists(file_path)
     
     def get_file_metadata(self, doc_id: str, doc_type: str, file_ext: str) -> dict:
         """
-        Get metadata for a file in S3.
-        
-        Args:
-            doc_id: Document ID
-            doc_type: Type of document ('cv' or 'jd')
-            file_ext: File extension
-            
-        Returns:
-            Dictionary with file metadata
+        Get metadata for a local file.
         """
         try:
-            s3_key = f"{doc_type}s/{doc_id}{file_ext}"
+            file_path = os.path.join(self.base_dir, f"{doc_type}s", f"{doc_id}{file_ext}")
             
-            response = self.s3_client.head_object(
-                Bucket=self.bucket_name,
-                Key=s3_key
-            )
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"File not found: {file_path}")
+                
+            stats = os.stat(file_path)
             
             return {
-                'size': response['ContentLength'],
-                'last_modified': response['LastModified'],
-                'content_type': response.get('ContentType'),
-                'metadata': response.get('Metadata', {})
+                'size': stats.st_size,
+                'last_modified': datetime.fromtimestamp(stats.st_mtime),
+                'content_type': self._get_content_type(file_ext),
+                'metadata': {
+                    'doc_id': doc_id,
+                    'doc_type': doc_type,
+                    'original_extension': file_ext
+                }
             }
             
-        except ClientError as e:
+        except Exception as e:
             logger.error(f"❌ Failed to get file metadata: {e}")
             raise Exception(f"Failed to get file metadata: {str(e)}")
     
@@ -234,28 +152,27 @@ class S3StorageService:
     
     def health_check(self) -> dict:
         """
-        Check S3 connection health.
-        
-        Returns:
-            Health status dictionary
+        Check storage health.
         """
         try:
-            # Try to list bucket (lightweight operation)
-            self.s3_client.head_bucket(Bucket=self.bucket_name)
+            # Check if directory is writable
+            test_file = os.path.join(self.base_dir, '.health_check')
+            with open(test_file, 'w') as f:
+                f.write('ok')
+            os.remove(test_file)
             
             return {
-                'service': 's3_storage',
+                'service': 'local_storage',
                 'status': 'healthy',
-                'bucket': self.bucket_name,
-                'region': os.getenv('AWS_REGION', 'eu-north-1')
+                'base_dir': self.base_dir
             }
-        except ClientError as e:
-            logger.error(f"❌ S3 health check failed: {e}")
+        except Exception as e:
+            logger.error(f"❌ Storage health check failed: {e}")
             return {
-                'service': 's3_storage',
+                'service': 'local_storage',
                 'status': 'unhealthy',
                 'error': str(e),
-                'bucket': self.bucket_name
+                'base_dir': self.base_dir
             }
 
 
@@ -263,7 +180,7 @@ class S3StorageService:
 _s3_storage_service: Optional[S3StorageService] = None
 
 def get_s3_storage_service() -> S3StorageService:
-    """Get global S3 storage service instance."""
+    """Get global storage service instance (Kept name S3 for compatibility)."""
     global _s3_storage_service
     if _s3_storage_service is None:
         _s3_storage_service = S3StorageService()

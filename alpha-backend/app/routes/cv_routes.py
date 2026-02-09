@@ -388,7 +388,8 @@ async def upload_cv(
                 else:
                     # Save text to temp file then upload to S3
                     dest_filename = f"{cv_id}.txt"
-                    dest_path = os.path.join("/tmp", dest_filename)
+                    import tempfile
+                    dest_path = os.path.join(tempfile.gettempdir(), dest_filename)
                     with open(dest_path, "w", encoding="utf-8") as f:
                         f.write(raw_content or extracted_text or "")
                     s3_uri = s3_service.upload_file(dest_path, cv_id, "cv", ".txt")
@@ -455,7 +456,8 @@ async def upload_cv(
             else:
                 # save text to temp file then upload to S3
                 dest_filename = f"{cv_id}.txt"
-                dest_path = os.path.join("/tmp", dest_filename)
+                import tempfile
+                dest_path = os.path.join(tempfile.gettempdir(), dest_filename)
                 with open(dest_path, "w", encoding="utf-8") as f:
                     f.write(raw_content or extracted_text or "")
                 persisted_path = s3_service.upload_file(dest_path, cv_id, "cv", ".txt")

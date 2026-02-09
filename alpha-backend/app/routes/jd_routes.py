@@ -155,8 +155,9 @@ async def upload_jd(
             s3_service = get_s3_storage_service()
             try:
                 import tempfile, shutil
+                import tempfile
                 dest_filename = f"{jd_id}.txt"
-                dest_path = os.path.join("/tmp", dest_filename)
+                dest_path = os.path.join(tempfile.gettempdir(), dest_filename)
                 with open(dest_path, "w", encoding="utf-8") as f:
                     f.write(raw_content or extracted_text or "")
                 persisted_path = s3_service.upload_file(dest_path, jd_id, "jd", ".txt")

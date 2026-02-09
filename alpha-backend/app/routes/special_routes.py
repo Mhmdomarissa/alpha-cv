@@ -8,18 +8,16 @@ Uses:
 import asyncio
 import logging
 import time
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
 from app.deps.auth import require_admin
 from app.models.user import User
-from app.services.matching_service import (
-    get_matching_service,
-    years_score,
-    hungarian_mean,
-)
-from app.services.embedding_service import get_embedding_service, get_model
+from app.services.matching_service import get_matching_service
+from app.services.embedding_service import get_embedding_service
 from app.services.llm_service import get_llm_service
 from app.utils.qdrant_utils import get_qdrant_utils
 from app.utils.cache import get_cache_service
@@ -31,7 +29,7 @@ from app.schemas.matching import (
     AlternativesItem,
     MatchWeights,
 )
-from app.services.matching_service import get_matching_service
+from app.utils.llm_enhancement import enhance_with_llm_analysis_batched
 import numpy as np
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -498,8 +496,57 @@ async def match_candidates(req: NewMatchRequest):
             estimated_completion=time.time()
         )
         
-        # Sort candidates by overall score
+        # Sort candidates by overall score (semantic)
         resp_candidates.sort(key=lambda x: x.overall_score, reverse=True)
+        
+        # ENHANCED: LLM Analysis for Top Candidates
+        # Adaptive: Analyze top min(50, total) candidates
+        if req.jd_id and len(resp_candidates) > 0:
+            logger.info(f"🤖 Starting LLM enhancement for top candidates...")
+            try:
+                # Convert CandidateBreakdown to dict for enhancement
+                candidates_dict = []
+                for candidate in resp_candidates:
+                    candidates_dict.append({
+                        "cv_id": candidate.cv_id,
+                        "cv_name": candidate.cv_name,
+                        "overall_score": candidate.overall_score,
+                        "skills_score": candidate.skills_score,
+                        "responsibilities_score": candidate.responsibilities_score,
+                        "job_title_score": candidate.job_title_score,
+                        "years_score": candidate.years_score,
+                    })
+                
+                # Enhance with LLM analysis (adaptive top-K)
+                enhanced_dict = await enhance_with_llm_analysis_batched(
+                    semantic_results=candidates_dict,
+                    jd_id=req.jd_id,
+                    batch_size=10
+                )
+                
+                # Merge LLM analysis back into CandidateBreakdown objects
+                for i, candidate in enumerate(resp_candidates):
+                    enhanced_data = enhanced_dict[i]
+                    
+                    # Add LLM fields to candidate (extend Pydantic model dynamically)
+                    candidate.has_llm_analysis = enhanced_data.get("has_llm_analysis", False)
+                    
+                    if candidate.has_llm_analysis:
+                        candidate.llm_analysis = enhanced_data.get("llm_analysis", {})
+                        candidate.semantic_score = candidate.overall_score
+                        
+                        # Update overall score with LLM score if available
+                        if "llm_score" in enhanced_data:
+                            candidate.overall_score = enhanced_data["llm_score"]
+                
+                # Re-sort by updated scores (LLM scores may change ranking within top 50)
+                resp_candidates.sort(key=lambda x: x.overall_score, reverse=True)
+                
+                llm_analyzed_count = sum(1 for c in resp_candidates if getattr(c, 'has_llm_analysis', False))
+                logger.info(f"✅ LLM enhancement complete: {llm_analyzed_count} candidates analyzed")
+                
+            except Exception as e:
+                logger.error(f"❌ LLM enhancement failed: {e} - continuing with semantic scores only")
         
         return MatchResponse(
             jd_id=req.jd_id,
@@ -872,6 +919,9 @@ async def health_check() -> JSONResponse:
             status_code=500
         )
 
+import shutil
+import os
+
 @router.post("/clear-database")
 async def clear_database(confirm: bool = False, _: User = Depends(require_admin)) -> JSONResponse:
     """
@@ -884,6 +934,25 @@ async def clear_database(confirm: bool = False, _: User = Depends(require_admin)
         q = get_qdrant_utils()
         ok = q.clear_all_data()
         get_cache_service().clear()
+        
+        # Clear local file storage
+        storage_dir = os.path.abspath("storage")
+        if os.path.exists(storage_dir):
+            try:
+                # remove all contents but keep directory
+                for filename in os.listdir(storage_dir):
+                    file_path = os.path.join(storage_dir, filename)
+                    try:
+                        if os.path.isfile(file_path) or os.path.islink(file_path):
+                            os.unlink(file_path)
+                        elif os.path.isdir(file_path):
+                            shutil.rmtree(file_path)
+                    except Exception as e:
+                        logger.error(f"Failed to delete {file_path}: {e}")
+                logger.info("✅ Storage directory cleared")
+            except Exception as e:
+                logger.error(f"❌ Failed to clear storage directory: {e}")
+
         if ok:
             return JSONResponse({
                 "status": "success",

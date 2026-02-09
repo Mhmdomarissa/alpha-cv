@@ -38,8 +38,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# PERMANENT MALWARE FIX: Block malware IP at DNS level
-RUN echo "127.0.0.1 89.144.31.18" >> /etc/hosts
+# Security: Block suspicious IPs at DNS level (commented for dev compatibility)
+# RUN echo "127.0.0.1 89.144.31.18" >> /etc/hosts
 
 # Copy built application
 COPY --from=builder /app/public ./public

@@ -45,6 +45,12 @@ class CandidateBreakdown(BaseModel):
     responsibilities_assignments: List[AssignmentItem] = []
     skills_alternatives: List[AlternativesItem] = []
     responsibilities_alternatives: List[AlternativesItem] = []
+    # LLM Enhancement fields
+    has_llm_analysis: Optional[bool] = False
+    semantic_score: Optional[float] = None
+    llm_analysis: Optional[Dict] = None
+    unmatched_jd_skills: List[str] = []
+    unmatched_jd_responsibilities: List[str] = []
 
 class MatchResponse(BaseModel):
     jd_id: Optional[str] = None

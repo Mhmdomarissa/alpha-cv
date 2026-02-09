@@ -1,31 +1,35 @@
 version: '3.8'
 
 services:
-  # Development Frontend (runs on port 3001)
+  # Development Frontend (runs on port 3000)
   frontend-dev:
     build:
       context: ./cv-analyzer-frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://13.62.91.25:8001
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
     ports:
-      - "3001:3000"  # Different port for dev
+      - "3000:3000"  # Standard port
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://13.62.91.25:8001
+      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+    depends_on:
+      - backend-dev
     networks:
       - dev-network
     restart: unless-stopped
 
-  # Development Backend (runs on port 8001)
+  # Development Backend (runs on port 8000)
   backend-dev:
     build:
       context: ./alpha-backend
       dockerfile: Dockerfile
     ports:
-      - "8001:8000"  # Different port for dev
+      - "8000:8000"  # Standard port
     env_file:
       - .env.dev
+    environment:
+      - UVICORN_WORKERS=1  # Single worker for development
     volumes:
       - ./alpha-backend:/app
     networks:
@@ -33,6 +37,7 @@ services:
     depends_on:
       - postgres-dev
       - qdrant-dev
+      - redis-dev
     restart: unless-stopped
 
   # Development PostgreSQL (runs on port 5434)
@@ -57,6 +62,16 @@ services:
       - "6335:6333"  # Different port for dev
     volumes:
       - qdrant-dev-data:/qdrant/storage
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  # Development Redis (runs on port 6380)
+  redis-dev:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"  # Different port for dev
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
       - dev-network
     restart: unless-stopped

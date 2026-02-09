@@ -25,9 +25,11 @@ export default function AdminUsersPage() {
   const [createForm, setCreateForm] = useState<CreateUserRequest>({
     username: '',
     password: '',
+    email: '',
     role: 'user',
   });
   const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Edit user modal state
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
@@ -65,14 +67,31 @@ export default function AdminUsersPage() {
     e.preventDefault();
     if (!token) return;
 
+    // Validate: email is required for non-admin users
+    if (createForm.role === 'user' && !createForm.email?.trim()) {
+      setCreateError('Email is required for regular users');
+      return;
+    }
+
+    // Basic email validation
+    if (createForm.email && createForm.email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(createForm.email)) {
+        setCreateError('Please enter a valid email address');
+        return;
+      }
+    }
+
     try {
       setCreateLoading(true);
+      setCreateError(null);
       await api.createUser(token, createForm);
       setShowCreateModal(false);
-      setCreateForm({ username: '', password: '', role: 'user' });
+      setCreateForm({ username: '', password: '', email: '', role: 'user' });
+      setCreateError(null);
       await fetchUsers();
     } catch (err: any) {
-      setError(err.message || 'Failed to create user');
+      setCreateError(err.response?.data?.detail || err.message || 'Failed to create user');
     } finally {
       setCreateLoading(false);
     }
@@ -287,19 +306,23 @@ export default function AdminUsersPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full border-collapse">
                       <thead>
-                        <tr className="border-b">
-                          <th className="text-left p-2">Username</th>
-                          <th className="text-left p-2">Role</th>
-                          <th className="text-left p-2">Status</th>
-                          <th className="text-left p-2">Actions</th>
+                        <tr className="border-b bg-gray-50">
+                          <th className="text-left p-3 font-semibold">Username</th>
+                          <th className="text-left p-3 font-semibold">Email</th>
+                          <th className="text-left p-3 font-semibold">Role</th>
+                          <th className="text-left p-3 font-semibold">Status</th>
+                          <th className="text-left p-3 font-semibold">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {users.map((user) => (
-                          <tr key={user.id} className="border-b">
-                            <td className="p-2">{user.username}</td>
-                            <td className="p-2">
-                              <span className={`px-2 py-1 rounded text-xs ${
+                          <tr key={user.id} className="border-b hover:bg-gray-50">
+                            <td className="p-3 font-medium">{user.username}</td>
+                            <td className="p-3 text-sm text-gray-600">
+                              {user.email || <span className="text-gray-400 italic">No email</span>}
+                            </td>
+                            <td className="p-3">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${
                                 user.role === 'admin' 
                                   ? 'bg-red-100 text-red-800' 
                                   : 'bg-blue-100 text-blue-800'
@@ -307,8 +330,8 @@ export default function AdminUsersPage() {
                                 {user.role}
                               </span>
                             </td>
-                            <td className="p-2">
-                              <span className={`px-2 py-1 rounded text-xs ${
+                            <td className="p-3">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${
                                 user.is_active 
                                   ? 'bg-green-100 text-green-800' 
                                   : 'bg-gray-100 text-gray-800'
@@ -348,47 +371,124 @@ export default function AdminUsersPage() {
 
         {/* Create User Modal */}
         {showCreateModal && (
-          <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
-              <Card className="w-full max-w-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Create New User</h3>
-                <form onSubmit={handleCreateUser} className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium">Username</label>
+          <Dialog open={showCreateModal} onOpenChange={(open) => {
+            setShowCreateModal(open);
+            if (!open) {
+              setCreateForm({ username: '', password: '', email: '', role: 'user' });
+              setCreateError(null);
+            }
+          }}>
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+              <Card className="w-full max-w-lg p-6 bg-white shadow-xl">
+                <div className="mb-6">
+                  <h3 className="text-2xl font-bold mb-2">Create New User</h3>
+                  <p className="text-sm text-gray-600">Add a new user to the system</p>
+                </div>
+                
+                {createError && (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{createError}</AlertDescription>
+                  </Alert>
+                )}
+
+                <form onSubmit={handleCreateUser} className="space-y-5">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      Username <span className="text-red-500">*</span>
+                    </label>
                     <Input
                       value={createForm.username}
-                      onChange={(e) => setCreateForm({...createForm, username: e.target.value})}
+                      onChange={(e) => {
+                        setCreateForm({...createForm, username: e.target.value});
+                        setCreateError(null);
+                      }}
+                      placeholder="Enter username"
                       required
+                      className="w-full"
                     />
                   </div>
-                  <div>
-                    <label className="text-sm font-medium">Password</label>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      Password <span className="text-red-500">*</span>
+                    </label>
                     <Input
                       type="password"
                       value={createForm.password}
-                      onChange={(e) => setCreateForm({...createForm, password: e.target.value})}
+                      onChange={(e) => {
+                        setCreateForm({...createForm, password: e.target.value});
+                        setCreateError(null);
+                      }}
+                      placeholder="Enter password"
                       required
+                      className="w-full"
                     />
                   </div>
-                  <div>
-                    <label className="text-sm font-medium">Role</label>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      Email {createForm.role === 'user' && <span className="text-red-500">*</span>}
+                      {createForm.role === 'user' && (
+                        <span className="text-xs text-gray-500 ml-2">(Required for regular users)</span>
+                      )}
+                      {createForm.role === 'admin' && (
+                        <span className="text-xs text-gray-500 ml-2">(Optional for admin)</span>
+                      )}
+                    </label>
+                    <Input
+                      type="email"
+                      value={createForm.email || ''}
+                      onChange={(e) => {
+                        setCreateForm({...createForm, email: e.target.value});
+                        setCreateError(null);
+                      }}
+                      placeholder="user@example.com"
+                      required={createForm.role === 'user'}
+                      className="w-full"
+                    />
+                    {createForm.role === 'user' && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        ℹ️ Regular users need email for OTP authentication
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      Role <span className="text-red-500">*</span>
+                    </label>
                     <select
                       value={createForm.role}
-                      onChange={(e) => setCreateForm({...createForm, role: e.target.value as 'admin' | 'user'})}
-                      className="w-full p-2 border rounded"
+                      onChange={(e) => {
+                        const newRole = e.target.value as 'admin' | 'user';
+                        setCreateForm({...createForm, role: newRole});
+                        setCreateError(null);
+                      }}
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
-                      <option value="user">User</option>
-                      <option value="admin">Admin</option>
+                      <option value="user">User (Regular User)</option>
+                      <option value="admin">Admin (Administrator)</option>
                     </select>
                   </div>
-                  <div className="flex space-x-2">
-                    <Button type="submit" disabled={createLoading}>
-                      {createLoading ? 'Creating...' : 'Create'}
+
+                  <div className="flex space-x-3 pt-4">
+                    <Button 
+                      type="submit" 
+                      disabled={createLoading}
+                      className="flex-1"
+                    >
+                      {createLoading ? 'Creating...' : 'Create User'}
                     </Button>
                     <Button 
                       type="button" 
                       variant="outline" 
-                      onClick={() => setShowCreateModal(false)}
+                      onClick={() => {
+                        setShowCreateModal(false);
+                        setCreateForm({ username: '', password: '', email: '', role: 'user' });
+                        setCreateError(null);
+                      }}
+                      className="flex-1"
                     >
                       Cancel
                     </Button>
@@ -401,49 +501,86 @@ export default function AdminUsersPage() {
 
         {/* Edit User Modal */}
         {editUser && (
-          <Dialog open={!!editUser} onOpenChange={() => setEditUser(null)}>
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
-              <Card className="w-full max-w-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Edit User: {editUser.username}</h3>
-                <form onSubmit={handleEditUser} className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium">New Password (optional)</label>
+          <Dialog open={!!editUser} onOpenChange={() => {
+            setEditUser(null);
+            setEditForm({});
+          }}>
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+              <Card className="w-full max-w-lg p-6 bg-white shadow-xl">
+                <div className="mb-6">
+                  <h3 className="text-2xl font-bold mb-2">Edit User: {editUser.username}</h3>
+                  <p className="text-sm text-gray-600">Update user information</p>
+                </div>
+                <form onSubmit={handleEditUser} className="space-y-5">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      Email {(editForm.role || editUser.role) === 'user' && <span className="text-red-500">*</span>}
+                      {(editForm.role || editUser.role) === 'user' && (
+                        <span className="text-xs text-gray-500 ml-2">(Required for regular users)</span>
+                      )}
+                    </label>
+                    <Input
+                      type="email"
+                      value={editForm.email !== undefined ? editForm.email : (editUser.email || '')}
+                      onChange={(e) => setEditForm({...editForm, email: e.target.value})}
+                      placeholder="user@example.com"
+                      required={(editForm.role || editUser.role) === 'user'}
+                      className="w-full"
+                    />
+                    {(editForm.role || editUser.role) === 'user' && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        ℹ️ Regular users need email for OTP authentication
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      New Password <span className="text-xs text-gray-500">(optional)</span>
+                    </label>
                     <Input
                       type="password"
                       value={editForm.password || ''}
                       onChange={(e) => setEditForm({...editForm, password: e.target.value})}
                       placeholder="Leave blank to keep current password"
+                      className="w-full"
                     />
                   </div>
-                  <div>
-                    <label className="text-sm font-medium">Role</label>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      Role
+                    </label>
                     <select
                       value={editForm.role || editUser.role}
                       onChange={(e) => setEditForm({...editForm, role: e.target.value as 'admin' | 'user'})}
-                      className="w-full p-2 border rounded"
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
-                      <option value="user">User</option>
-                      <option value="admin">Admin</option>
+                      <option value="user">User (Regular User)</option>
+                      <option value="admin">Admin (Administrator)</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="flex items-center space-x-2">
+                  <div className="space-y-2">
+                    <label className="flex items-center space-x-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={editForm.is_active !== undefined ? editForm.is_active : editUser.is_active}
                         onChange={(e) => setEditForm({...editForm, is_active: e.target.checked})}
+                        className="w-4 h-4"
                       />
-                      <span className="text-sm font-medium">Active</span>
+                      <span className="text-sm font-semibold text-gray-700">Active</span>
                     </label>
                   </div>
-                  <div className="flex space-x-2">
-                    <Button type="submit" disabled={editLoading}>
-                      {editLoading ? 'Updating...' : 'Update'}
+                  <div className="flex space-x-3 pt-4">
+                    <Button type="submit" disabled={editLoading} className="flex-1">
+                      {editLoading ? 'Updating...' : 'Update User'}
                     </Button>
                     <Button 
                       type="button" 
                       variant="outline" 
-                      onClick={() => setEditUser(null)}
+                      onClick={() => {
+                        setEditUser(null);
+                        setEditForm({});
+                      }}
+                      className="flex-1"
                     >
                       Cancel
                     </Button>
