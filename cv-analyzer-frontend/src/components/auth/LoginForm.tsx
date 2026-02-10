@@ -190,76 +190,76 @@ export default function LoginForm() {
           {/* Login Form - Sequential Steps */}
           {step === 'password' && (
             <form onSubmit={handlePasswordVerify} className="space-y-6">
-              {/* Username Field */}
-              <div className="space-y-2">
-                <label htmlFor="username" className="text-sm font-semibold text-slate-700">
-                  Username
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <User className="h-5 w-5 text-slate-400" />
-                  </div>
-                  <input
-                    id="username"
-                    name="username"
-                    type="text"
-                    value={formData.username}
-                    onChange={handleInputChange}
-                    placeholder="Enter your username"
-                    disabled={loading}
-                    required
-                    className="w-full pl-12 pr-4 py-4 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/70 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
+            {/* Username Field */}
+            <div className="space-y-2">
+              <label htmlFor="username" className="text-sm font-semibold text-slate-700">
+                Username
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <User className="h-5 w-5 text-slate-400" />
                 </div>
+                <input
+                  id="username"
+                  name="username"
+                  type="text"
+                  value={formData.username}
+                  onChange={handleInputChange}
+                  placeholder="Enter your username"
+                  disabled={loading}
+                  required
+                  className="w-full pl-12 pr-4 py-4 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/70 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
               </div>
+            </div>
 
-              {/* Password Field */}
-              <div className="space-y-2">
-                <label htmlFor="password" className="text-sm font-semibold text-slate-700">
-                  Password
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <Lock className="h-5 w-5 text-slate-400" />
-                  </div>
-                  <input
-                    id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    value={formData.password}
-                    onChange={handleInputChange}
-                    placeholder="Enter your password"
-                    disabled={loading}
-                    required
-                    className="w-full pl-12 pr-12 py-4 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/70 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition-colors duration-200"
-                  >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
+            {/* Password Field */}
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-semibold text-slate-700">
+                Password
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Lock className="h-5 w-5 text-slate-400" />
                 </div>
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  placeholder="Enter your password"
+                  disabled={loading}
+                  required
+                  className="w-full pl-12 pr-12 py-4 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/70 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition-colors duration-200"
+                >
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
               </div>
+            </div>
 
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-4 px-6 rounded-xl text-white font-semibold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-lg"
-                style={{ background: 'linear-gradient(135deg, rgba(0, 82, 155, 0.7) 0%, rgba(0, 61, 115, 0.7) 100%)' }}
-              >
-                {loading ? (
-                  <div className="flex items-center justify-center space-x-2">
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-4 px-6 rounded-xl text-white font-semibold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-lg"
+              style={{ background: 'linear-gradient(135deg, rgba(0, 82, 155, 0.7) 0%, rgba(0, 61, 115, 0.7) 100%)' }}
+            >
+              {loading ? (
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                     <span>Verifying...</span>
-                  </div>
-                ) : (
+                </div>
+              ) : (
                   'Continue'
-                )}
-              </button>
-            </form>
+              )}
+            </button>
+          </form>
           )}
 
           {step === 'otp' && (

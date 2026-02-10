@@ -505,19 +505,14 @@ async def apply_to_job(
                     job_id=job_id
                 )
             except Exception as queue_error:
-                # Fallback to immediate basic response if queue is full
-                logger.warning(f"⚠️ Queue submission failed, falling back to immediate response: {str(queue_error)}")
-                
-                return JobApplicationResponse(
-                    success=True,
-                    application_id=application_id,
-                    message=f"Thank you, {applicant_name}! Your application has been received and will be processed shortly.",
-                    next_steps="Due to high volume, your application is being processed. You'll receive an email confirmation within 15-30 minutes.",
-                    job_id=None
-                )
+                # Fallback to synchronous processing if queue is full/overloaded
+                logger.warning(f"⚠️ Queue submission failed, falling back to synchronous processing: {str(queue_error)}")
+                # Continue to the synchronous processing path below instead of returning early
+                background_processing = False
         
         
         # OPTIMIZED ASYNC PROCESSING: Use the same optimized processing as regular CVs
+        # This path runs when background_processing=False OR when queue submission fails
         logger.info(f"🚀 Processing CV asynchronously for application {application_id}")
         
         # Import the optimized CV processing function

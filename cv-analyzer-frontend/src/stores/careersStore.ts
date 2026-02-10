@@ -110,14 +110,12 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
   },
 
   createJobPostingWithFormData: async (file: File | null, formData: any) => {
-    console.log('🚀 createJobPostingWithFormData called in store');
     set({ isCreatingJob: true, error: null });
     try {
       logger.info('Creating job posting with form data', { 
         hasFile: !!file,
         jobTitle: formData.jobTitle 
       });
-      console.log('📡 Making API call to createJobPostingWithFormData');
       const result = await api.createJobPostingWithFormData(file, formData);
       
       logger.info('Job posting created successfully', { 
@@ -141,13 +139,11 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
   },
 
   createManualJobPosting: async (formData: any) => {
-    console.log('🚀 createManualJobPosting called in store');
     set({ isCreatingJob: true, error: null });
     try {
       logger.info('Creating manual job posting', { 
         jobTitle: formData.jobTitle 
       });
-      console.log('📡 Making API call to createManualJobPosting');
       const result = await api.createManualJobPosting(formData);
       
       logger.info('Manual job posting created successfully', { 

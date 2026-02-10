@@ -39,6 +39,29 @@ import {
 class ApiClient {
   private client: AxiosInstance;
 
+  /**
+   * Sanitize sensitive data from request payloads before logging
+   */
+  private sanitizeRequestData(data: any): any {
+    if (!data || typeof data !== 'object') {
+      return data;
+    }
+
+    const sensitiveFields = ['password', 'token', 'access_token', 'refresh_token', 'otp', 'secret', 'api_key', 'authorization'];
+    const sanitized = { ...data };
+
+    for (const key in sanitized) {
+      const lowerKey = key.toLowerCase();
+      if (sensitiveFields.some(field => lowerKey.includes(field))) {
+        sanitized[key] = '***REDACTED***';
+      } else if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
+        sanitized[key] = this.sanitizeRequestData(sanitized[key]);
+      }
+    }
+
+    return sanitized;
+  }
+
   constructor() {
     this.client = axios.create({
       baseURL: config.apiUrl,
@@ -53,9 +76,11 @@ class ApiClient {
       const requestId = uuidv4();
       config.headers['x-request-id'] = requestId;
 
+      // Sanitize sensitive data from logs
+      const sanitizedData = this.sanitizeRequestData(config.data);
       logger.info(`API Request: ${config.method?.toUpperCase()} ${config.url}`, {
         requestId,
-        data: config.data,
+        ...(sanitizedData && { data: sanitizedData }),
       });
       return config;
     });

@@ -67,7 +67,6 @@ const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
 
   // Add performance tab only for admin users
   if (userRole === 'admin') {
-    console.log('DEBUG: Adding performance tab for admin user');
     baseTabs.push({
       id: 'performance',
       label: 'Performance',
@@ -77,17 +76,13 @@ const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
   }
 
   // Add careers tab for all authenticated users (HR and admin)
-  console.log('DEBUG getNavigationTabs - userRole:', userRole, 'type:', typeof userRole);
   if (userRole) {
-    console.log('DEBUG: Adding careers tab for user role:', userRole);
     baseTabs.push({
       id: 'careers',
       label: 'Careers',
       icon: Briefcase,
       description: 'Manage job postings',
     });
-  } else {
-    console.log('DEBUG: No userRole provided, careers tab not added');
   }
 
   // Add email tab only for admin users
@@ -109,12 +104,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
   const { user, logout } = useAuthStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // FORCE DEBUG OUTPUT
-  console.log('🔍 NAVIGATION DEBUG - User object:', user);
-  console.log('🔍 NAVIGATION DEBUG - User role:', user?.role);
-  console.log('🔍 NAVIGATION DEBUG - Calling getNavigationTabs with:', user?.role);
   const navigationTabs = getNavigationTabs(user?.role);
-  console.log('🔍 NAVIGATION DEBUG - Result tabs:', navigationTabs.map(t => t.id));
 
   const handleLogout = () => {
     logout();
@@ -195,13 +185,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
 
             {/* Navigation Tabs - Modern SaaS Style */}
             <nav className="hidden md:flex items-center space-x-1 bg-white/80 backdrop-blur-sm rounded-2xl p-1.5 border border-white/30 shadow-lg">
-              {(() => {
-                console.log('DEBUG: Current user:', user);
-                console.log('DEBUG: User role:', user?.role);
-                const tabs = getNavigationTabs(user?.role);
-                console.log('DEBUG: Generated tabs:', tabs.map(t => t.id));
-                return tabs;
-              })().map((tab) => {
+              {getNavigationTabs(user?.role).map((tab) => {
                 const isActive = currentTab === tab.id;
                 const isCompleted = getProgress(tab.id);
                 const IconComponent = tab.icon;

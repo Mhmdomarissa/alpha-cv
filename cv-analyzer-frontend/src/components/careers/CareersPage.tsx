@@ -92,7 +92,6 @@ export default function CareersPage() {
   };
 
   const handleCloseJobDetails = () => {
-    console.log('Close button clicked, clearing selected job');
     selectJob(null);
   };
 

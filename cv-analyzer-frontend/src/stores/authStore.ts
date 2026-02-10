@@ -43,7 +43,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         );
         const user = await Promise.race([api.me(token), timeoutPromise]) as UserProfile;
         set({ token, user, loading: false, error: null });
-        logger.info(`Restored auth session for user: ${user.username} (${user.role})`);
+        logger.info('Auth session restored');
       } else {
         set({ loading: false });
         logger.info('No token found in storage');
@@ -58,7 +58,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   login: async (username: string, password: string) => {
     set({ loading: true, error: null });
     try {
-      logger.info(`Attempting login for user: ${username}`);
+      logger.info('Attempting login');
       const response = await api.login(username, password);
       
       // Store token
@@ -74,7 +74,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         error: null 
       });
       
-      logger.info(`Login successful for user: ${user.username} (${user.role})`);
+      logger.info('Login successful');
       return { success: true, role: user.role };
     } catch (error: any) {
       const errorMessage = error.message || 'Login failed';
@@ -87,7 +87,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   verifyPassword: async (username: string, password: string) => {
     set({ loading: true, error: null });
     try {
-      logger.info(`Verifying password for user: ${username}`);
+      logger.info('Verifying password');
       const response = await api.verifyPassword(username, password);
       
       if (response.success) {
@@ -108,7 +108,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   sendOTP: async (username: string, password: string) => {
     set({ loading: true, error: null });
     try {
-      logger.info(`Sending OTP for user: ${username}`);
+      logger.info('Sending OTP');
       const response = await api.sendOTP(username, password);
       
       if (response.success) {
@@ -129,7 +129,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   verifyOTP: async (username: string, otp: string) => {
     set({ loading: true, error: null });
     try {
-      logger.info(`Verifying OTP for user: ${username}`);
+      logger.info('Verifying OTP');
       const response = await api.verifyOTP(username, otp);
       
       // Store token
@@ -145,7 +145,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         error: null 
       });
       
-      logger.info(`OTP verification successful for user: ${user.username} (${user.role})`);
+      logger.info('OTP verification successful');
       return { success: true, role: user.role };
     } catch (error: any) {
       const errorMessage = error.response?.data?.detail || error.message || 'OTP verification failed';

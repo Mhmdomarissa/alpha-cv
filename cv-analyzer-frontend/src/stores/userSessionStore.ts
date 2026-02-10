@@ -99,7 +99,6 @@ export const useUserSessionStore = create<UserSessionState>()(
         
         // Check if request is already in progress
         if (state.requestQueue.has(key)) {
-          console.log(`🔄 Request ${key} already in progress, waiting...`);
           return await state.requestQueue.get(key);
         }
         

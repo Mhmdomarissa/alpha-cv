@@ -238,9 +238,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
 
       if (result.success) {
         setSaveSuccess(true);
-        console.log('About to show success toast for save (JobPostingForm)');
         showSuccess('Changes Saved Successfully!', 'Your job posting has been updated.');
-        console.log('Success toast called for save (JobPostingForm)');
         // Call onSuccess immediately to refresh data and close dialog
         onSuccess();
       }
@@ -253,7 +251,6 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
   };
   
   const handleSubmit = async () => {
-    console.log('🔄 handleSubmit called - checking for duplicates...');
     
     if (!selectedFile && Object.values(formData).every(v => !v.trim())) {
       return; // No file and no form data
@@ -261,33 +258,26 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
     
     // Check if already processing
     if (isCreatingJob || isUploading || isAutoFilling) {
-      console.log('⚠️ Already creating job, preventing duplicate submission');
       return;
     }
     
-    console.log('✅ Starting job creation process...');
     
     try {
       let result;
       
-      console.log('Debug job posting: uploadPhase =', uploadPhase, 'jdId =', jdId, 'hasFormData =', Object.values(formData).some(v => v.trim()));
       
       if (uploadPhase === 'autofilled' && jdId) {
         // If we have auto-filled data from the two-phase system, use the unified endpoint
         // This will create a job posting with the edited/auto-filled human-readable content
-        console.log('Using unified endpoint with auto-filled data');
         result = await api.unifiedJobUpdate(jdId, null, formData);
       } else if (jdId && Object.values(formData).some(v => v.trim())) {
         // If we have a JD ID and form data (even if not in autofilled phase), use the unified system
-        console.log('Using unified endpoint with manual edits, jdId:', jdId);
         result = await api.unifiedJobUpdate(jdId, null, formData);
       } else if (selectedFile) {
         // If there's a file but no auto-fill yet, use the old method
-        console.log('Using createJobPostingWithFormData for file upload');
         result = await createJobPostingWithFormData(selectedFile, formData);
       } else {
         // If no file but has form data, use manual job posting
-        console.log('Using createJobPostingWithFormData for manual posting');
         result = await createJobPostingWithFormData(null, formData);
       }
       
@@ -302,9 +292,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
         // Keep form data for editing
         setShowForm(true);
         
-        console.log('About to show success toast for job posting (JobPostingForm)');
         showSuccess('Job Posted Successfully!', 'Your job posting is now live and ready to receive applications.');
-        console.log('Success toast called for job posting (JobPostingForm)');
       
       // Close form after delay
       setTimeout(() => {

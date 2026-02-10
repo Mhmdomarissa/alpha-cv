@@ -53,23 +53,31 @@ def create_access_token(sub: str, role: str) -> str:
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGO)
 
 def decode_token(token: str) -> dict:
+    """
+    Decode and verify JWT token with signature validation.
+    
+    Security: The jwt.decode() call with verify_signature=True and algorithms=[ALGO]
+    automatically rejects:
+    - Tokens with invalid signatures
+    - Tokens using 'none' algorithm (not in allowed algorithms)
+    - Tokens using any algorithm other than the specified one
+    - Expired tokens
+    """
     try:
-        # Explicitly reject 'none' algorithm
+        # Decode with signature verification - this automatically rejects:
+        # - Tokens with 'none' algorithm (not in allowed algorithms list)
+        # - Tokens with invalid signatures
+        # - Tokens using algorithms other than ALGO
         decoded = jwt.decode(
             token, 
             settings.SECRET_KEY, 
-            algorithms=[ALGO],
+            algorithms=[ALGO],  # Only allow HS256 - automatically rejects 'none' and other algorithms
             options={
-                "verify_signature": True,
-                "verify_exp": True,
+                "verify_signature": True,  # Always verify signature
+                "verify_exp": True,  # Verify expiration
                 "require": ["exp", "sub", "role"]  # Require these claims
             }
         )
-        
-        # Additional validation: reject if algorithm in payload is 'none'
-        header = jwt.get_unverified_header(token)
-        if header.get("alg", "").lower() == "none":
-            raise InvalidTokenError("Algorithm 'none' not allowed")
         
         return decoded
     except jwt.ExpiredSignatureError:

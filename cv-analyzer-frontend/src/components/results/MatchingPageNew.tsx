@@ -206,14 +206,12 @@ export default function MatchingPageNew() {
         // For careers data, validate that selectedJD looks like a valid UUID
         const isValidJdId = selectedJD && typeof selectedJD === 'string' && selectedJD.length === 36 && selectedJD.includes('-');
         if (isValidJdId) {
-          console.log('Auto-running matching for careers data:', { selectedJD, selectedCVs });
           runMatch();
         } else {
           console.warn('Skipping auto-matching: Invalid JD ID format', { selectedJD });
         }
       } else {
         // For database page data, auto-run matching immediately
-        console.log('Auto-running matching for database data:', { selectedJD, selectedCVs });
         runMatch();
       }
     }
@@ -235,9 +233,6 @@ export default function MatchingPageNew() {
   const candidates: any[] = matchResult?.candidates ?? [];
 
   // Debug logging
-  console.log('MatchingPageNew - matchResult:', matchResult);
-  console.log('MatchingPageNew - candidates:', candidates);
-  console.log('MatchingPageNew - candidates length:', candidates.length);
 
   // Compute display scores using current (normalized) weights
   const candidatesWithComputed = useMemo(() => {
@@ -315,13 +310,19 @@ export default function MatchingPageNew() {
   };
 
   const handlePreviewFile = async (id: string, type: string, filename: string) => {
-    const fileExt = filename.includes('.') ? `.${filename.split('.').pop()}` : '';
-    const fileUrl = `${config.apiUrl}/api/storage/files/${type}/${id}${fileExt}`;
+    // Ensure filename has .pdf extension for proper PDF detection
+    // Simple check: if it doesn't end with .pdf, add it
+    const normalizedFilename = filename.toLowerCase().endsWith('.pdf') 
+      ? filename 
+      : `${filename}.pdf`;
+    
+    // Use same URL format as database page (without file extension)
+    const fileUrl = `${config.apiUrl}/api/storage/files/${type}/${id}`;
 
     let extractedText = '';
 
-    // For non-PDFs or when we just want to be sure, fetch the extracted text
-    if (!filename.toLowerCase().endsWith('.pdf')) {
+    // For non-PDFs, fetch the extracted text
+    if (!normalizedFilename.toLowerCase().endsWith('.pdf')) {
       try {
         const details = type === 'cv' ? await api.getCVDetails(id) : await api.getJDDetails(id);
         extractedText = details?.text_info?.extracted_text_preview || '';
@@ -333,7 +334,7 @@ export default function MatchingPageNew() {
     setPreviewData({
       isOpen: true,
       url: fileUrl,
-      name: filename,
+      name: normalizedFilename,
       id: id,
       type: type,
       extractedText
@@ -1060,7 +1061,13 @@ export default function MatchingPageNew() {
                             size="sm"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handlePreviewFile(candidate.cv_id, 'cv', candidate.cv_name || 'CV.pdf');
+                              const cvMeta = cvIndex[candidate?.cv_id];
+                              const filename = cvMeta?.filename || candidate.cv_name || `cv_${candidate.cv_id}.pdf`;
+                              // Ensure filename has .pdf extension (simple: just add .pdf if missing)
+                              const normalizedFilename = filename.toLowerCase().endsWith('.pdf') 
+                                ? filename 
+                                : `${filename}.pdf`;
+                              handlePreviewFile(candidate.cv_id, 'cv', normalizedFilename);
                             }}
                             title="Preview Original File"
                             className="flex items-center gap-1"
@@ -1419,7 +1426,7 @@ export default function MatchingPageNew() {
         fileUrl={previewData.url}
         fileName={previewData.name}
         fileId={previewData.id}
-        fileType={previewData.type}
+        fileType={previewData.type === 'cv' ? 'application/pdf' : 'application/pdf'}
         extractedText={previewData.extractedText}
       />
     </div>

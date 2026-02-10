@@ -93,10 +93,7 @@ def init_auth_db() -> None:
             session.add(admin)
             session.commit()
             logger.info("Seeded initial admin '%s'", settings.ADMIN_USERNAME)
-        else:
-            # For development, ensure admin password is 'Faizan123'
-            if settings.ADMIN_PASSWORD == "Faizan123":
-                admin.password_hash = hash_password("Faizan123")
-                session.add(admin)
-                session.commit()
-                logger.info("✅ Admin password updated to Faizan123")
+        # NOTE:
+        # We do NOT auto-reset the admin password on startup. Admin credentials
+        # should be managed via environment variables at first boot (seeding),
+        # or via admin/user management endpoints thereafter.

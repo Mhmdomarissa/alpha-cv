@@ -331,7 +331,6 @@ export default function DatabasePageNew() {
     try {
       const response = await api.getCategories();
       setCategories(response.categories || {});
-      console.log('📊 Categories loaded:', response.categories);
     } catch (error) {
       console.error('❌ Failed to load categories:', error);
     }
@@ -344,7 +343,6 @@ export default function DatabasePageNew() {
       setSelectedCategory(category);
       const response = await api.getCVsByCategory(category);
       setCvsInCategory(response.cvs || []);
-      console.log(`📁 CVs loaded for ${category}:`, response.cvs);
     } catch (error) {
       console.error(`❌ Failed to load CVs for ${category}:`, error);
     } finally {
@@ -457,7 +455,6 @@ export default function DatabasePageNew() {
 
   // Handle file preview
   const handlePreviewFile = async (id: string, type: string, filename: string) => {
-    console.log('handlePreviewFile called:', { id, type, filename });
     const fileUrl = `${config.apiUrl}/api/storage/files/${type}/${id}`;
 
     let extractedText = '';
@@ -472,7 +469,6 @@ export default function DatabasePageNew() {
       }
     }
 
-    console.log('Setting preview data:', { fileUrl, filename, id, type });
     setPreviewData({
       isOpen: true,
       url: fileUrl,
