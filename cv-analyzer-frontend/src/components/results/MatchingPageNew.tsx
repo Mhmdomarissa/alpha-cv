@@ -25,9 +25,11 @@ import {
   AlertTriangle,
   FileCheck
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/stores/appStore';
 const FilePreviewModal = dynamic(() => import('@/components/ui/file-preview-modal').then(mod => mod.FilePreviewModal), {
+  ssr: false,
+});
+const QueueStatusModal = dynamic(() => import('@/components/common/QueueStatusModal').then(mod => mod.default), {
   ssr: false,
 });
 import { config } from '@/lib/config';
@@ -36,7 +38,6 @@ import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button-enhanced';
 import { MatchWeights } from '@/lib/types';
-import MatchingProgressBar from '@/components/ui/MatchingProgressBar';
 // Queue components removed
 
 type SortKey = 'score' | 'skills' | 'experience';
@@ -127,8 +128,8 @@ export default function MatchingPageNew() {
     selectedCVs,
     runMatch,
     loadingStates,
-    matchingProgress,
-    // Queue state removed
+    matchingQueue,
+    setMatchingQueue,
   } = useAppStore();
 
   const { applications } = useCareersStore();
@@ -483,32 +484,12 @@ export default function MatchingPageNew() {
     }
   };
 
-  // Loading state - show matching animation when matching is in progress (check FIRST before error)
-  // This ensures we show the animation while matching is actually in progress
+  // When matching is in progress, overlay is shown by layout (MatchingProgressBar)
   if ((loadingStates.matching.isLoading || loadingStates.careersMatching.isLoading) &&
     !loadingStates.matching.error && !loadingStates.careersMatching.error) {
     return (
-      <div className="space-y-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-semibold text-gray-900">AI Matching Results</h1>
-          <p className="text-base mt-2 text-gray-600">Analyzing candidates...</p>
-        </div>
-        <div className="text-center py-16">
-          <div className="w-20 h-20 mx-auto bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center animate-spin mb-6">
-            <Target className="w-10 h-10 text-white" />
-          </div>
-          <h3 className="text-xl font-semibold text-gray-800 mb-2">Matching in Progress</h3>
-          <p className="text-sm text-gray-500 mb-6">
-            Our AI is analyzing candidate profiles and matching them with job requirements...
-          </p>
-          <div className="flex justify-center">
-            <div className="flex space-x-1">
-              <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"></div>
-              <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-              <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-            </div>
-          </div>
-        </div>
+      <div className="flex flex-col items-center justify-center py-24 text-gray-500">
+        <p className="text-sm">Preparing your results...</p>
       </div>
     );
   }
@@ -536,7 +517,7 @@ export default function MatchingPageNew() {
           <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center items-center">
             <button
               onClick={() => useAppStore.getState().setCurrentTab?.('database')}
-              className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              className="inline-flex items-center px-4 py-2 bg-[#00529b] text-white rounded-lg hover:bg-[#003d73] transition-colors"
             >
               Go to Database
             </button>
@@ -574,7 +555,7 @@ export default function MatchingPageNew() {
           </p>
           <button
             onClick={() => useAppStore.getState().setCurrentTab?.('database')}
-            className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+            className="inline-flex items-center px-4 py-2 bg-[#00529b] text-white rounded-lg hover:bg-[#003d73] transition-colors"
           >
             Go to Database
           </button>
@@ -583,43 +564,69 @@ export default function MatchingPageNew() {
     );
   }
 
-  // --- Animations
-  const fadeInUp = {
-    initial: { opacity: 0, y: 8 },
-    animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.25, ease: "easeOut" as const },
-  };
-
   return (
     <div className="space-y-8">
-      {/* Queue components removed */}
+      {matchingQueue?.isQueued && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center justify-between shadow-sm">
+          <div className="flex items-center space-x-3 flex-1">
+            <div className="flex-shrink-0">
+              <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
+                <svg
+                  className="animate-spin h-5 w-5 text-yellow-600"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+              </div>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-yellow-800">
+                ⏳ Waiting in queue - Other users are currently matching
+              </p>
+              {matchingQueue.queuePosition !== null && (
+                <p className="text-xs text-yellow-600 mt-1">
+                  Your position: <span className="font-semibold">#{matchingQueue.queuePosition}</span>
+                  {matchingQueue.estimatedWaitTime && (
+                    <span className="ml-2">
+                      • Estimated wait: {Math.ceil((matchingQueue.estimatedWaitTime || 0) / 60)} minutes
+                    </span>
+                  )}
+                </p>
+              )}
+              {matchingQueue.message && (
+                <p className="text-xs text-yellow-700 mt-1">{matchingQueue.message}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* Progress Bar */}
-      <MatchingProgressBar
-        totalCVs={matchingProgress.totalCVs}
-        processedCVs={matchingProgress.processedCVs}
-        currentStage={matchingProgress.currentStage}
-        estimatedTimeRemaining={matchingProgress.estimatedTimeRemaining}
-        isVisible={matchingProgress.isVisible}
-      />
-
-      {/* Header */}
-      <motion.div {...fadeInUp} className="text-center">
-        <h1 className="text-3xl font-semibold text-gray-900">AI Matching Results</h1>
-        <p className="text-base mt-2 text-gray-600">
-          Evaluated {totalMatches} candidate{totalMatches !== 1 ? 's' : ''} using weighted, explainable scoring.
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Match Results</h1>
+        <p className="text-gray-600 mt-0.5">
+          {totalMatches} candidate{totalMatches !== 1 ? 's' : ''} evaluated. Sort and filter below.
         </p>
-      </motion.div>
+      </div>
 
-      {/* Analytics */}
-      <motion.div
-        {...fadeInUp}
-        className="grid grid-cols-1 md:grid-cols-4 gap-6"
-      >
-        <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
           <div className="flex justify-center mb-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-indigo-50">
-              <Users className="w-5 h-5 text-indigo-600" />
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-gray-100">
+              <Users className="w-5 h-5 text-gray-700" />
             </div>
           </div>
           <div className="text-2xl font-semibold text-gray-900">
@@ -631,8 +638,8 @@ export default function MatchingPageNew() {
           <p className="text-sm text-gray-600">
             {resultsLimit !== 'all' ? `Top ${resultsLimit} Candidates` : 'Total Candidates'}
           </p>
-        </motion.div>
-        <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
+        </div>
+        <div className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
           <div className="flex justify-center mb-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-amber-50">
               <Award className="w-5 h-5 text-amber-600" />
@@ -640,8 +647,8 @@ export default function MatchingPageNew() {
           </div>
           <div className="text-2xl font-semibold text-amber-600">{visibleTop}%</div>
           <p className="text-sm text-gray-600">Best {resultsLimit !== 'all' ? 'Visible' : ''} Match</p>
-        </motion.div>
-        <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
+        </div>
+        <div className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
           <div className="flex justify-center mb-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-50">
               <BarChart3 className="w-5 h-5 text-emerald-600" />
@@ -649,8 +656,8 @@ export default function MatchingPageNew() {
           </div>
           <div className="text-2xl font-semibold text-gray-900">{visibleAverage}%</div>
           <p className="text-sm text-gray-600">{resultsLimit !== 'all' ? 'Visible' : ''} Average Score</p>
-        </motion.div>
-        <motion.div whileHover={{ y: -2 }} className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
+        </div>
+        <div className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
           <div className="flex justify-center mb-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-50">
               <Star className="w-5 h-5 text-emerald-600" />
@@ -658,14 +665,13 @@ export default function MatchingPageNew() {
           </div>
           <div className="text-2xl font-semibold text-emerald-600">{visibleExcellent}</div>
           <p className="text-sm text-gray-600">{resultsLimit !== 'all' ? 'Visible' : ''} Excellent (≥80%)</p>
-        </motion.div>
-      </motion.div>
+        </div>
+      </div>
 
-      {/* Quality Distribution */}
-      <motion.div {...fadeInUp} className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-indigo-50">
-            <TrendingUp className="w-5 h-5 text-indigo-600" />
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-gray-100">
+            <TrendingUp className="w-5 h-5 text-gray-700" />
           </div>
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Quality Distribution</h3>
@@ -674,38 +680,30 @@ export default function MatchingPageNew() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="text-center">
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-              <motion.div
-                className="h-2 rounded-full bg-emerald-500"
-                initial={{ width: 0 }}
-                animate={{ width: `${(excellentMatches / Math.max(totalMatches, 1)) * 100}%` }}
-                transition={{ duration: 0.6, ease: 'easeOut' }}
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
+              <div
+                className="h-2 rounded-full bg-emerald-500 transition-[width] duration-300"
+                style={{ width: `${(excellentMatches / Math.max(totalMatches, 1)) * 100}%` }}
               />
             </div>
             <div className="font-medium text-emerald-700">{excellentMatches} Excellent</div>
             <p className="text-sm text-gray-500">80–100% match</p>
           </div>
           <div className="text-center">
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-              <motion.div
-                className="h-2 rounded-full bg-amber-500"
-                initial={{ width: 0 }}
-                animate={{ width: `${(goodMatches / Math.max(totalMatches, 1)) * 100}%` }}
-                transition={{ duration: 0.6, ease: 'easeOut', delay: 0.1 }}
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
+              <div
+                className="h-2 rounded-full bg-amber-500 transition-[width] duration-300"
+                style={{ width: `${(goodMatches / Math.max(totalMatches, 1)) * 100}%` }}
               />
             </div>
             <div className="font-medium text-amber-700">{goodMatches} Good</div>
             <p className="text-sm text-gray-500">60–79% match</p>
           </div>
           <div className="text-center">
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-              <motion.div
-                className="h-2 rounded-full bg-rose-500"
-                initial={{ width: 0 }}
-                animate={{
-                  width: `${((totalMatches - excellentMatches - goodMatches) / Math.max(totalMatches, 1)) * 100}%`,
-                }}
-                transition={{ duration: 0.6, ease: 'easeOut', delay: 0.2 }}
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
+              <div
+                className="h-2 rounded-full bg-rose-500 transition-[width] duration-300"
+                style={{ width: `${((totalMatches - excellentMatches - goodMatches) / Math.max(totalMatches, 1)) * 100}%` }}
               />
             </div>
             <div className="font-medium text-rose-700">
@@ -714,15 +712,14 @@ export default function MatchingPageNew() {
             <p className="text-sm text-gray-500">&lt;60% match</p>
           </div>
         </div>
-      </motion.div>
+      </div>
 
-      {/* Controls */}
-      <motion.div {...fadeInUp} className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
         <div className="flex items-center gap-3">
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortKey)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
           >
             <option value="score">Sort by Overall Score</option>
             <option value="skills">Sort by Skills Match</option>
@@ -734,7 +731,7 @@ export default function MatchingPageNew() {
             <select
               value={resultsLimit}
               onChange={(e) => setResultsLimit(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
             >
               <option value={3}>Show Top 3</option>
               <option value={5}>Show Top 5</option>
@@ -765,10 +762,9 @@ export default function MatchingPageNew() {
             Generate Report
           </button>
         </div>
-      </motion.div>
+      </div>
 
-      {/* Ranked Candidates */}
-      <motion.div {...fadeInUp} className="bg-white rounded-xl shadow-sm border border-gray-200">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         <div className="p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-50">
@@ -783,28 +779,21 @@ export default function MatchingPageNew() {
             </div>
           </div>
           <div className="space-y-4">
-            <AnimatePresence initial={false}>
-              {sortedCandidates.map((candidate, index) => {
-                const overall = candidate.computed_overall ?? 0;
-                const badge = scoreBadge(overall);
-                const isOpen = expandedMatch === candidate.cv_id;
-                const displayName = resolveCandidateName(candidate, cvIndex);
-                const title = resolveTitle(candidate, cvIndex);
-                const yearsText = resolveYears(candidate, cvIndex);
-                const cvMeta = cvIndex[candidate?.cv_id];
-                const filename = cvMeta?.filename || `cv_${candidate.cv_id}.pdf`;
+            {sortedCandidates.map((candidate, index) => {
+              const overall = candidate.computed_overall ?? 0;
+              const badge = scoreBadge(overall);
+              const isOpen = expandedMatch === candidate.cv_id;
+              const displayName = resolveCandidateName(candidate, cvIndex);
+              const title = resolveTitle(candidate, cvIndex);
+              const yearsText = resolveYears(candidate, cvIndex);
+              const cvMeta = cvIndex[candidate?.cv_id];
+              const filename = cvMeta?.filename || `cv_${candidate.cv_id}.pdf`;
 
-                return (
-                  <motion.div
-                    key={candidate.cv_id}
-                    layout
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.2 }}
-                    className={`relative overflow-hidden rounded-xl border bg-white transition-all ${isOpen ? 'ring-2 ring-indigo-200 border-indigo-200' : 'border-gray-200'
-                      }`}
-                  >
+              return (
+                <div
+                  key={candidate.cv_id}
+                  className={`relative overflow-hidden rounded-xl border bg-white ${isOpen ? 'ring-2 ring-[#00529b]/30 border-[#00529b]' : 'border-gray-200'}`}
+                >
                     {/* OUTER WRAPPER FIXED: now a <div> with role="button" */}
                     <div
                       onClick={() =>
@@ -894,7 +883,7 @@ export default function MatchingPageNew() {
                                 </span>
                               )}
                             </div>
-                            <span className="text-sm text-indigo-600 hover:text-indigo-700">
+                            <span className="text-sm text-[#00529b] hover:text-[#003d73]">
                               {isOpen ? 'Hide details' : 'View details'}
                             </span>
                           </div>
@@ -911,14 +900,10 @@ export default function MatchingPageNew() {
                               {Math.round((candidate.skills_score ?? 0) * 100)}%
                             </span>
                           </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <motion.div
-                              className={`h-2 rounded-full ${barColor(candidate.skills_score ?? 0)}`}
-                              initial={{ width: 0 }}
-                              animate={{
-                                width: `${Math.max(0, Math.min(100, (candidate.skills_score ?? 0) * 100))}%`,
-                              }}
-                              transition={{ duration: 0.6, ease: 'easeOut' }}
+                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                            <div
+                              className={`h-2 rounded-full transition-[width] duration-300 ${barColor(candidate.skills_score ?? 0)}`}
+                              style={{ width: `${Math.max(0, Math.min(100, (candidate.skills_score ?? 0) * 100))}%` }}
                             />
                           </div>
                         </div>
@@ -931,17 +916,10 @@ export default function MatchingPageNew() {
                               {Math.round((candidate.responsibilities_score ?? 0) * 100)}%
                             </span>
                           </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <motion.div
-                              className={`h-2 rounded-full ${barColor(candidate.responsibilities_score ?? 0)}`}
-                              initial={{ width: 0 }}
-                              animate={{
-                                width: `${Math.max(
-                                  0,
-                                  Math.min(100, (candidate.responsibilities_score ?? 0) * 100)
-                                )}%`,
-                              }}
-                              transition={{ duration: 0.6, ease: 'easeOut', delay: 0.05 }}
+                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                            <div
+                              className={`h-2 rounded-full transition-[width] duration-300 ${barColor(candidate.responsibilities_score ?? 0)}`}
+                              style={{ width: `${Math.max(0, Math.min(100, (candidate.responsibilities_score ?? 0) * 100))}%` }}
                             />
                           </div>
                         </div>
@@ -954,14 +932,10 @@ export default function MatchingPageNew() {
                               {Math.round((candidate.job_title_score ?? 0) * 100)}%
                             </span>
                           </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <motion.div
-                              className={`h-2 rounded-full ${barColor(candidate.job_title_score ?? 0)}`}
-                              initial={{ width: 0 }}
-                              animate={{
-                                width: `${Math.max(0, Math.min(100, (candidate.job_title_score ?? 0) * 100))}%`,
-                              }}
-                              transition={{ duration: 0.6, ease: 'easeOut', delay: 0.1 }}
+                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                            <div
+                              className={`h-2 rounded-full transition-[width] duration-300 ${barColor(candidate.job_title_score ?? 0)}`}
+                              style={{ width: `${Math.max(0, Math.min(100, (candidate.job_title_score ?? 0) * 100))}%` }}
                             />
                           </div>
                         </div>
@@ -974,14 +948,10 @@ export default function MatchingPageNew() {
                               {Math.round((candidate.years_score ?? 0) * 100)}%
                             </span>
                           </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <motion.div
-                              className={`h-2 rounded-full ${barColor(candidate.years_score ?? 0)}`}
-                              initial={{ width: 0 }}
-                              animate={{
-                                width: `${Math.max(0, Math.min(100, (candidate.years_score ?? 0) * 100))}%`,
-                              }}
-                              transition={{ duration: 0.6, ease: 'easeOut', delay: 0.15 }}
+                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                            <div
+                              className={`h-2 rounded-full transition-[width] duration-300 ${barColor(candidate.years_score ?? 0)}`}
+                              style={{ width: `${Math.max(0, Math.min(100, (candidate.years_score ?? 0) * 100))}%` }}
                             />
                           </div>
                         </div>
@@ -997,7 +967,7 @@ export default function MatchingPageNew() {
                                 value={noteText}
                                 onChange={(e) => setNoteText(e.target.value)}
                                 placeholder="Add a note about this candidate..."
-                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] resize-none"
                                 rows={2}
                                 cols={30}
                                 onClick={(e) => e.stopPropagation()}
@@ -1122,17 +1092,8 @@ export default function MatchingPageNew() {
 
 
 
-                    {/* Expanded details */}
-                    <AnimatePresence initial={false}>
-                      {isOpen && (
-                        <motion.div
-                          key="details"
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.25, ease: 'easeOut' }}
-                          className="px-5 pb-5"
-                        >
+                    {isOpen && (
+                        <div className="px-5 pb-5">
                           <div className="mt-2 space-y-6">
                             {/* AI Analysis Section (Redesigned) */}
                             {candidate.has_llm_analysis && candidate.llm_analysis && (
@@ -1157,7 +1118,7 @@ export default function MatchingPageNew() {
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    <p className="text-2xl font-black text-indigo-600">{Math.round(overall * 100)}</p>
+                                    <p className="text-2xl font-bold text-gray-900">{Math.round(overall * 100)}</p>
                                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Score</p>
                                   </div>
                                 </div>
@@ -1199,7 +1160,7 @@ export default function MatchingPageNew() {
                                 </div>
 
                                 <div className="pt-4 border-t border-gray-100">
-                                  <h5 className="text-sm font-bold text-indigo-700 uppercase tracking-wide mb-2">Fit Summary</h5>
+                                  <h5 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2">Fit Summary</h5>
                                   <p className="text-sm text-gray-800 leading-relaxed italic">
                                     "{candidate.llm_analysis.summary || 'Detailed summary unavailable.'}"
                                   </p>
@@ -1243,7 +1204,7 @@ export default function MatchingPageNew() {
                                 {Array.isArray(candidate.skills_assignments) && candidate.skills_assignments.length > 0 && (
                                   <div>
                                     <div className="flex items-center gap-2 mb-3">
-                                      <Brain className="w-4 h-4 text-indigo-600" />
+                                      <Brain className="w-4 h-4 text-[#00529b]" />
                                       <h4 className="font-semibold text-gray-900">
                                         Matched Skills ({candidate.skills_assignments.length})
                                       </h4>
@@ -1349,7 +1310,7 @@ export default function MatchingPageNew() {
                                 <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
                                   <div className="grid grid-cols-2 gap-4 text-center">
                                     <div>
-                                      <div className="text-lg font-semibold text-indigo-600">
+                                      <div className="text-lg font-semibold text-[#00529b]">
                                         {candidate.skills_assignments
                                           ? candidate.skills_assignments.filter((a: any) => (a.score ?? 0) >= 0.7).length
                                           : 0}
@@ -1375,13 +1336,11 @@ export default function MatchingPageNew() {
                               </>
                             )}
                           </div>
-                        </motion.div>
+                        </div>
                       )}
-                    </AnimatePresence>
-                  </motion.div>
+                  </div>
                 );
               })}
-            </AnimatePresence>
           </div>
 
           {/* Show All Notice */}
@@ -1418,7 +1377,7 @@ export default function MatchingPageNew() {
             </div>
           )}
         </div>
-      </motion.div>
+      </div>
 
       <FilePreviewModal
         isOpen={previewData.isOpen}
@@ -1428,6 +1387,13 @@ export default function MatchingPageNew() {
         fileId={previewData.id}
         fileType={previewData.type === 'cv' ? 'application/pdf' : 'application/pdf'}
         extractedText={previewData.extractedText}
+      />
+
+      <QueueStatusModal
+        isOpen={matchingQueue?.isQueued || false}
+        queuePosition={matchingQueue?.queuePosition || null}
+        estimatedWaitTime={matchingQueue?.estimatedWaitTime || null}
+        message={matchingQueue?.message || null}
       />
     </div>
   );

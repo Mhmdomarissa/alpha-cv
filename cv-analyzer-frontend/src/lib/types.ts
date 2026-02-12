@@ -16,6 +16,7 @@ export interface CVListItem extends BaseDocument {
   skills: string[];
   responsibilities_count: number;
   text_length: number;
+  category?: string;
 }
 
 export interface CVDataResponse {
@@ -90,12 +91,20 @@ export interface CVListResponse {
   status: string;
   count: number;
   cvs: CVListItem[];
+  /** Present when using pagination (limit/offset) */
+  total?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export interface JDListResponse {
   status: string;
   count: number;
   jds: JDListItem[];
+  /** Present when using pagination (limit/offset) */
+  total?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export interface UploadResponse {
@@ -181,6 +190,11 @@ export interface CandidateBreakdown {
 }
 
 export interface MatchResponse {
+  // Queue status fields
+  is_queued?: boolean;
+  queue_position?: number | null;
+  estimated_wait_time?: number | null; // seconds
+  message?: string | null;
   jd_id: string;
   jd_job_title: string;
   jd_years: number;

@@ -33,25 +33,31 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   // Actions
   initFromStorage: async () => {
     set({ loading: true });
+    // Safety: never leave loading true forever (e.g. if API hangs or CORS blocks)
+    const safetyTimer = setTimeout(() => {
+      set((s) => (s.loading ? { loading: false } : {}));
+    }, 6000);
     try {
       const token = getToken();
       if (token) {
         logger.info('Found token in storage, fetching user profile');
-        // Add timeout to prevent hanging
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Auth check timeout')), 5000)
         );
         const user = await Promise.race([api.me(token), timeoutPromise]) as UserProfile;
+        clearTimeout(safetyTimer);
         set({ token, user, loading: false, error: null });
         logger.info('Auth session restored');
       } else {
+        clearTimeout(safetyTimer);
         set({ loading: false });
         logger.info('No token found in storage');
       }
     } catch (error) {
+      clearTimeout(safetyTimer);
       logger.error('Failed to restore auth session:', error);
       clearToken();
-      set({ token: null, user: null, loading: false, error: null }); // Don't show error on init failure
+      set({ token: null, user: null, loading: false, error: null });
     }
   },
 

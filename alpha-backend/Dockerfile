@@ -16,17 +16,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install PyTorch with CUDA 12.1 support for GPU acceleration
+# TORCH_GPU=1 (default): install PyTorch with CUDA 12.1 for production (embeddings + matching).
+# TORCH_GPU=0: install CPU-only PyTorch for dev. We only install torch (no torchvision/torchaudio).
+ARG TORCH_GPU=1
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir \
-      torch==2.3.1 \
-      torchvision==0.18.1 \
-      torchaudio==2.3.1 \
-      --index-url https://download.pytorch.org/whl/cu121
+    if [ "$TORCH_GPU" = "1" ]; then \
+      pip install --no-cache-dir torch==2.3.1 --index-url https://download.pytorch.org/whl/cu121; \
+    else \
+      pip install --no-cache-dir torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu; \
+    fi
 
 # Install application dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall -y torchvision torchaudio 2>/dev/null || true
 
 # Copy application code
 COPY . .

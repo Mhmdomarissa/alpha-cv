@@ -2,21 +2,18 @@
 
 ## 🚀 Quick Deployment
 
-### Deploy Everything (Frontend + Backend)
+### Deploy Latest Code (Pulls from main branch)
 ```bash
-cd /home/ubuntu
-./deploy.sh
+cd /home/ubuntu/alpha-cv
+./scripts/deploy.sh
 ```
 
-### Deploy Only Frontend
-```bash
-./deploy.sh frontend
-```
-
-### Deploy Only Backend
-```bash
-./deploy.sh backend
-```
+**What it does**:
+1. Pulls latest code from `main` branch
+2. Rebuilds Docker images
+3. Gracefully restarts services
+4. Verifies deployment
+5. **NEVER touches data volumes**
 
 ---
 
@@ -127,7 +124,7 @@ Checking backend health...
 ## 📝 Example Deployment Output
 
 ```bash
-$ ./deploy.sh
+$ ./scripts/deploy.sh
 
 ╔════════════════════════════════════════════════════════════╗
 ║  AlphaCV Deployment Script
@@ -223,26 +220,22 @@ Service URLs:
 
 ## 🎯 Common Use Cases
 
-### After Fixing a Frontend Bug
+### After Making Changes
 ```bash
-# Edit your frontend code in /home/ubuntu/cv-analyzer-frontend/
-# Then deploy:
-./deploy.sh frontend
+# 1. Make your changes in the codebase
+# 2. Commit and push to your branch
+git add .
+git commit -m "Your changes"
+git push origin your-branch
+
+# 3. Merge to main branch (via GitHub PR)
+
+# 4. On server, deploy latest code from main:
+cd /home/ubuntu/alpha-cv
+./scripts/deploy.sh
 ```
 
-### After Fixing a Backend Bug
-```bash
-# Edit your backend code in /home/ubuntu/alpha-backend/
-# Then deploy:
-./deploy.sh backend
-```
-
-### After Updating Both
-```bash
-# Edit both frontend and backend code
-# Then deploy everything:
-./deploy.sh
-```
+**Note**: The deploy script always deploys both frontend and backend from the latest code in `main` branch.
 
 ---
 
@@ -290,10 +283,10 @@ If the new deployment has issues, you can rollback:
    docker images | grep backend
    ```
 
-3. Tag and use the old image:
+3. Checkout previous commit and redeploy:
    ```bash
-   docker tag <old-image-id> ubuntu_frontend:latest
-   ./deploy.sh frontend
+   git checkout <previous-commit-hash>
+   ./scripts/deploy.sh
    ```
 
 ---

@@ -1,32 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# Quick Qdrant Collection Status Checker
+# Backward-compatible wrapper (repo tidy refactor).
+# Actual script lives in: scripts/utils/check-qdrant.sh
 
-echo "=========================================="
-echo "📊 QDRANT COLLECTIONS STATUS"
-echo "=========================================="
-echo ""
-
-# Development
-echo "🧪 DEVELOPMENT (Port 6335)"
-echo "----------------------------"
-for collection in cv_documents cv_embeddings jd_documents jd_embeddings; do
-    count=$(curl -s http://localhost:6335/collections/$collection | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['points_count'])" 2>/dev/null || echo "N/A")
-    printf "  %-20s %s documents\n" "$collection:" "$count"
-done
-
-echo ""
-
-# Production
-echo "🏭 PRODUCTION (Port 6333)"
-echo "----------------------------"
-for collection in cv_documents cv_embeddings jd_documents jd_embeddings job_postings_structured; do
-    count=$(curl -s http://localhost:6333/collections/$collection | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['points_count'])" 2>/dev/null || echo "N/A")
-    printf "  %-25s %s documents\n" "$collection:" "$count"
-done
-
-echo ""
-echo "=========================================="
-echo "✅ Done"
-echo ""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "${SCRIPT_DIR}/scripts/utils/check-qdrant.sh" "$@"
 

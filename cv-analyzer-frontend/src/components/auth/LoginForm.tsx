@@ -168,7 +168,7 @@ export default function LoginForm() {
 
           {/* Error Banner */}
           {displayError && (
-            <div className="mb-6 p-4 rounded-xl bg-red-50/90 backdrop-blur-sm border border-red-200/70 animate-slide-up">
+            <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   <AlertCircle className="h-5 w-5 text-red-500" />
@@ -357,9 +357,6 @@ export default function LoginForm() {
           </div>
         </div>
 
-        {/* Decorative Elements */}
-        <div className="absolute -top-4 -right-4 w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 opacity-60 animate-pulse"></div>
-        <div className="absolute -bottom-4 -left-4 w-6 h-6 rounded-full bg-gradient-to-r from-blue-400 to-blue-500 opacity-60 animate-pulse" style={{ animationDelay: '1s' }}></div>
       </div>
 
     </div>

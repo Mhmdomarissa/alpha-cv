@@ -147,6 +147,15 @@ def _get_structured_jd(jd_id: str) -> Optional[Dict[str, Any]]:
 # Global progress tracking (in production, use Redis or database)
 _matching_progress = {}
 
+# ----------------------------
+# Matching Concurrency Control
+# ----------------------------
+# Semaphore to limit concurrent matching operations (max 2 at a time)
+_matching_semaphore = asyncio.Semaphore(2)
+_matching_queue: List[str] = []  # Track queued requests (by request ID)
+_matching_active: Dict[str, float] = {}  # Track active matches (request_id -> start_time)
+_matching_lock = asyncio.Lock()  # Lock for queue operations
+
 @router.get("/matching-progress/{job_id}")
 async def get_matching_progress(job_id: str):
     """
@@ -338,227 +347,304 @@ async def match_candidates(req: NewMatchRequest):
     
     Note: Large matching operations (>100 CVs) may take several minutes.
     The operation has a maximum timeout of 15 minutes to prevent indefinite hangs.
+    
+    Concurrency: Maximum 2 matching operations can run simultaneously.
+    Additional requests will be queued and processed in order.
     """
+    import uuid
+    request_id = str(uuid.uuid4())
+    
     try:
         # ========================================================================
-        # EARLY VALIDATION: No CV limit - removed per user request
+        # CV LIMIT CHECK: Maximum 300 CVs per request (applies even when queued)
         # ========================================================================
-        # MAX_CV_LIMIT = 250  # REMOVED - No limit
-        MATCHING_TIMEOUT = 900  # 15 minutes maximum for matching operation
+        MAX_CV_LIMIT = 300
         
-        # CV limit check removed - system can now handle any number of CVs
-        # if req.cv_ids and len(req.cv_ids) > MAX_CV_LIMIT:
-        #     error_message = (
-        #         f"Currently, our system supports matching up to {MAX_CV_LIMIT} CVs at a time. "
-        #         f"You selected {len(req.cv_ids)} CVs. "
-        #         f"Please reduce your selection to {MAX_CV_LIMIT} CVs or fewer and try again. "
-        #         f"We are working on expanding this limit in future updates to support larger batch matching."
-        #     )
-        #     logger.warning(f"⚠️ Matching request rejected early: {len(req.cv_ids)} CVs requested (max: {MAX_CV_LIMIT})")
-        #     raise HTTPException(
-        #         status_code=400,
-        #         detail=error_message
-        #     )
-        
-        # If no CV IDs specified (matching all), we'll check after counting
-        # but log the request first
-        logger.info(f"🎯 Starting matching request: JD={req.jd_id or 'text'}, CVs={len(req.cv_ids) if req.cv_ids else 'all'}")
-        
-        qdrant = get_qdrant_utils()
-        matching_service = get_matching_service()  # Get the matching service instance
-        
-        # Resolve JD (id or text)
-        if not (req.jd_id or req.jd_text):
-            raise HTTPException(status_code=400, detail="Provide jd_id or jd_text")
-        
-        if req.jd_id:
-            jd = qdrant.get_structured_jd(req.jd_id)
-            if not jd:
-                raise HTTPException(status_code=404, detail="JD not found")
-        else:
-            # Use LLM to standardize JD text to the same schema as DB
-            llm = get_llm_service()
-            jd_std = llm.standardize_jd(req.jd_text, "jd_input.txt")
-            jd = {
-                "id": "text_jd",
-                "job_title": jd_std.get("job_title", ""),
-                "years_of_experience": jd_std.get("experience_years", 0),
-                "skills_sentences": jd_std.get("skills", [])[:20],
-                "responsibility_sentences": (jd_std.get("responsibilities", []) or jd_std.get("responsibility_sentences", []))[:10],
-            }
-        
-        # Parse JD years properly to handle string values like "3-7"
-        jd_title = jd.get("job_title") or ""
-        jd_years = safe_parse_years(jd.get("years_of_experience"))
-        jd_skills = [s for s in jd.get("skills_sentences", []) if s]
-        jd_resps = [r for r in jd.get("responsibility_sentences", []) if r]
-        
-        # Candidate set - OPTIMIZED: Use batch retrieval for speed (2 Qdrant calls instead of 62)
-        candidates_meta = []
-        if req.cv_ids:
-            # If CV IDs were provided, fetch all of them in batch (much faster)
-            candidates_meta = qdrant.get_structured_cvs_batch(req.cv_ids)
-        else:
-            # If matching all CVs, fetch all (no limit)
-            all_cv_metas = qdrant.list_all_cvs()
-            logger.info(f"📊 Matching all CVs in database: {len(all_cv_metas)} CVs")
-            
-            # Fetch all CVs
-            for meta in all_cv_metas:
-                c = qdrant.get_structured_cv(meta["id"])
-                if c:
-                    candidates_meta.append(c)
-        
-        if not candidates_meta:
-            raise HTTPException(status_code=404, detail="No CVs available for matching")
-        
-        # Log the number of CVs being matched
-        logger.info(f"🎯 Matching {len(candidates_meta)} CVs with JD")
-        
-        # Weights
-        W = req.weights.dict() if req.weights else MatchWeights().dict()
-        Wn = normalize_weights(W)
-        
-        # Prepare JD structured data for MatchingService
-        jd_structured = {
-            "id": jd.get("id", "text_jd"),
-            "job_title": jd_title,
-            "years_of_experience": jd_years,  # Use the parsed integer value
-            "skills": jd_skills,
-            "responsibilities": jd_resps
-        }
-        
-        # OPTIMIZED: Process candidates in chunks with parallel processing
-        resp_candidates = []
-        chunk_size = 50  # Process 50 CVs at a time
-        total_candidates = len(candidates_meta)
-        total_chunks = (total_candidates + chunk_size - 1) // chunk_size
-        
-        # Initialize progress tracking
-        job_id = jd_structured.get("id", "text_jd")
-        start_time = time.time()
-        update_matching_progress(job_id, 
-            status="processing",
-            total_candidates=total_candidates,
-            total_chunks=total_chunks,
-            start_time=start_time,
-            progress_percent=0,
-            processed_candidates=0,
-            current_chunk=0,
-            results_so_far=0
-        )
-        
-        logger.info(f"🚀 Starting optimized matching: {total_candidates} CVs in {total_chunks} chunks of {chunk_size}")
-        
-        # Process candidates in chunks
-        for chunk_start in range(0, total_candidates, chunk_size):
-            chunk_end = min(chunk_start + chunk_size, total_candidates)
-            chunk_candidates = candidates_meta[chunk_start:chunk_end]
-            chunk_number = chunk_start // chunk_size + 1
-            
-            # Update progress
-            update_matching_progress(job_id,
-                current_chunk=chunk_number,
-                progress_percent=(chunk_number / total_chunks) * 100
+        # Check CV limit BEFORE queue check - applies regardless of queue status
+        if req.cv_ids and len(req.cv_ids) > MAX_CV_LIMIT:
+            error_message = (
+                f"Currently, our system supports matching up to {MAX_CV_LIMIT} CVs at a time. "
+                f"You selected {len(req.cv_ids)} CVs. "
+                f"Please reduce your selection to {MAX_CV_LIMIT} CVs or fewer and try again."
             )
-            
-            logger.info(f"📦 Processing chunk {chunk_number}/{total_chunks}: CVs {chunk_start+1}-{chunk_end} ({len(chunk_candidates)} candidates)")
-            
-            # Process chunk candidates in parallel
-            chunk_start_time = time.time()
-            chunk_results = await process_candidates_chunk_parallel(
-                chunk_candidates, jd_structured, matching_service, Wn
+            logger.warning(f"⚠️ Matching request rejected: {len(req.cv_ids)} CVs requested (max: {MAX_CV_LIMIT})")
+            raise HTTPException(
+                status_code=400,
+                detail=error_message
             )
-            chunk_time = time.time() - chunk_start_time
-            
-            resp_candidates.extend(chunk_results)
-            
-            # Memory cleanup between chunks
-            import gc
-            gc.collect()
-            
-            # Update progress
-            processed_so_far = len(resp_candidates)
-            progress_percent = (chunk_number / total_chunks) * 100
-            update_matching_progress(job_id,
-                processed_candidates=processed_so_far,
-                results_so_far=processed_so_far,
-                progress_percent=progress_percent
-            )
-            
-            logger.info(f"✅ Chunk {chunk_number}/{total_chunks} completed in {chunk_time:.2f}s: {len(chunk_results)} results, total: {len(resp_candidates)} ({progress_percent:.1f}%)")
         
-        # Mark as completed
-        total_time = time.time() - start_time
-        update_matching_progress(job_id,
-            status="completed",
-            progress_percent=100,
-            estimated_completion=time.time()
-        )
-        
-        # Sort candidates by overall score (semantic)
-        resp_candidates.sort(key=lambda x: x.overall_score, reverse=True)
-        
-        # ENHANCED: LLM Analysis for Top Candidates
-        # Adaptive: Analyze top min(50, total) candidates
-        if req.jd_id and len(resp_candidates) > 0:
-            logger.info(f"🤖 Starting LLM enhancement for top candidates...")
-            try:
-                # Convert CandidateBreakdown to dict for enhancement
-                candidates_dict = []
-                for candidate in resp_candidates:
-                    candidates_dict.append({
-                        "cv_id": candidate.cv_id,
-                        "cv_name": candidate.cv_name,
-                        "overall_score": candidate.overall_score,
-                        "skills_score": candidate.skills_score,
-                        "responsibilities_score": candidate.responsibilities_score,
-                        "job_title_score": candidate.job_title_score,
-                        "years_score": candidate.years_score,
-                    })
+        # Check queue position before acquiring semaphore
+        async with _matching_lock:
+            active_count = len(_matching_active)
+            queue_position = len(_matching_queue)
+            total_waiting = active_count + queue_position
+            
+            if total_waiting >= 2:
+                # Add to queue
+                _matching_queue.append(request_id)
+                queue_pos = len(_matching_queue)
+                # Estimate: ~5 minutes per match for 200 CVs
+                estimated_wait = queue_pos * 300  # seconds
                 
-                # Enhance with LLM analysis (adaptive top-K)
-                enhanced_dict = await enhance_with_llm_analysis_batched(
-                    semantic_results=candidates_dict,
+                logger.info(f"⏳ Matching request queued: {request_id} (position: {queue_pos}, active: {active_count})")
+                
+                # Return queued status immediately
+                return MatchResponse(
                     jd_id=req.jd_id,
-                    batch_size=10
+                    jd_job_title=None,
+                    jd_years=0,
+                    normalized_weights=MatchWeights(),
+                    candidates=[],
+                    is_queued=True,
+                    queue_position=queue_pos,
+                    estimated_wait_time=estimated_wait,
+                    message=f"Other users are currently matching. Your request is queued at position {queue_pos}. Estimated wait time: {estimated_wait // 60} minutes."
+                )
+        
+        # Acquire semaphore (wait if 2 matches already running)
+        logger.info(f"🎯 Matching request starting: {request_id} (waiting for semaphore...)")
+        async with _matching_semaphore:
+            # Remove from queue if it was there, mark as active
+            async with _matching_lock:
+                if request_id in _matching_queue:
+                    _matching_queue.remove(request_id)
+                _matching_active[request_id] = time.time()
+                queue_position = len(_matching_queue)
+            
+            logger.info(f"✅ Matching request acquired semaphore: {request_id} (queue: {queue_position} waiting)")
+            
+            try:
+                # ========================================================================
+                # MATCHING TIMEOUT
+                # ========================================================================
+                MATCHING_TIMEOUT = 900  # 15 minutes maximum for matching operation
+                
+                # If no CV IDs specified (matching all), we'll check after counting
+                logger.info(f"🎯 Starting matching request: JD={req.jd_id or 'text'}, CVs={len(req.cv_ids) if req.cv_ids else 'all'}")
+                
+                qdrant = get_qdrant_utils()
+                matching_service = get_matching_service()  # Get the matching service instance
+                
+                # Resolve JD (id or text)
+                if not (req.jd_id or req.jd_text):
+                    raise HTTPException(status_code=400, detail="Provide jd_id or jd_text")
+                
+                if req.jd_id:
+                    jd = qdrant.get_structured_jd(req.jd_id)
+                    if not jd:
+                        raise HTTPException(status_code=404, detail="JD not found")
+                else:
+                    # Use LLM to standardize JD text to the same schema as DB
+                    llm = get_llm_service()
+                    jd_std = llm.standardize_jd(req.jd_text, "jd_input.txt")
+                    jd = {
+                        "id": "text_jd",
+                        "job_title": jd_std.get("job_title", ""),
+                        "years_of_experience": jd_std.get("experience_years", 0),
+                        "skills_sentences": jd_std.get("skills", [])[:20],
+                        "responsibility_sentences": (jd_std.get("responsibilities", []) or jd_std.get("responsibility_sentences", []))[:10],
+                    }
+                
+                # Parse JD years properly to handle string values like "3-7"
+                jd_title = jd.get("job_title") or ""
+                jd_years = safe_parse_years(jd.get("years_of_experience"))
+                jd_skills = [s for s in jd.get("skills_sentences", []) if s]
+                jd_resps = [r for r in jd.get("responsibility_sentences", []) if r]
+                
+                # Candidate set - OPTIMIZED: Use batch retrieval for speed (2 Qdrant calls instead of 62)
+                candidates_meta = []
+                if req.cv_ids:
+                    # If CV IDs were provided, fetch all of them in batch (much faster)
+                    candidates_meta = qdrant.get_structured_cvs_batch(req.cv_ids)
+                else:
+                    # If matching all CVs, fetch all but enforce 300 CV limit
+                    all_cv_metas = qdrant.list_all_cvs()
+                    logger.info(f"📊 Matching all CVs in database: {len(all_cv_metas)} CVs")
+                    
+                    # Enforce 300 CV limit even when matching all
+                    if len(all_cv_metas) > MAX_CV_LIMIT:
+                        error_message = (
+                            f"Database contains {len(all_cv_metas)} CVs, but our system supports matching up to {MAX_CV_LIMIT} CVs at a time. "
+                            f"Please select specific CVs (up to {MAX_CV_LIMIT}) instead of matching all."
+                        )
+                        logger.warning(f"⚠️ Matching all CVs rejected: {len(all_cv_metas)} CVs in database (max: {MAX_CV_LIMIT})")
+                        raise HTTPException(
+                            status_code=400,
+                            detail=error_message
+                        )
+                    
+                    # Fetch all CVs (within limit)
+                    for meta in all_cv_metas:
+                        c = qdrant.get_structured_cv(meta["id"])
+                        if c:
+                            candidates_meta.append(c)
+                
+                if not candidates_meta:
+                    raise HTTPException(status_code=404, detail="No CVs available for matching")
+                
+                # Log the number of CVs being matched
+                logger.info(f"🎯 Matching {len(candidates_meta)} CVs with JD")
+                
+                # Weights
+                W = req.weights.dict() if req.weights else MatchWeights().dict()
+                Wn = normalize_weights(W)
+                
+                # Prepare JD structured data for MatchingService
+                jd_structured = {
+                    "id": jd.get("id", "text_jd"),
+                    "job_title": jd_title,
+                    "years_of_experience": jd_years,  # Use the parsed integer value
+                    "skills": jd_skills,
+                    "responsibilities": jd_resps
+                }
+                
+                # OPTIMIZED: Process candidates in chunks with parallel processing
+                resp_candidates = []
+                chunk_size = 50  # Process 50 CVs at a time
+                total_candidates = len(candidates_meta)
+                total_chunks = (total_candidates + chunk_size - 1) // chunk_size
+                
+                # Initialize progress tracking
+                job_id = jd_structured.get("id", "text_jd")
+                start_time = time.time()
+                update_matching_progress(job_id, 
+                    status="processing",
+                    total_candidates=total_candidates,
+                    total_chunks=total_chunks,
+                    start_time=start_time,
+                    progress_percent=0,
+                    processed_candidates=0,
+                    current_chunk=0,
+                    results_so_far=0
                 )
                 
-                # Merge LLM analysis back into CandidateBreakdown objects
-                for i, candidate in enumerate(resp_candidates):
-                    enhanced_data = enhanced_dict[i]
-                    
-                    # Add LLM fields to candidate (extend Pydantic model dynamically)
-                    candidate.has_llm_analysis = enhanced_data.get("has_llm_analysis", False)
-                    
-                    if candidate.has_llm_analysis:
-                        candidate.llm_analysis = enhanced_data.get("llm_analysis", {})
-                        candidate.semantic_score = candidate.overall_score
-                        
-                        # Update overall score with LLM score if available
-                        if "llm_score" in enhanced_data:
-                            candidate.overall_score = enhanced_data["llm_score"]
+                logger.info(f"🚀 Starting optimized matching: {total_candidates} CVs in {total_chunks} chunks of {chunk_size}")
                 
-                # Re-sort by updated scores (LLM scores may change ranking within top 50)
+                # Process candidates in chunks
+                for chunk_start in range(0, total_candidates, chunk_size):
+                    chunk_end = min(chunk_start + chunk_size, total_candidates)
+                    chunk_candidates = candidates_meta[chunk_start:chunk_end]
+                    chunk_number = chunk_start // chunk_size + 1
+                    
+                    # Update progress
+                    update_matching_progress(job_id,
+                        current_chunk=chunk_number,
+                        progress_percent=(chunk_number / total_chunks) * 100
+                    )
+                    
+                    logger.info(f"📦 Processing chunk {chunk_number}/{total_chunks}: CVs {chunk_start+1}-{chunk_end} ({len(chunk_candidates)} candidates)")
+                    
+                    # Process chunk candidates in parallel
+                    chunk_start_time = time.time()
+                    chunk_results = await process_candidates_chunk_parallel(
+                        chunk_candidates, jd_structured, matching_service, Wn
+                    )
+                    chunk_time = time.time() - chunk_start_time
+                    
+                    resp_candidates.extend(chunk_results)
+                    
+                    # Memory cleanup between chunks
+                    import gc
+                    gc.collect()
+                    
+                    # Update progress
+                    processed_so_far = len(resp_candidates)
+                    progress_percent = (chunk_number / total_chunks) * 100
+                    update_matching_progress(job_id,
+                        processed_candidates=processed_so_far,
+                        results_so_far=processed_so_far,
+                        progress_percent=progress_percent
+                    )
+                    
+                    logger.info(f"✅ Chunk {chunk_number}/{total_chunks} completed in {chunk_time:.2f}s: {len(chunk_results)} results, total: {len(resp_candidates)} ({progress_percent:.1f}%)")
+                
+                # Mark as completed
+                total_time = time.time() - start_time
+                update_matching_progress(job_id,
+                    status="completed",
+                    progress_percent=100,
+                    estimated_completion=time.time()
+                )
+                
+                # Sort candidates by overall score (semantic)
                 resp_candidates.sort(key=lambda x: x.overall_score, reverse=True)
                 
-                llm_analyzed_count = sum(1 for c in resp_candidates if getattr(c, 'has_llm_analysis', False))
-                logger.info(f"✅ LLM enhancement complete: {llm_analyzed_count} candidates analyzed")
+                # ENHANCED: LLM Analysis for Top Candidates
+                # Adaptive: Analyze top min(50, total) candidates
+                if req.jd_id and len(resp_candidates) > 0:
+                    logger.info(f"🤖 Starting LLM enhancement for top candidates...")
+                    try:
+                        # Convert CandidateBreakdown to dict for enhancement
+                        candidates_dict = []
+                        for candidate in resp_candidates:
+                            candidates_dict.append({
+                                "cv_id": candidate.cv_id,
+                                "cv_name": candidate.cv_name,
+                                "overall_score": candidate.overall_score,
+                                "skills_score": candidate.skills_score,
+                                "responsibilities_score": candidate.responsibilities_score,
+                                "job_title_score": candidate.job_title_score,
+                                "years_score": candidate.years_score,
+                            })
+                        
+                        # Enhance with LLM analysis (adaptive top-K)
+                        enhanced_dict = await enhance_with_llm_analysis_batched(
+                            semantic_results=candidates_dict,
+                            jd_id=req.jd_id,
+                            batch_size=10
+                        )
+                        
+                        # Merge LLM analysis back into CandidateBreakdown objects
+                        for i, candidate in enumerate(resp_candidates):
+                            enhanced_data = enhanced_dict[i]
+                            
+                            # Add LLM fields to candidate (extend Pydantic model dynamically)
+                            candidate.has_llm_analysis = enhanced_data.get("has_llm_analysis", False)
+                            
+                            if candidate.has_llm_analysis:
+                                candidate.llm_analysis = enhanced_data.get("llm_analysis", {})
+                                candidate.semantic_score = candidate.overall_score
+                                
+                                # Update overall score with LLM score if available
+                                if "llm_score" in enhanced_data:
+                                    candidate.overall_score = enhanced_data["llm_score"]
+                        
+                        # Re-sort by updated scores (LLM scores may change ranking within top 50)
+                        resp_candidates.sort(key=lambda x: x.overall_score, reverse=True)
+                        
+                        llm_analyzed_count = sum(1 for c in resp_candidates if getattr(c, 'has_llm_analysis', False))
+                        logger.info(f"✅ LLM enhancement complete: {llm_analyzed_count} candidates analyzed")
+                        
+                    except Exception as e:
+                        logger.error(f"❌ LLM enhancement failed: {e} - continuing with semantic scores only")
                 
-            except Exception as e:
-                logger.error(f"❌ LLM enhancement failed: {e} - continuing with semantic scores only")
-        
-        return MatchResponse(
-            jd_id=req.jd_id,
-            jd_job_title=jd_title,
-            jd_years=jd_years,  # Use the parsed integer value
-            normalized_weights=MatchWeights(**Wn),
-            candidates=resp_candidates
-        )
+                return MatchResponse(
+                    jd_id=req.jd_id,
+                    jd_job_title=jd_title,
+                    jd_years=jd_years,  # Use the parsed integer value
+                    normalized_weights=MatchWeights(**Wn),
+                    candidates=resp_candidates,
+                    is_queued=False,
+                    queue_position=None,
+                    estimated_wait_time=None,
+                    message=None
+                )
+            finally:
+                # Remove from active matches
+                async with _matching_lock:
+                    if request_id in _matching_active:
+                        del _matching_active[request_id]
+                    logger.info(f"Matching request completed: {request_id}")
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"❌ Matching failed: {e}")
+        # Clean up on error
+        async with _matching_lock:
+            if request_id in _matching_queue:
+                _matching_queue.remove(request_id)
+            if request_id in _matching_active:
+                del _matching_active[request_id]
         raise HTTPException(status_code=500, detail=f"Matching error: {str(e)}")
 async def match_text(request: TextMatchRequest) -> JSONResponse:
     """

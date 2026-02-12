@@ -14,33 +14,37 @@
 
 ## Quick Commands
 
-### Start Development Environment
+### Start System
 ```bash
-./dev-start.sh
-```
-Access at: `http://YOUR_IP:3001`
-
-### Make Changes
-Just edit files normally in your workspace!
-
-### Restart Dev After Changes
-```bash
-docker-compose -f docker-compose.dev.yml restart
+cd /home/ubuntu/alpha-cv
+./scripts/start.sh
 ```
 
-### View Dev Logs
+**Optional**: Rebuild images before starting
 ```bash
-docker-compose -f docker-compose.dev.yml logs -f
+./scripts/start.sh rebuild
 ```
 
-### Deploy to Production (After Testing!)
+### Stop System
 ```bash
-./deploy-to-production.sh
+./scripts/stop.sh
 ```
 
-### Stop Development
+**Note**: This preserves all data (volumes remain intact)
+
+### Deploy Latest Code
 ```bash
-./dev-stop.sh
+./scripts/deploy.sh
+```
+
+**What it does**:
+- Pulls latest code from `main` branch
+- Rebuilds and restarts services
+- **NEVER touches data volumes**
+
+### View Logs
+```bash
+docker-compose logs -f
 ```
 
 ---

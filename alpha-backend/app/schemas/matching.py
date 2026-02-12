@@ -58,3 +58,8 @@ class MatchResponse(BaseModel):
     jd_years: int = 0
     normalized_weights: MatchWeights
     candidates: List[CandidateBreakdown]
+    # Queue status fields
+    is_queued: bool = False
+    queue_position: Optional[int] = None
+    estimated_wait_time: Optional[int] = None  # seconds
+    message: Optional[str] = None

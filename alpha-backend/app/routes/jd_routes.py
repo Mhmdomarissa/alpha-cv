@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -19,6 +19,7 @@ from app.services.llm_service import get_llm_service
 from app.services.embedding_service import get_embedding_service
 from app.utils.qdrant_utils import get_qdrant_utils, get_decompressed_content
 from app.services.s3_storage import get_s3_storage_service
+from app.utils.cache import get_cache_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -206,6 +207,7 @@ async def upload_jd(
         )
 
         logger.info(f"✅ JD processed and stored: {jd_id}")
+        _invalidate_jd_list_cache()
 
         return JSONResponse({
             "status": "success",
@@ -228,39 +230,67 @@ async def upload_jd(
         raise HTTPException(status_code=500, detail=f"JD processing failed: {e}")
 
 
+def _invalidate_jd_list_cache():
+    try:
+        get_cache_service().delete("jd_list", namespace="jd_data")
+        logger.debug("🗑️ Invalidated JD list cache")
+    except Exception as e:
+        logger.warning(f"Failed to invalidate JD list cache: {e}")
+
+
 @router.get("/jds")
-async def list_jds() -> JSONResponse:
+async def list_jds(
+    limit: Optional[int] = Query(None, description="Max items to return (enables pagination)"),
+    offset: int = Query(0, ge=0, description="Number of items to skip")
+) -> JSONResponse:
     """
-    List all processed JDs with metadata.
-    Reads from jd_structured (for structured_info) and jd_documents (for filename/upload_date).
+    List processed JDs with metadata. Supports optional pagination for faster loads.
+    Reads from jd_structured and jd_documents. CACHED 60s; cache invalidated on JD upload/delete/reprocess.
     """
     try:
+        cache = get_cache_service()
+        cached_result = cache.get("jd_list", namespace="jd_data")
+
+        if cached_result is not None:
+            enhanced = cached_result.get("jds", [])
+            total = len(enhanced)
+            if limit is not None:
+                page = enhanced[offset : offset + limit]
+                return JSONResponse({
+                    "status": "success",
+                    "count": len(page),
+                    "total": total,
+                    "jds": page,
+                    "limit": limit,
+                    "offset": offset,
+                })
+            return JSONResponse(cached_result)
+
+        logger.debug("🔄 JD list cache miss - fetching from database")
         qdrant = get_qdrant_utils()
 
-        # Pull structured rows
         all_structured = []
-        offset = None
+        scroll_offset = None
         while True:
             points, next_offset = qdrant.client.scroll(
                 collection_name="jd_structured",
                 limit=200,
-                offset=offset,
+                offset=scroll_offset,
                 with_payload=True,
                 with_vectors=False
             )
             all_structured.extend(points)
             if not next_offset:
                 break
-            offset = next_offset
+            scroll_offset = next_offset
 
-        # Pull document metadata to map (id -> doc payload)
         docs_map: Dict[str, Dict[str, Any]] = {}
-        offset = None
+        scroll_offset = None
         while True:
             points, next_offset = qdrant.client.scroll(
                 collection_name="jd_documents",
                 limit=200,
-                offset=offset,
+                offset=scroll_offset,
                 with_payload=True,
                 with_vectors=False
             )
@@ -269,7 +299,7 @@ async def list_jds() -> JSONResponse:
                 docs_map[payload.get("id") or str(p.id)] = payload
             if not next_offset:
                 break
-            offset = next_offset
+            scroll_offset = next_offset
 
         enhanced = []
         for p in all_structured:
@@ -281,10 +311,9 @@ async def list_jds() -> JSONResponse:
             skills = structured.get("skills_sentences", structured.get("skills", []))
             resps = structured.get("responsibility_sentences", structured.get("responsibilities", []))
 
-            # Clean up filename - extract just the filename from path
             filename = doc_meta.get("filename", "Unknown")
             if filename and "/" in filename:
-                filename = filename.split("/")[-1]  # Get just the filename, not the full path
+                filename = filename.split("/")[-1]
             
             enhanced.append({
                 "id": doc_id,
@@ -298,10 +327,25 @@ async def list_jds() -> JSONResponse:
                 "category": structured.get("category", "General")
             })
 
-        # Sort newest first when possible
         enhanced.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
+        total = len(enhanced)
 
-        return JSONResponse({"status": "success", "count": len(enhanced), "jds": enhanced})
+        if limit is not None:
+            page = enhanced[offset : offset + limit]
+            result = {
+                "status": "success",
+                "count": len(page),
+                "total": total,
+                "jds": page,
+                "limit": limit,
+                "offset": offset,
+            }
+        else:
+            result = {"status": "success", "count": total, "jds": enhanced}
+
+        cache.set("jd_list", {"status": "success", "count": total, "jds": enhanced}, ttl_seconds=60, namespace="jd_data")
+        logger.debug(f"💾 Cached JD list ({total} JDs) for 60 seconds")
+        return JSONResponse(result)
 
     except Exception as e:
         logger.error(f"❌ Failed to list JDs: {e}")
@@ -456,6 +500,7 @@ async def delete_jd(jd_id: str) -> JSONResponse:
         # Delete structured + documents
         qdrant.client.delete(collection_name="jd_structured", points_selector=[jd_id])
         qdrant.client.delete(collection_name="jd_documents", points_selector=[jd_id])
+        _invalidate_jd_list_cache()
 
         return JSONResponse({
             "status": "success",
@@ -514,6 +559,7 @@ async def reprocess_jd(jd_id: str) -> JSONResponse:
             qdrant.client.delete(collection_name="jd_embeddings", points_selector=old_ids)
 
         qdrant.store_embeddings_exact(jd_id, "jd", doc_embeddings)
+        _invalidate_jd_list_cache()
 
         return JSONResponse({
             "status": "success",

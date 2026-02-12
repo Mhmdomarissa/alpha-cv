@@ -127,8 +127,10 @@ class ApiClient {
     return response.data;
   }
 
-  async listCVs(): Promise<CVListResponse> {
-    const response = await this.client.get<CVListResponse>('/api/cv/cvs');
+  async listCVs(params?: { limit?: number; offset?: number }): Promise<CVListResponse> {
+    const response = await this.client.get<CVListResponse>('/api/cv/cvs', {
+      params: params ?? {},
+    });
     return response.data;
   }
 
@@ -205,8 +207,10 @@ class ApiClient {
     return response.data;
   }
 
-  async listJDs(): Promise<JDListResponse> {
-    const response = await this.client.get<JDListResponse>('/api/jd/jds');
+  async listJDs(params?: { limit?: number; offset?: number }): Promise<JDListResponse> {
+    const response = await this.client.get<JDListResponse>('/api/jd/jds', {
+      params: params ?? {},
+    });
     return response.data;
   }
 
@@ -820,7 +824,8 @@ export const api = {
 
   // CV operations
   uploadCV: (file: File, cvText?: string) => RequestRetryHandler.withRetry(() => apiClient.uploadCV(file, cvText)),
-  listCVs: () => RequestRetryHandler.withRetry(() => apiClient.listCVs()),
+  listCVs: (params?: { limit?: number; offset?: number }) =>
+    RequestRetryHandler.withRetry(() => apiClient.listCVs(params)),
   getCVDetails: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVDetails(cvId)),
   deleteCV: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.deleteCV(cvId)),
   reprocessCV: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.reprocessCV(cvId)),
@@ -836,7 +841,8 @@ export const api = {
 
   // JD operations
   uploadJD: (file: File, jdText?: string) => RequestRetryHandler.withRetry(() => apiClient.uploadJD(file, jdText)),
-  listJDs: () => RequestRetryHandler.withRetry(() => apiClient.listJDs()),
+  listJDs: (params?: { limit?: number; offset?: number }) =>
+    RequestRetryHandler.withRetry(() => apiClient.listJDs(params)),
   getJDDetails: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.getJDDetails(jdId)),
   deleteJD: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.deleteJD(jdId)),
   reprocessJD: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.reprocessJD(jdId)),

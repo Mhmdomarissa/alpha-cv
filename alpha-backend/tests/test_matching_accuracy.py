@@ -10,8 +10,9 @@ import uuid
 import numpy as np
 from typing import Dict, List, Any
 
-# Add the backend to path
-sys.path.append('/home/ubuntu/alpha-backend')
+# Add the backend to path (relative to this file)
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, backend_dir)
 
 from app.utils.qdrant_utils import QdrantUtils
 from app.services.matching_service import MatchingService

@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { X, ChevronLeft, ChevronRight, Download, ZoomIn, ZoomOut, Maximize2, FileText } from 'lucide-react';
+import { X, Download, ZoomIn, ZoomOut, Maximize2, FileText } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button-enhanced';
 import { Badge } from '@/components/ui/badge';
@@ -23,7 +23,6 @@ interface FilePreviewModalProps {
 
 export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, fileType, extractedText }: FilePreviewModalProps) {
     const [numPages, setNumPages] = useState<number | null>(null);
-    const [pageNumber, setPageNumber] = useState(1);
     const [scale, setScale] = useState(1.0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -32,8 +31,7 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
 
     useEffect(() => {
         if (isOpen) {
-            setPageNumber(1);
-            setLoading(isPdf); // Only show loading for PDF
+            setLoading(isPdf);
             setError(null);
         }
     }, [isOpen, fileUrl, isPdf]);
@@ -76,7 +74,7 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                     </div>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-auto bg-gray-900 flex justify-center p-4 relative">
+                <div className="flex-1 overflow-auto bg-gray-900 flex flex-col items-center p-4 relative">
                     {loading && isPdf && (
                         <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10">
                             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
@@ -93,19 +91,27 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                     )}
 
                     {isPdf ? (
-                        <div className="shadow-2xl bg-white mb-10 mt-2">
+                        <div className="flex flex-col items-center gap-4 w-full max-w-4xl">
                             <Document
                                 file={fileUrl}
                                 onLoadSuccess={onDocumentLoadSuccess}
                                 onLoadError={onDocumentLoadError}
                                 loading={null}
                             >
-                                <Page
-                                    pageNumber={pageNumber}
-                                    scale={scale}
-                                    renderAnnotationLayer={true}
-                                    renderTextLayer={true}
-                                />
+                                {numPages != null && numPages > 0 && (
+                                    <>
+                                        {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
+                                            <div key={pageNum} className="shadow-2xl bg-white">
+                                                <Page
+                                                    pageNumber={pageNum}
+                                                    scale={scale}
+                                                    renderAnnotationLayer={true}
+                                                    renderTextLayer={true}
+                                                />
+                                            </div>
+                                        ))}
+                                    </>
+                                )}
                             </Document>
                         </div>
                     ) : (
@@ -151,32 +157,11 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                     )}
                 </div>
 
-                {isPdf && numPages && numPages > 0 && (
-                    <div className="bg-gray-800 border-t border-gray-700 p-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setPageNumber(Math.max(1, pageNumber - 1))}
-                                disabled={pageNumber <= 1}
-                                className="text-gray-300 hover:text-white"
-                            >
-                                <ChevronLeft className="w-5 h-5" />
-                            </Button>
-                            <span className="text-sm text-gray-300">
-                                Page {pageNumber} of {numPages}
-                            </span>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setPageNumber(Math.min(numPages, pageNumber + 1))}
-                                disabled={pageNumber >= numPages}
-                                className="text-gray-300 hover:text-white"
-                            >
-                                <ChevronRight className="w-5 h-5" />
-                            </Button>
-                        </div>
-
+                {isPdf && numPages != null && numPages > 0 && (
+                    <div className="bg-gray-800 border-t border-gray-700 p-3 flex items-center justify-between shrink-0">
+                        <span className="text-sm text-gray-300">
+                            {numPages} page{numPages !== 1 ? 's' : ''} · Scroll to view
+                        </span>
                         <div className="flex items-center gap-2">
                             <Button
                                 variant="ghost"

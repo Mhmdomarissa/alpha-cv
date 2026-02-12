@@ -1,7 +1,8 @@
 version: '3.8'
 
 services:
-  # Development Frontend (runs on port 3000)
+  # Development Frontend (runs on port 3000). API at 8000 so app works without nginx.
+  # Use http://localhost (port 80) only when you want to test via nginx.
   frontend-dev:
     build:
       context: ./cv-analyzer-frontend
@@ -9,7 +10,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
     ports:
-      - "3000:3000"  # Standard port
+      - "3000:3000"
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
@@ -19,11 +20,13 @@ services:
       - dev-network
     restart: unless-stopped
 
-  # Development Backend (runs on port 8000)
+  # Development Backend (runs on port 8000, CPU-only PyTorch - no CUDA)
   backend-dev:
     build:
       context: ./alpha-backend
       dockerfile: Dockerfile
+      args:
+        TORCH_GPU: "0"
     ports:
       - "8000:8000"  # Standard port
     env_file:
@@ -76,51 +79,65 @@ services:
       - dev-network
     restart: unless-stopped
 
-  # SonarQube Server (Code Quality & Security Analysis)
-  sonarqube:
-    image: sonarqube:community
-    container_name: sonarqube-dev
-    depends_on:
-      - sonarqube-db
-    environment:
-      - SONAR_JDBC_URL=jdbc:postgresql://sonarqube-db:5432/sonar
-      - SONAR_JDBC_USERNAME=sonar
-      - SONAR_JDBC_PASSWORD=sonar
-      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
-    volumes:
-      - sonarqube-data:/opt/sonarqube/data
-      - sonarqube-extensions:/opt/sonarqube/extensions
-      - sonarqube-logs:/opt/sonarqube/logs
+  # Development Nginx - reverse proxy (same routing as prod)
+  nginx-dev:
+    image: nginx:alpine
     ports:
-      - "9000:9000"  # SonarQube web interface
+      - "80:80"
+    volumes:
+      - ./nginx-dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend-dev
+      - frontend-dev
     networks:
       - dev-network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9000/api/system/status"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+
+  # SonarQube Server (Code Quality & Security Analysis)
+  # sonarqube:
+  #   image: sonarqube:community
+  #   container_name: sonarqube-dev
+  #   depends_on:
+  #     - sonarqube-db
+  #   environment:
+  #     - SONAR_JDBC_URL=jdbc:postgresql://sonarqube-db:5432/sonar
+  #     - SONAR_JDBC_USERNAME=sonar
+  #     - SONAR_JDBC_PASSWORD=sonar
+  #     - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+  #   volumes:
+  #     - sonarqube-data:/opt/sonarqube/data
+  #     - sonarqube-extensions:/opt/sonarqube/extensions
+  #     - sonarqube-logs:/opt/sonarqube/logs
+  #   ports:
+  #     - "9000:9000"  # SonarQube web interface
+  #   networks:
+  #     - dev-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9000/api/system/status"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #     start_period: 60s
 
   # SonarQube Database (PostgreSQL)
-  sonarqube-db:
-    image: postgres:15-alpine
-    container_name: sonarqube-db-dev
-    environment:
-      - POSTGRES_USER=sonar
-      - POSTGRES_PASSWORD=sonar
-      - POSTGRES_DB=sonar
-    volumes:
-      - sonarqube-db-data:/var/lib/postgresql/data
-    networks:
-      - dev-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sonar"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # sonarqube-db:
+  #   image: postgres:15-alpine
+  #   container_name: sonarqube-db-dev
+  #   environment:
+  #     - POSTGRES_USER=sonar
+  #     - POSTGRES_PASSWORD=sonar
+  #     - POSTGRES_DB=sonar
+  #   volumes:
+  #     - sonarqube-db-data:/var/lib/postgresql/data
+  #   networks:
+  #     - dev-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U sonar"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
 networks:
   dev-network:
@@ -129,7 +146,7 @@ networks:
 volumes:
   postgres-dev-data:
   qdrant-dev-data:
-  sonarqube-data:
-  sonarqube-extensions:
-  sonarqube-logs:
-  sonarqube-db-data:
+  # sonarqube-data:
+  # sonarqube-extensions:
+  # sonarqube-logs:
+  # sonarqube-db-data:

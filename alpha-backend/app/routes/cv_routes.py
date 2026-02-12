@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from fastapi import APIRouter, File, HTTPException, Form, UploadFile
+from fastapi import APIRouter, File, HTTPException, Form, UploadFile, Query
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from app.services.parsing_service import get_parsing_service
@@ -532,52 +532,61 @@ async def upload_cv(
 
 
 @router.get("/cvs")
-async def list_cvs() -> JSONResponse:
+async def list_cvs(
+    limit: Optional[int] = Query(None, description="Max items to return (enables pagination)"),
+    offset: int = Query(0, ge=0, description="Number of items to skip")
+) -> JSONResponse:
     """
-    List all processed CVs with metadata.
+    List processed CVs with metadata. Supports optional pagination for faster loads.
     Reads from cv_structured (for structured_info) and cv_documents (for filename/upload_date).
     
-    CACHED: Results are cached for 60 seconds to improve performance.
-    Cache is automatically invalidated when CVs are uploaded/updated.
+    CACHED: Full list is cached for 60 seconds. Pagination returns only the requested slice.
+    Cache is invalidated when CVs are uploaded/updated.
     """
     try:
-        # Try to get from cache first
         cache = get_cache_service()
         cached_result = cache.get("cv_list", namespace="cv_data")
         
         if cached_result is not None:
-            logger.debug("✅ Returning cached CV list")
+            enhanced = cached_result.get("cvs", [])
+            total = len(enhanced)
+            if limit is not None:
+                page = enhanced[offset : offset + limit]
+                return JSONResponse({
+                    "status": "success",
+                    "count": len(page),
+                    "total": total,
+                    "cvs": page,
+                    "limit": limit,
+                    "offset": offset,
+                })
             return JSONResponse(cached_result)
         
         logger.debug("🔄 Cache miss - fetching CV list from database")
-        
         qdrant = get_qdrant_utils()
 
-        # Structured rows
         all_structured = []
-        offset = None
+        scroll_offset = None
         while True:
             points, next_offset = qdrant.client.scroll(
                 collection_name="cv_structured",
                 limit=200,
-                offset=offset,
+                offset=scroll_offset,
                 with_payload=True,
                 with_vectors=False
             )
             all_structured.extend(points)
             if not next_offset:
                 break
-            offset = next_offset
-        # Suggestion: could extract into helper function to DRY Qdrant pagination
+            scroll_offset = next_offset
 
-        # Documents map id -> payload
         docs_map: Dict[str, Dict[str, Any]] = {}
-        offset = None
+        scroll_offset = None
         while True:
             points, next_offset = qdrant.client.scroll(
                 collection_name="cv_documents",
                 limit=200,
-                offset=offset,
+                offset=scroll_offset,
                 with_payload=True,
                 with_vectors=False
             )
@@ -586,8 +595,7 @@ async def list_cvs() -> JSONResponse:
                 docs_map[payload.get("id") or str(p.id)] = payload
             if not next_offset:
                 break
-            offset = next_offset
-        # Suggestion: could extract into helper function to DRY Qdrant pagination
+            scroll_offset = next_offset
 
         enhanced = []
         for p in all_structured:
@@ -599,10 +607,9 @@ async def list_cvs() -> JSONResponse:
             skills = structured.get("skills_sentences", structured.get("skills", []))
             resps = structured.get("responsibility_sentences", structured.get("responsibilities", []))
 
-            # Clean up filename - extract just the filename from path
             filename = doc_meta.get("filename", "Unknown")
             if filename and "/" in filename:
-                filename = filename.split("/")[-1]  # Get just the filename, not the full path
+                filename = filename.split("/")[-1]
             
             enhanced.append({
                 "id": doc_id,
@@ -618,13 +625,23 @@ async def list_cvs() -> JSONResponse:
             })
 
         enhanced.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
+        total = len(enhanced)
 
-        result = {"status": "success", "count": len(enhanced), "cvs": enhanced}
+        if limit is not None:
+            page = enhanced[offset : offset + limit]
+            result = {
+                "status": "success",
+                "count": len(page),
+                "total": total,
+                "cvs": page,
+                "limit": limit,
+                "offset": offset,
+            }
+        else:
+            result = {"status": "success", "count": total, "cvs": enhanced}
         
-        # Cache the result for 60 seconds
-        cache.set("cv_list", result, ttl_seconds=60, namespace="cv_data")
-        logger.debug(f"💾 Cached CV list ({len(enhanced)} CVs) for 60 seconds")
-
+        cache.set("cv_list", {"status": "success", "count": total, "cvs": enhanced}, ttl_seconds=60, namespace="cv_data")
+        logger.debug(f"💾 Cached CV list ({total} CVs) for 60 seconds")
         return JSONResponse(result)
 
     except Exception as e:

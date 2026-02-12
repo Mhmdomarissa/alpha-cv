@@ -11,12 +11,9 @@ export default function LoginPage() {
   const [initTimeout, setInitTimeout] = useState(false);
 
   useEffect(() => {
-    // Set a timeout to show login form even if auth init is slow
-    const timeout = setTimeout(() => {
-      setInitTimeout(true);
-    }, 2000); // Show form after 2 seconds max
-
-    return () => clearTimeout(timeout);
+    // Show login form after 1.5s even if auth init is still loading (avoids stuck spinner)
+    const t = setTimeout(() => setInitTimeout(true), 1500);
+    return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {

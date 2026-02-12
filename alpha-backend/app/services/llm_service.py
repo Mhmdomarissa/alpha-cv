@@ -356,10 +356,12 @@ class LLMService:
         *,
         model: Optional[str] = None,
         max_tokens: int = 1500,
-        json_schema: Optional[Dict[str, Any]] = None
+        json_schema: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None,
     ) -> LLMResponse:
         if not model:
             model = self.default_model
+        request_timeout = timeout if timeout is not None else 60
 
         # response_format: JSON object (or JSON Schema strict)
         if json_schema:
@@ -385,8 +387,8 @@ class LLMService:
 
         for attempt in range(self.max_retries):
             try:
-                logger.info(f"🤖 OpenAI API call (attempt {attempt + 1}/{self.max_retries}) - Model: {model}")
-                r = self.session.post(self.base_url, json=body, timeout=60)
+                logger.info(f"🤖 OpenAI API call (attempt {attempt + 1}/{self.max_retries}) - Model: {model}, timeout={request_timeout}s")
+                r = self.session.post(self.base_url, json=body, timeout=request_timeout)
                 if r.status_code == 200:
                     payload = r.json()
                     sys_fp = payload.get("system_fingerprint")
