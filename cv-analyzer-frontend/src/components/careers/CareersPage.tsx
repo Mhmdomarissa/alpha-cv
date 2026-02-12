@@ -249,15 +249,15 @@ export default function CareersPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Careers</h1>
-          <p className="text-gray-600 mt-0.5">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Careers</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-0.5">
             {user.role === 'admin' ? 'Manage job postings and applications' : `Your job postings (${user.username})`}
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2 sm:gap-3">
           <Button
             onClick={handleRefresh}
             variant="outline"
@@ -310,10 +310,10 @@ export default function CareersPage() {
 
       {/* Role-based information banner */}
       {user.role === 'admin' && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
-            <p className="text-blue-800 text-sm">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
+          <div className="flex items-start sm:items-center gap-2">
+            <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 sm:mt-0 shrink-0"></div>
+            <p className="text-blue-800 text-xs sm:text-sm">
               <strong>Admin View:</strong> You can see and manage all job postings in the system.
             </p>
           </div>
@@ -321,13 +321,13 @@ export default function CareersPage() {
       )}
       
       {/* Filter Dropdown for All Users */}
-      <div className="flex items-center space-x-3">
-        <Filter className="w-4 h-4 text-gray-500" />
-        <label className="text-sm font-medium text-gray-700">Filter jobs:</label>
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <Filter className="w-4 h-4 text-gray-500 shrink-0" />
+        <label className="text-sm font-medium text-gray-700 shrink-0">Filter jobs:</label>
         <select
           value={jobFilter}
           onChange={(e) => setJobFilter(e.target.value as 'all' | 'yours' | 'others')}
-          className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b] min-w-0"
         >
           <option value="all">All Jobs</option>
           <option value="yours">Your Jobs</option>
@@ -339,10 +339,10 @@ export default function CareersPage() {
       </div>
       
       {user.role === 'user' && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
-            <p className="text-green-800 text-sm">
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 sm:p-4">
+          <div className="flex items-start sm:items-center gap-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full mt-1.5 sm:mt-0 shrink-0"></div>
+            <p className="text-green-800 text-xs sm:text-sm">
               <strong>User View:</strong> You can see all job postings but can only edit and manage the ones you created.
             </p>
           </div>
@@ -396,11 +396,11 @@ export default function CareersPage() {
                   selectedJob?.job_id === job.job_id ? 'ring-2 ring-[#00529b] bg-[#00529b]/5' : ''
                 }`}
               >
-              <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                    <div className="flex items-center space-x-3 mb-2">
-                      <CardTitle className="text-xl">{job.job_title}</CardTitle>
+              <CardHeader className="p-4 sm:p-6">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-2">
+                      <CardTitle className="text-lg sm:text-xl break-words">{job.job_title}</CardTitle>
                       <Badge variant={job.is_active ? "default" : "secondary"}>
                         {job.is_active ? "Active" : "Inactive"}
                             </Badge>
@@ -408,24 +408,23 @@ export default function CareersPage() {
                         
                         {/* User Attribution */}
                         {job.posted_by_user && (
-                          <div className="flex items-center text-sm text-gray-500 mb-2">
-                            <User className="w-4 h-4 mr-1" />
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm text-gray-500 mb-2">
+                            <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                             <span>Posted by: </span>
-                            <span className="font-medium text-gray-700 ml-1">{job.posted_by_user}</span>
+                            <span className="font-medium text-gray-700">{job.posted_by_user}</span>
                             {job.posted_by_role === 'admin' && (
-                              <Badge variant="outline" className="ml-2 text-xs bg-blue-50 text-blue-700 border-blue-200">Admin</Badge>
+                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">Admin</Badge>
                             )}
                             {job.posted_by_role === 'user' && (
-                              <Badge variant="outline" className="ml-2 text-xs bg-green-50 text-green-700 border-green-200">User</Badge>
+                              <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">User</Badge>
                             )}
-                            {/* Show ownership indicator for current user */}
                             {job.posted_by_user === user.username && (
-                              <Badge variant="outline" className="ml-2 text-xs bg-purple-50 text-purple-700 border-purple-200">Your Job</Badge>
+                              <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">Your Job</Badge>
                             )}
                           </div>
                         )}
                         
-                    <div className="flex items-center space-x-4 text-sm text-gray-600">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm text-gray-600">
                       <div className="flex items-center space-x-1">
                         <Users className="w-4 h-4" />
                         <span>{job.application_count} applications</span>
@@ -439,12 +438,12 @@ export default function CareersPage() {
                         {/* Email Subject Template for Naukri */}
                         <div className="mt-3">
                           {job.email_subject_template && (
-                            <div className="flex-1 min-w-0 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                              <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 p-2.5 sm:p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                 <div className="min-w-0 flex-1">
                                   <div className="text-xs font-medium text-blue-700 mb-1">Email Subject for Naukri/Candidates:</div>
-                                  <div className="flex items-center flex-wrap gap-2">
-                                    <code className="text-sm font-mono text-blue-900 bg-blue-100 px-2 py-1 rounded break-all">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <code className="text-xs sm:text-sm font-mono text-blue-900 bg-blue-100 px-2 py-1 rounded break-all">
                                       {job.email_subject_template}
                                     </code>
                                     <span className="text-xs text-blue-600">({job.email_subject_id})</span>
@@ -475,7 +474,7 @@ export default function CareersPage() {
                         </div>
                       </div>
                       
-                      <div className="flex items-center space-x-2 ml-4">
+                      <div className="flex flex-wrap items-center justify-end sm:justify-start gap-1 sm:gap-2 sm:ml-4 shrink-0">
                     {/* Edit button - only show if user can edit */}
                     {job.can_edit && (
                       <Button
@@ -569,9 +568,9 @@ export default function CareersPage() {
                     
                   </div>
               </div>
-              {/* Match + View Applied Candidates — side by side, bottom-right */}
+              {/* Match + View Applied Candidates — side by side on desktop, stack on mobile */}
               {(job.application_count || 0) > 0 && (
-                <div className="mt-3 flex justify-end gap-2">
+                <div className="mt-3 flex flex-col sm:flex-row justify-end gap-2">
                   <Button
                     size="sm"
                     onClick={(e) => {
@@ -579,18 +578,18 @@ export default function CareersPage() {
                       handleMatchCandidates(job);
                     }}
                     title="Match Candidates"
-                    className="bg-[#00529b] hover:bg-[#003d73] !text-white"
+                    className="bg-[#00529b] hover:bg-[#003d73] !text-white w-full sm:w-auto"
                   >
-                    <Target className="w-4 h-4 mr-1 !text-white" />
-                    <span className="!text-white">Match ({job.application_count || 0})</span>
+                    <Target className="w-4 h-4 mr-1 !text-white shrink-0" />
+                    <span className="!text-white truncate">Match ({job.application_count || 0})</span>
                   </Button>
                   <Button
                     size="sm"
                     onClick={() => handleSelectJob(job)}
-                    className="bg-[#00529b] hover:bg-[#003d73] !text-white"
+                    className="bg-[#00529b] hover:bg-[#003d73] !text-white w-full sm:w-auto"
                   >
-                    <Users className="w-4 h-4 mr-2 !text-white" />
-                    <span className="!text-white">View Applied Candidates ({job.application_count || 0})</span>
+                    <Users className="w-4 h-4 mr-2 !text-white shrink-0" />
+                    <span className="!text-white truncate">View Applied Candidates ({job.application_count || 0})</span>
                   </Button>
                 </div>
               )}
@@ -627,27 +626,27 @@ export default function CareersPage() {
 
       {/* Applicants for selected job — full-width table */}
       {selectedJob && (
-        <div className="mt-8 border border-gray-200 rounded-xl bg-white overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-gray-200 bg-gray-50">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-gray-900">
+        <div className="mt-6 sm:mt-8 border border-gray-200 rounded-xl bg-white overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border-b border-gray-200 bg-gray-50">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
                 Applicants for {selectedJob.job_title}
               </h2>
-              <span className="text-sm text-gray-600">
+              <span className="text-xs sm:text-sm text-gray-600 shrink-0">
                 {(selectedJob.application_count ?? 0)} candidate{(selectedJob.application_count ?? 0) !== 1 ? 's' : ''}
               </span>
               {(selectedJob.application_count || 0) > 0 && (
                 <Button
                   size="sm"
                   onClick={() => handleMatchCandidates(selectedJob)}
-                  className="bg-[#00529b] hover:bg-[#003d73] !text-white"
+                  className="bg-[#00529b] hover:bg-[#003d73] !text-white w-full sm:w-auto"
                 >
                   <Target className="w-4 h-4 mr-2 !text-white" />
                   <span className="!text-white">Match ({selectedJob.application_count || 0})</span>
                 </Button>
               )}
             </div>
-            <Button variant="outline" size="sm" onClick={handleCloseJobDetails} className="border-gray-300">
+            <Button variant="outline" size="sm" onClick={handleCloseJobDetails} className="border-gray-300 w-full sm:w-auto">
               Close applicants
             </Button>
           </div>
@@ -658,8 +657,8 @@ export default function CareersPage() {
       {/* 🚨 ADMIN-ONLY DELETE CONFIRMATION DIALOG 🚨 */}
       <AdminOnly>
         {showDeleteConfirm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
               <div className="flex items-center mb-4">
                 <AlertCircle className="w-6 h-6 text-red-600 mr-3" />
                 <h3 className="text-lg font-semibold text-gray-900">Delete All Job Postings</h3>
@@ -705,8 +704,8 @@ export default function CareersPage() {
 
       {/* Individual Job Delete Confirmation Dialog */}
       {showJobDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center mb-4">
               <AlertCircle className="w-6 h-6 text-red-600 mr-3" />
               <h3 className="text-lg font-semibold text-gray-900">Delete Job Posting</h3>

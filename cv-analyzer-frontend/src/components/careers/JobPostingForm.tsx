@@ -508,7 +508,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
             </div>
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <div
             className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
               jobId ? 'border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed' : // Disabled in edit mode
@@ -661,7 +661,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
               </div>
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-6">
             <div className="space-y-6">
               <div className="text-center space-y-3">
                 <div className="w-16 h-16 bg-gradient-to-br from-green-100 to-emerald-100 rounded-full mx-auto flex items-center justify-center shadow-lg">
@@ -727,7 +727,7 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
               </div>
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-6 space-y-6">
+          <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-6">
             {/* Job Title */}
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-gray-800">

@@ -271,16 +271,16 @@ export default function ApplicationsList() {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm border-collapse">
+    <div className="overflow-x-auto -mx-1 sm:mx-0">
+      <table className="w-full text-xs sm:text-sm border-collapse min-w-[640px]">
         <thead>
           <tr className="border-b border-gray-200 bg-gray-50">
-            <th className="text-left py-3 px-4 font-semibold text-gray-700">Candidate</th>
-            <th className="text-left py-3 px-4 font-semibold text-gray-700">Email</th>
-            <th className="text-left py-3 px-4 font-semibold text-gray-700">Expected salary</th>
-            <th className="text-left py-3 px-4 font-semibold text-gray-700">Applied</th>
-            <th className="text-left py-3 px-4 font-semibold text-gray-700">Notes</th>
-            <th className="text-right py-3 px-4 font-semibold text-gray-700">Actions</th>
+            <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Candidate</th>
+            <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Email</th>
+            <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Expected salary</th>
+            <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Applied</th>
+            <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Notes</th>
+            <th className="text-right py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -289,45 +289,45 @@ export default function ApplicationsList() {
               key={application.application_id}
               className="border-b border-gray-100 hover:bg-gray-50/80 align-top"
             >
-              <td className="py-3 px-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
-                    <User className="w-4 h-4 text-gray-500" />
+              <td className="py-2 sm:py-3 px-2 sm:px-4">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                    <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-500" />
                   </div>
-                  <div>
-                    <span className="font-medium text-gray-900">{application.applicant_name}</span>
+                  <div className="min-w-0">
+                    <span className="font-medium text-gray-900 block truncate">{application.applicant_name}</span>
                     {application.source === 'email_application' && (
-                      <Badge variant="secondary" className="ml-1 text-xs bg-purple-50 text-purple-700 border-0">
+                      <Badge variant="secondary" className="ml-0 sm:ml-1 text-xs bg-purple-50 text-purple-700 border-0">
                         Naukri
                       </Badge>
                     )}
                     {application.cv_filename && (
-                      <p className="text-xs text-gray-500 truncate max-w-[180px]" title={application.cv_filename}>
+                      <p className="text-xs text-gray-500 truncate max-w-[140px] sm:max-w-[180px]" title={application.cv_filename}>
                         {application.cv_filename}
                       </p>
                     )}
                   </div>
                 </div>
               </td>
-              <td className="py-3 px-4">
-                <a href={`mailto:${application.applicant_email}`} className="text-[#00529b] hover:underline truncate block max-w-[200px]" title={application.applicant_email}>
+              <td className="py-2 sm:py-3 px-2 sm:px-4">
+                <a href={`mailto:${application.applicant_email}`} className="text-[#00529b] hover:underline truncate block max-w-[120px] sm:max-w-[200px]" title={application.applicant_email}>
                   {application.applicant_email}
                 </a>
                 {application.applicant_phone && (
                   <p className="text-xs text-gray-500 mt-0.5">{application.applicant_phone}</p>
                 )}
               </td>
-              <td className="py-3 px-4">
+              <td className="py-2 sm:py-3 px-2 sm:px-4">
                 {application.expected_salary != null ? (
-                  <span className="font-medium text-gray-900">AED {application.expected_salary.toLocaleString()}</span>
+                  <span className="font-medium text-gray-900 whitespace-nowrap">AED {application.expected_salary.toLocaleString()}</span>
                 ) : (
                   <span className="text-gray-400">—</span>
                 )}
               </td>
-              <td className="py-3 px-4 text-gray-600">
+              <td className="py-2 sm:py-3 px-2 sm:px-4 text-gray-600 whitespace-nowrap">
                 {formatDate(application.application_date)}
               </td>
-              <td className="py-3 px-4">
+              <td className="py-2 sm:py-3 px-2 sm:px-4">
                 {application.has_notes ? (
                   <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
                     <MessageSquare className="w-3.5 h-3.5" />
@@ -337,22 +337,22 @@ export default function ApplicationsList() {
                   <span className="text-gray-400">—</span>
                 )}
               </td>
-              <td className="py-3 px-4 text-right">
+              <td className="py-2 sm:py-3 px-2 sm:px-4 text-right">
                 <div className="flex items-center justify-end gap-1 flex-wrap">
                   <Button
                     size="sm"
                     variant="outline"
-                    className="border-gray-300 text-gray-700 h-8"
+                    className="border-gray-300 text-gray-700 h-7 sm:h-8 text-xs sm:text-sm"
                     onClick={() => handleViewDetails(application.application_id, application.cv_filename)}
                     title="View details & notes"
                   >
-                    <Eye className="w-4 h-4 mr-1" />
-                    Details
+                    <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Details</span>
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="border-gray-300 text-gray-700 h-8"
+                    className="border-gray-300 text-gray-700 h-7 sm:h-8 text-xs sm:text-sm"
                     onClick={() => {
                       const name = application.applicant_name || 'document';
                       const fn = previewFileName(application.cv_filename, name);
@@ -360,8 +360,8 @@ export default function ApplicationsList() {
                     }}
                     title="View PDF"
                   >
-                    <FileText className="w-4 h-4 mr-1" />
-                    PDF
+                    <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4 sm:mr-1" />
+                    <span className="hidden sm:inline">PDF</span>
                   </Button>
                 </div>
               </td>
@@ -383,9 +383,9 @@ export default function ApplicationsList() {
             }}
             aria-hidden
           />
-          <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
-              <h2 className="text-lg font-semibold text-gray-900">Candidate details & notes</h2>
+          <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between p-3 sm:p-4 border-b border-gray-200 bg-gray-50">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 truncate pr-2">Candidate details & notes</h2>
               <button
                 type="button"
                 onClick={() => {
@@ -400,7 +400,7 @@ export default function ApplicationsList() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 sm:space-y-6">
               {loadingCVData ? (
                 <div className="flex flex-col items-center justify-center py-12">
                   <Loader2 className="w-8 h-8 animate-spin text-[#00529b]" />

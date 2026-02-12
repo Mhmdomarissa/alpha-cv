@@ -12,6 +12,7 @@ import {
   Briefcase
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import { TypewriterCycle } from '@/components/ui/Typewriter';
 
 export default function DashboardPage() {
   const { 
@@ -26,7 +27,7 @@ export default function DashboardPage() {
   
   const totalDocuments = cvs.length + jds.length;
   const totalMatches = matchResult?.candidates.length || 0;
-  
+
   // Load documents when component mounts
   useEffect(() => {
     loadCVs();
@@ -35,8 +36,8 @@ export default function DashboardPage() {
 
 
   return (
-    <div className="space-y-8">
-      <div className="text-center space-y-4">
+    <div className="space-y-6 sm:space-y-8 bg-gradient-to-b from-gray-50 to-[#eff6ff]/30 min-h-full">
+      <div className="text-center space-y-3 sm:space-y-4 px-1">
         <div className="flex justify-center">
           <div className="w-16 h-16 rounded-xl flex items-center justify-center bg-[#00529b] shadow-sm">
             <svg width="36" height="36" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -46,12 +47,22 @@ export default function DashboardPage() {
             </svg>
           </div>
         </div>
-        <h1 className="text-3xl font-bold text-gray-900">Welcome to Alpha CV</h1>
-        <p className="text-lg text-gray-600 max-w-2xl mx-auto">AI-powered resume matching</p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Welcome to Alpha CV</h1>
+        <p className="text-base sm:text-lg text-gray-600 max-w-2xl mx-auto min-h-[1.5em]">
+          <TypewriterCycle
+            texts={[
+              'AI-powered resume matching',
+              'Find the best candidates faster',
+              'Smart matching for recruiters',
+            ]}
+            speed={70}
+            pauseBetween={2800}
+          />
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm transition-shadow hover:shadow-md">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm transition-shadow hover:shadow-md animate-fade-in-up animation-delay-100">
           <div className="w-12 h-12 rounded-lg bg-[#00529b] flex items-center justify-center mb-4">
             <FileText className="w-6 h-6 text-white" />
           </div>
@@ -61,7 +72,7 @@ export default function DashboardPage() {
         </div>
         <button
           onClick={() => { setDatabaseActiveTab('cvs'); setCurrentTab('database'); }}
-          className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-shadow w-full text-left"
+          className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-shadow w-full text-left animate-fade-in-up animation-delay-200"
         >
           <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center mb-4">
             <Users className="w-6 h-6 text-white" />
@@ -72,7 +83,7 @@ export default function DashboardPage() {
         </button>
         <button
           onClick={() => { setDatabaseActiveTab('jds'); setCurrentTab('database'); }}
-          className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-shadow w-full text-left"
+          className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-shadow w-full text-left animate-fade-in-up animation-delay-300"
         >
           <div className="w-12 h-12 rounded-lg bg-amber-600 flex items-center justify-center mb-4">
             <Briefcase className="w-6 h-6 text-white" />
@@ -81,7 +92,7 @@ export default function DashboardPage() {
           <p className="text-ui font-medium text-gray-600">Job Positions</p>
           <p className="text-caption text-gray-500">Available for matching</p>
         </button>
-        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm transition-shadow hover:shadow-md">
+        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm transition-shadow hover:shadow-md animate-fade-in-up animation-delay-400">
           <div className="w-12 h-12 rounded-lg bg-violet-600 flex items-center justify-center mb-4">
             <Award className="w-6 h-6 text-white" />
           </div>
@@ -91,8 +102,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white rounded-xl p-8 border border-gray-200 shadow-sm">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
+        <div className="bg-white rounded-xl p-5 sm:p-8 border border-gray-200 shadow-sm animate-fade-in-up animation-delay-200">
           <div className="flex items-center space-x-4 mb-6">
             <div className="w-12 h-12 rounded-lg bg-[#00529b] flex items-center justify-center">
               <svg 
@@ -148,9 +159,10 @@ export default function DashboardPage() {
               <ArrowRight className="w-5 h-5 text-gray-400" />
             </button>
           </div>
+          <p className="text-sm text-gray-500 mt-4">Upload CVs and JDs, then run Match to see ranked candidates.</p>
         </div>
 
-        <div className="bg-white rounded-xl p-8 border border-gray-200 shadow-sm">
+        <div className="bg-white rounded-xl p-5 sm:p-8 border border-gray-200 shadow-sm animate-fade-in-up animation-delay-300">
           <div className="flex items-center space-x-4 mb-6">
             <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center">
               <BarChart3 className="w-6 h-6 text-white" />
@@ -176,8 +188,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-        <div className="flex items-center justify-between">
+      <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center space-x-4">
             <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center">
               <CheckCircle className="w-6 h-6 text-white" />

@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, X, Zap, Eye, EyeOff, Lock, User, Mail, KeyRound } from 'lucide-react';
 import { config } from '@/lib/config';
+import { Typewriter } from '@/components/ui/Typewriter';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -137,7 +138,7 @@ export default function LoginForm() {
 
       {/* Login Card */}
       <div className="relative w-full max-w-md">
-        <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 border border-white/30 shadow-2xl">
+        <div className="bg-white/90 backdrop-blur-xl rounded-2xl sm:rounded-3xl p-5 sm:p-8 border border-white/30 shadow-2xl">
           {/* Header */}
           <div className="text-center space-y-6 mb-8">
             <div className="flex justify-center">
@@ -157,11 +158,11 @@ export default function LoginForm() {
               </div>
             </div>
             <div className="space-y-2">
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 via-slate-700 to-slate-600 bg-clip-text text-transparent">
-                Welcome Back
+              <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-slate-800 via-slate-700 to-slate-600 bg-clip-text text-transparent">
+                Welcome back
               </h1>
-              <p className="text-slate-600 font-medium">
-                Sign in to your Alpha CV account
+              <p className="text-slate-600 font-medium min-h-[1.5em]">
+                <Typewriter text="Sign in to your Alpha CV account" speed={40} delay={300} cursor={false} />
               </p>
             </div>
           </div>

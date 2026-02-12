@@ -280,8 +280,30 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
       </header>
 
       {mobileMenuOpen && (
-        <div className="md:hidden bg-white border-b border-gray-200 shadow-sm">
+        <div className="md:hidden bg-white border-b border-gray-200 shadow-sm max-h-[85vh] overflow-y-auto">
           <div className="container mx-auto px-4 py-4">
+            {user && (
+              <div className="flex items-center justify-between gap-3 pb-4 mb-4 border-b border-gray-200">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-full bg-[#00529b] flex items-center justify-center shrink-0">
+                    <User className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-700 truncate">{user.username}</div>
+                    <div className={`text-xs px-2 py-0.5 rounded-full font-medium w-fit ${user.role === 'admin' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
+                      {user.role}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { handleLogout(); setMobileMenuOpen(false); }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors shrink-0"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Logout</span>
+                </button>
+              </div>
+            )}
             <nav className="space-y-1">
               {navigationTabs.map((tab) => {
                 const isActive = currentTab === tab.id;
@@ -358,7 +380,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         </div>
       )}
 
-      <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
         <div className="animate-fade-in">
           {children}
         </div>

@@ -15,14 +15,16 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport = { width: 'device-width', initialScale: 1, maximumScale: 5 };
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="en" className="scroll-smooth">
+      <body className={`${inter.className} antialiased overflow-x-hidden`}>
         <AuthInitializer />
         {children}
       </body>

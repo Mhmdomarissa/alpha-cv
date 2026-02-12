@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Download, ZoomIn, ZoomOut, Maximize2, FileText } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button-enhanced';
@@ -26,8 +26,24 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
     const [scale, setScale] = useState(1.0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [containerWidth, setContainerWidth] = useState(0);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     const isPdf = fileName.toLowerCase().endsWith('.pdf');
+
+    // Measure container width so PDF page can scale to fit (avoids right-side clipping)
+    useEffect(() => {
+        if (!isOpen || !isPdf) return;
+        const el = scrollContainerRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver((entries) => {
+            const { width } = entries[0]?.contentRect ?? {};
+            if (typeof width === 'number' && width > 0) setContainerWidth(width);
+        });
+        ro.observe(el);
+        setContainerWidth(el.getBoundingClientRect().width);
+        return () => ro.disconnect();
+    }, [isOpen, isPdf]);
 
     useEffect(() => {
         if (isOpen) {
@@ -74,7 +90,7 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                     </div>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-auto bg-gray-900 flex flex-col items-center p-4 relative">
+                <div ref={scrollContainerRef} className="flex-1 overflow-auto bg-gray-900 flex flex-col items-center p-4 relative min-w-0">
                     {loading && isPdf && (
                         <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10">
                             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
@@ -91,7 +107,7 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                     )}
 
                     {isPdf ? (
-                        <div className="flex flex-col items-center gap-4 w-full max-w-4xl">
+                        <div className="flex flex-col items-center gap-4 w-full min-w-0">
                             <Document
                                 file={fileUrl}
                                 onLoadSuccess={onDocumentLoadSuccess}
@@ -104,7 +120,8 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                                             <div key={pageNum} className="shadow-2xl bg-white">
                                                 <Page
                                                     pageNumber={pageNum}
-                                                    scale={scale}
+                                                    width={containerWidth > 0 ? containerWidth * scale : undefined}
+                                                    scale={containerWidth > 0 ? undefined : scale}
                                                     renderAnnotationLayer={true}
                                                     renderTextLayer={true}
                                                 />

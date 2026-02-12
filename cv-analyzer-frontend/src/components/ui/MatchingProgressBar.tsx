@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Target, Brain, Users, CheckCircle, Clock } from 'lucide-react';
+import { Typewriter } from './Typewriter';
 
 interface MatchingProgressBarProps {
   totalCVs: number;
@@ -71,14 +72,14 @@ export default function MatchingProgressBar({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[100] p-4 animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 border border-gray-100">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 sm:p-8 border border-gray-100 ring-2 ring-[#00529b]/20">
         {/* Headline + engaging line */}
         <div className="text-center mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-1">
-            AI Matching in Progress
+          <h2 className="text-xl font-bold text-gray-900 mb-1 min-h-[1.5em]">
+            <Typewriter text="AI Matching in Progress" speed={50} delay={0} cursor={false} />
           </h2>
-          <p className="text-sm text-gray-500">
-            Finding the best candidates for your role — stay tuned
+          <p className="text-sm text-gray-500 min-h-[1.25em]">
+            <Typewriter text="Finding the best candidates for your role — stay tuned" speed={45} delay={200} cursor={false} />
           </p>
         </div>
 
@@ -114,7 +115,9 @@ export default function MatchingProgressBar({
               style={{ width: `${Math.max(2, progress)}%` }}
             />
           </div>
-          <p className="text-xs text-gray-500 mt-1.5">{stage.description}</p>
+          <p className="text-xs text-gray-500 mt-1.5 min-h-[1rem]">
+            <Typewriter key={currentStage} text={stage.description} speed={30} delay={0} cursor={false} />
+          </p>
         </div>
 
         {/* Stage steps */}
