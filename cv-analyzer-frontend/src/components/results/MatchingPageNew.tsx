@@ -616,20 +616,20 @@ export default function MatchingPageNew() {
       )}
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Match Results</h1>
-        <p className="text-gray-600 mt-0.5">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Match Results</h1>
+        <p className="text-sm sm:text-base text-gray-600 mt-0.5">
           {totalMatches} candidate{totalMatches !== 1 ? 's' : ''} evaluated. Sort and filter below.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
-          <div className="flex justify-center mb-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-gray-100">
-              <Users className="w-5 h-5 text-gray-700" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
+        <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 text-center border border-gray-200">
+          <div className="flex justify-center mb-2 sm:mb-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-gray-100">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5 text-gray-700" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-gray-900">
+          <div className="text-lg sm:text-2xl font-semibold text-gray-900">
             {visibleMatches}
             {resultsLimit !== 'all' && totalMatches > visibleMatches && (
               <span className="text-sm text-gray-500 ml-1">/{totalMatches}</span>
@@ -639,46 +639,46 @@ export default function MatchingPageNew() {
             {resultsLimit !== 'all' ? `Top ${resultsLimit} Candidates` : 'Total Candidates'}
           </p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
-          <div className="flex justify-center mb-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-amber-50">
-              <Award className="w-5 h-5 text-amber-600" />
+        <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 text-center border border-gray-200">
+          <div className="flex justify-center mb-2 sm:mb-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-amber-50">
+              <Award className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-amber-600">{visibleTop}%</div>
+          <div className="text-lg sm:text-2xl font-semibold text-amber-600">{visibleTop}%</div>
           <p className="text-sm text-gray-600">Best {resultsLimit !== 'all' ? 'Visible' : ''} Match</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
-          <div className="flex justify-center mb-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-50">
-              <BarChart3 className="w-5 h-5 text-emerald-600" />
+        <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 text-center border border-gray-200">
+          <div className="flex justify-center mb-2 sm:mb-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-emerald-50">
+              <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-gray-900">{visibleAverage}%</div>
+          <div className="text-lg sm:text-2xl font-semibold text-gray-900">{visibleAverage}%</div>
           <p className="text-sm text-gray-600">{resultsLimit !== 'all' ? 'Visible' : ''} Average Score</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm p-6 text-center border border-gray-200">
-          <div className="flex justify-center mb-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-50">
-              <Star className="w-5 h-5 text-emerald-600" />
+        <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 text-center border border-gray-200">
+          <div className="flex justify-center mb-2 sm:mb-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-emerald-50">
+              <Star className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-emerald-600">{visibleExcellent}</div>
+          <div className="text-lg sm:text-2xl font-semibold text-emerald-600">{visibleExcellent}</div>
           <p className="text-sm text-gray-600">{resultsLimit !== 'all' ? 'Visible' : ''} Excellent (≥80%)</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-gray-100">
-            <TrendingUp className="w-5 h-5 text-gray-700" />
+      <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-200">
+        <div className="flex items-center gap-3 mb-4 sm:mb-6">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-gray-100 shrink-0">
+            <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-700" />
           </div>
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Quality Distribution</h3>
+          <div className="min-w-0">
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900">Quality Distribution</h3>
             <p className="text-sm text-gray-600">Breakdown by overall match</p>
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
           <div className="text-center">
             <div className="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
               <div
@@ -714,8 +714,8 @@ export default function MatchingPageNew() {
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-center justify-between">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortKey)}
@@ -765,13 +765,13 @@ export default function MatchingPageNew() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-50">
-              <Target className="w-5 h-5 text-emerald-600" />
+        <div className="p-4 sm:p-6">
+          <div className="flex items-center gap-3 mb-4 sm:mb-6">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-emerald-50 shrink-0">
+              <Target className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Ranked Candidates</h3>
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900">Ranked Candidates</h3>
               <p className="text-sm text-gray-600">
                 {sortedCandidates.length} shown{resultsLimit !== 'all' ? ` (top ${resultsLimit})` : ''} of {totalFiltered} total.
                 Sorted by {sortBy === 'score' ? 'overall match' : sortBy}.
@@ -804,10 +804,10 @@ export default function MatchingPageNew() {
                       className="w-full text-left p-5 hover:bg-gray-50 transition-colors cursor-pointer"
                     >
                       {/* Header row */}
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
+                        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                           <div
-                            className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white ${barColor(
+                            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm font-bold text-white shrink-0 ${barColor(
                               overall
                             )}`}
                           >

@@ -313,11 +313,11 @@ export default function UploadPageNew() {
   };
   
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-6 lg:space-y-8">
       {/* Header */}
-      <div className="text-center">
-        <h1 className="heading-lg">Upload Files</h1>
-        <p className="text-lg mt-2" style={{ color: 'var(--gray-600)' }}>
+      <div className="text-center px-1">
+        <h1 className="heading-lg text-xl sm:text-2xl">Upload Files</h1>
+        <p className="text-base sm:text-lg mt-2" style={{ color: 'var(--gray-600)' }}>
           Step 1: Upload Your Documents
         </p>
         <p className="text-base mt-1" style={{ color: 'var(--gray-500)' }}>
@@ -325,10 +325,10 @@ export default function UploadPageNew() {
         </p>
       </div>
       {/* Upload Zones */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
         {/* CV Upload Zone */}
-        <div className="space-y-4">
-          <div className="flex items-center space-x-3 mb-4">
+        <div className="space-y-3 sm:space-y-4">
+          <div className="flex items-center space-x-3 mb-3 sm:mb-4">
             <div
               className="w-10 h-10 rounded-lg flex items-center justify-center"
               style={{ backgroundColor: 'var(--primary-50)' }}
@@ -344,7 +344,7 @@ export default function UploadPageNew() {
           </div>
           <div
             {...getCVRootProps()}
-            className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200"
+            className="border-2 border-dashed rounded-xl p-4 sm:p-6 lg:p-8 text-center cursor-pointer transition-all duration-200"
             style={{
               borderColor: isCVDragReject
                 ? 'var(--red-500)'
@@ -381,8 +381,8 @@ export default function UploadPageNew() {
           </div>
         </div>
         {/* JD Upload Zone */}
-        <div className="space-y-4">
-          <div className="flex items-center space-x-3 mb-4">
+        <div className="space-y-3 sm:space-y-4">
+          <div className="flex items-center space-x-3 mb-3 sm:mb-4">
             <div
               className="w-10 h-10 rounded-lg flex items-center justify-center"
               style={{ backgroundColor: 'var(--green-50)' }}
@@ -398,7 +398,7 @@ export default function UploadPageNew() {
           </div>
           <div
             {...getJDRootProps()}
-            className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200"
+            className="border-2 border-dashed rounded-xl p-4 sm:p-6 lg:p-8 text-center cursor-pointer transition-all duration-200"
             style={{
               borderColor: isJDDragReject
                 ? 'var(--red-500)'

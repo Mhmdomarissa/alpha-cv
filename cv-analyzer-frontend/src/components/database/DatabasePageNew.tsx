@@ -20,12 +20,14 @@ import {
   Pencil,
   Save,
   FileText as FileTextIcon,
+  ListChecks,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { config } from '@/lib/config';
 import { Button } from '@/components/ui/button-enhanced';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CVListItem, JDListItem } from '@/lib/types';
 
 const FilePreviewModal = dynamic(
@@ -104,6 +106,7 @@ export default function DatabasePageNew() {
   const [detailJD, setDetailJD] = useState<any>(null);
   const [detailJDLoading, setDetailJDLoading] = useState(false);
   const [notesFilter, setNotesFilter] = useState<'all' | 'with_notes' | 'without_notes'>('all');
+  const [showSelectedCVs, setShowSelectedCVs] = useState(false);
 
   // Load CV via download API for preview (works for both upload CVs and job-application CVs from Careers)
   useEffect(() => {
@@ -268,15 +271,22 @@ export default function DatabasePageNew() {
     else selectCV(id);
   };
 
+  const allOnPageSelected = paginatedCVs.length > 0 && paginatedCVs.every((cv) => selectedCVs.includes(cv.id));
+
   const selectAllInFolder = () => {
-    paginatedCVs.forEach((cv) => {
-      if (!selectedCVs.includes(cv.id)) selectCV(cv.id);
-    });
+    if (allOnPageSelected) {
+      paginatedCVs.forEach((cv) => deselectCV(cv.id));
+    } else {
+      paginatedCVs.forEach((cv) => {
+        if (!selectedCVs.includes(cv.id)) selectCV(cv.id);
+      });
+    }
   };
 
-  const clearSelection = () => {
-    deselectAllCVs();
-  };
+  const selectedCVList = useMemo(
+    () => cvs.filter((cv) => selectedCVs.includes(cv.id)),
+    [cvs, selectedCVs]
+  );
 
   const previewFileName = (item: { filename?: string; full_name?: string; job_title?: string }, type: 'cv' | 'jd') => {
     const base = item.filename || (type === 'cv' ? item.full_name : item.job_title) || 'document';
@@ -351,7 +361,7 @@ export default function DatabasePageNew() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Document Database</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Document Database</h1>
           <p className="text-gray-600 mt-0.5">
             Select a folder, choose candidates and a job description, then run matching.
           </p>
@@ -379,9 +389,9 @@ export default function DatabasePageNew() {
             </div>
           </div>
 
-      <div className="flex flex-1 min-h-0 gap-6">
-        {/* Sidebar: Folders + JDs */}
-        <aside className="w-64 shrink-0 flex flex-col gap-6 bg-white border border-gray-200 rounded-xl p-4 h-fit">
+      <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-4 lg:gap-6">
+        {/* Sidebar: Folders + JDs - stacks on mobile */}
+        <aside className="w-full lg:w-64 shrink-0 flex flex-col gap-4 lg:gap-6 bg-white border border-gray-200 rounded-xl p-4 h-fit">
           <div>
             <h2 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
               <FolderOpen className="w-4 h-4" />
@@ -455,8 +465,9 @@ export default function DatabasePageNew() {
                 {selectedCVs.length} candidate{selectedCVs.length !== 1 ? 's' : ''} selected
                 {selectedJD && ` • 1 JD selected`}
               </p>
-              <Button variant="outline" size="sm" onClick={clearSelection} className="w-full">
-                Clear selection
+              <Button variant="outline" size="sm" onClick={() => setShowSelectedCVs(true)} className="w-full inline-flex items-center gap-2">
+                <ListChecks className="w-4 h-4" />
+                Selected CVs ({selectedCVs.length})
               </Button>
               </div>
             )}
@@ -481,14 +492,14 @@ export default function DatabasePageNew() {
                 Job descriptions ({jds.length})
               </button>
             </div>
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <input
                 type="text"
                 placeholder={view === 'candidates' ? 'Search candidates...' : 'Search job descriptions...'}
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-transparent"
+                className="w-full min-w-0 pl-9 pr-4 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:ring-offset-0 focus:border-[#00529b]"
               />
           </div>
             {view === 'candidates' && (
@@ -504,8 +515,8 @@ export default function DatabasePageNew() {
                   <option value="without_notes">Without notes</option>
           </select>
                 <Button variant="outline" size="sm" onClick={selectAllInFolder}>
-                  Select all on this page
-              </Button>
+                  {allOnPageSelected ? 'Deselect all on this page' : 'Select all on this page'}
+                </Button>
           </div>
         )}
       </div>
@@ -777,7 +788,7 @@ export default function DatabasePageNew() {
 
       {/* Detail panel: full CV + notes + View PDF */}
       {detailCVId && (
-        <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
+        <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
           <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
             <h2 className="text-lg font-semibold text-gray-900">Candidate details & notes</h2>
             <button
@@ -951,7 +962,7 @@ export default function DatabasePageNew() {
 
       {/* JD detail panel */}
       {detailJDId && (
-        <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
+        <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
           <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
             <h2 className="text-lg font-semibold text-gray-900">JD details</h2>
             <button
@@ -1062,6 +1073,56 @@ export default function DatabasePageNew() {
           />
         ) : null
       )}
+
+      {/* Selected CVs modal */}
+      <Dialog open={showSelectedCVs} onOpenChange={setShowSelectedCVs}>
+        <DialogContent className="max-w-md max-h-[80vh] flex flex-col bg-white">
+          <DialogHeader className="border-b border-gray-200 pb-3">
+            <DialogTitle className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <ListChecks className="w-5 h-5 text-[#00529b]" />
+              Selected CVs ({selectedCVList.length})
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto py-2 min-h-0">
+            {selectedCVList.length === 0 ? (
+              <p className="text-sm text-gray-500 py-4 text-center">No CVs selected.</p>
+            ) : (
+              <ul className="space-y-1">
+                {selectedCVList.map((cv) => {
+                  const d = getCVDisplay(cv);
+                  return (
+                    <li
+                      key={cv.id}
+                      className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-gray-900 truncate">{d.name}</p>
+                        <p className="text-xs text-gray-500 truncate">{d.title}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deselectCV(cv.id)}
+                        className="shrink-0 text-gray-500 hover:text-red-600"
+                        aria-label={`Remove ${d.name} from selection`}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          {selectedCVList.length > 0 && (
+            <div className="border-t border-gray-200 pt-3 flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => { deselectAllCVs(); setShowSelectedCVs(false); }}>
+                Clear all
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
