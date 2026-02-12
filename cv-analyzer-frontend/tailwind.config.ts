@@ -55,6 +55,11 @@ const config: Config = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      fontSize: {
+        'body': ['1.0625rem', { lineHeight: '1.6' }],
+        'ui': ['0.9375rem', { lineHeight: '1.45' }],
+        'caption': ['0.8125rem', { lineHeight: '1.35' }],
+      },
       keyframes: {
         "accordion-down": {
           from: { height: "0" },

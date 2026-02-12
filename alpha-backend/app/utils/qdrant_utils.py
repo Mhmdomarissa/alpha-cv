@@ -468,7 +468,7 @@ class QdrantUtils:
         """
         try:
             logger.warning("🧹 Clearing ALL Qdrant data (all 6 collections)")
-            for name in ["cv_documents", "jd_documents", "cv_structured", "jd_structured", "cv_embeddings", "jd_embeddings"]:
+            for name in ["cv_documents", "jd_documents", "cv_structured", "jd_structured", "cv_embeddings", "jd_embeddings", "job_postings_structured"]:
                 if self.client.collection_exists(name):
                     self.client.delete_collection(name)
                     logger.info(f"🗑 Dropped: {name}")

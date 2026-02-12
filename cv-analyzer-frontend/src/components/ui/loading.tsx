@@ -38,7 +38,7 @@ export function Skeleton({
   height,
   lines = 1,
 }: SkeletonProps) {
-  const baseStyles = 'animate-pulse bg-gradient-to-r from-neutral-200 via-neutral-300 to-neutral-200 bg-[length:200%_100%] animate-[shimmer_1.5s_ease-in-out_infinite]';
+  const baseStyles = 'animate-pulse bg-gray-200';
 
   const variants = {
     text: 'h-4 rounded',
@@ -141,36 +141,18 @@ export function LoadingPage({ title, subtitle, type = 'database' }: LoadingPageP
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[400px] space-y-6 animate-fade-in">
+    <div className="flex flex-col items-center justify-center min-h-[400px] space-y-6">
       <div className="flex flex-col items-center space-y-4">
-        <div className="p-4 bg-primary-100 rounded-2xl">
+        <div className="p-4 bg-primary-100 rounded-xl">
           {getIcon()}
         </div>
-        
         <div className="text-center space-y-2">
-          <h3 className="text-heading-3 font-semibold text-neutral-900">
-            {title || 'Loading...'}
-          </h3>
-          {subtitle && (
-            <p className="text-neutral-600 max-w-md">
-              {subtitle}
-            </p>
-          )}
+          <h3 className="text-lg font-semibold text-gray-900">{title || 'Loading...'}</h3>
+          {subtitle && <p className="text-gray-600 max-w-md">{subtitle}</p>}
         </div>
       </div>
-
-      {/* Animated dots */}
-      <div className="flex space-x-1">
-        {[0, 1, 2].map((index) => (
-          <div
-            key={index}
-            className="w-2 h-2 bg-primary-400 rounded-full animate-pulse"
-            style={{
-              animationDelay: `${index * 0.2}s`,
-              animationDuration: '1s',
-            }}
-          />
-        ))}
+      <div className="flex justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-[#00529b]" />
       </div>
     </div>
   );

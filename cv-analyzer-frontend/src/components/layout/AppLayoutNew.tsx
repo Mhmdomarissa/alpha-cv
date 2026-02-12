@@ -1,17 +1,18 @@
 'use client';
 
-import { ReactNode, useState } from 'react';
+import { ReactNode, useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
+import {
   Home,
-  Upload, 
-  Database, 
-  Target, 
+  Upload,
+  Database,
+  Target,
   BarChart3,
   CheckCircle,
   Menu,
   X,
   ChevronRight,
+  ChevronDown,
   Users,
   FileText,
   Clock,
@@ -20,10 +21,12 @@ import {
   User,
   Briefcase,
   Activity,
-  Mail
+  Mail,
+  Settings,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
+import MatchingProgressBar from '@/components/ui/MatchingProgressBar';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -65,56 +68,48 @@ const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
     },
   ];
 
-  // Add performance tab only for admin users
-  if (userRole === 'admin') {
-    console.log('DEBUG: Adding performance tab for admin user');
-    baseTabs.push({
-      id: 'performance',
-      label: 'Performance',
-      icon: Activity,
-      description: 'System monitoring & metrics',
-    });
-  }
-
   // Add careers tab for all authenticated users (HR and admin)
-  console.log('DEBUG getNavigationTabs - userRole:', userRole, 'type:', typeof userRole);
   if (userRole) {
-    console.log('DEBUG: Adding careers tab for user role:', userRole);
     baseTabs.push({
       id: 'careers',
       label: 'Careers',
       icon: Briefcase,
       description: 'Manage job postings',
     });
-  } else {
-    console.log('DEBUG: No userRole provided, careers tab not added');
   }
 
-  // Add email tab only for admin users
-  if (userRole === 'admin') {
-    baseTabs.push({
-      id: 'email',
-      label: 'Email',
-      icon: Mail,
-      description: 'Email CV processing',
-    });
-  }
-
+  // Performance and Email are under "Advanced" dropdown (admin only) - not added to baseTabs here
   return baseTabs;
+};
+
+/** Tabs shown under Advanced dropdown (admin only) */
+const getAdvancedTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
+  if (userRole !== 'admin') return [];
+  return [
+    { id: 'performance', label: 'Performance', icon: Activity, description: 'System monitoring & metrics' },
+    { id: 'email', label: 'Email', icon: Mail, description: 'Email CV processing' },
+  ];
 };
 
 export default function AppLayoutNew({ children }: AppLayoutProps) {
   const router = useRouter();
-  const { currentTab, setCurrentTab, systemHealth, cvs, jds, matchResult } = useAppStore();
+  const { currentTab, setCurrentTab, systemHealth, cvs, jds, matchResult, matchingProgress } = useAppStore();
   const { user, logout } = useAuthStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedMobileOpen, setAdvancedMobileOpen] = useState(false);
+  const advancedRef = useRef<HTMLDivElement>(null);
 
-  // FORCE DEBUG OUTPUT
-  console.log('🔍 NAVIGATION DEBUG - User object:', user);
-  console.log('🔍 NAVIGATION DEBUG - User role:', user?.role);
-  console.log('🔍 NAVIGATION DEBUG - Calling getNavigationTabs with:', user?.role);
   const navigationTabs = getNavigationTabs(user?.role);
-  console.log('🔍 NAVIGATION DEBUG - Result tabs:', navigationTabs.map(t => t.id));
+  const advancedTabs = getAdvancedTabs(user?.role);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (advancedRef.current && !advancedRef.current.contains(e.target as Node)) setAdvancedOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -164,15 +159,13 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/50 to-indigo-50/40">
-      {/* Top Navigation Bar - Modern SaaS Design */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/90 border-b border-white/30 shadow-sm">
+    <div className="min-h-screen bg-gray-50">
+      <header className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* Logo & Brand - Enhanced */}
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3 group">
-                <div className="w-8 h-8 rounded-lg group-hover:scale-105 transition-all duration-300 shadow-md">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-lg shadow-sm">
                   <svg 
                     width="32" 
                     height="32" 
@@ -186,91 +179,97 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                   </svg>
                 </div>
                 <div>
-                  <h1 className="text-lg font-bold bg-gradient-to-r from-blue-800 to-blue-600 bg-clip-text text-transparent">
-                    Alpha CV
-                  </h1>
+                  <h1 className="text-xl font-bold text-gray-900">Alpha CV</h1>
                 </div>
               </div>
             </div>
 
-            {/* Navigation Tabs - Modern SaaS Style */}
-            <nav className="hidden md:flex items-center space-x-1 bg-white/80 backdrop-blur-sm rounded-2xl p-1.5 border border-white/30 shadow-lg">
-              {(() => {
-                console.log('DEBUG: Current user:', user);
-                console.log('DEBUG: User role:', user?.role);
-                const tabs = getNavigationTabs(user?.role);
-                console.log('DEBUG: Generated tabs:', tabs.map(t => t.id));
-                return tabs;
-              })().map((tab) => {
+            <nav className="hidden md:flex items-center space-x-1 bg-gray-100 rounded-lg p-1 border border-gray-200">
+              {navigationTabs.map((tab) => {
                 const isActive = currentTab === tab.id;
                 const isCompleted = getProgress(tab.id);
                 const IconComponent = tab.icon;
-                
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setCurrentTab(tab.id as any)}
-                    className={`relative flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all duration-300 group ${
-                      isActive 
-                        ? 'shadow-lg' 
-                        : 'text-slate-600 hover:text-slate-800 hover:bg-white/90'
+                    className={`flex items-center space-x-2 px-4 py-2.5 rounded-md text-ui font-medium transition-colors ${
+                      isActive
+                        ? 'bg-[#00529b] text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
                     }`}
-                    style={isActive ? {
-                      background: 'rgba(0, 82, 155, 0.8)',
-                      boxShadow: '0 4px 16px rgba(0, 82, 155, 0.3)',
-                      color: '#ffffff'
-                    } : {}}
                   >
-                    <IconComponent className={`w-4 h-4 transition-transform duration-200 ${isActive ? 'scale-110 text-white' : 'group-hover:scale-105'}`} />
-                    <span className="font-medium text-sm" style={isActive ? { color: '#ffffff' } : {}}>{tab.label}</span>
+                    <IconComponent className="w-4 h-4" />
+                    <span>{tab.label}</span>
                     {isCompleted && (
-                      <div className={`w-2 h-2 rounded-full transition-all duration-200 ${isActive ? 'bg-white/80' : 'bg-green-500'}`} />
-                    )}
-                    {isActive && (
-                      <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 opacity-0 group-hover:opacity-20 transition-opacity duration-200" />
+                      <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/80' : 'bg-green-500'}`} />
                     )}
                   </button>
                 );
               })}
+              {advancedTabs.length > 0 && (
+                <div className="relative" ref={advancedRef}>
+                  <button
+                    onClick={() => setAdvancedOpen(!advancedOpen)}
+                    className={`flex items-center space-x-2 px-4 py-2.5 rounded-md text-ui font-medium transition-colors ${
+                      currentTab === 'performance' || currentTab === 'email'
+                        ? 'bg-[#00529b] text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+                    }`}
+                  >
+                    <Settings className="w-4 h-4" />
+                    <span>Advanced</span>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {advancedOpen && (
+                    <div className="absolute top-full left-0 mt-1 py-1 w-48 bg-white rounded-lg border border-gray-200 shadow-lg z-50">
+                      {advancedTabs.map((tab) => {
+                        const isActive = currentTab === tab.id;
+                        const IconComponent = tab.icon;
+                        return (
+                          <button
+                            key={tab.id}
+                            onClick={() => { setCurrentTab(tab.id as any); setAdvancedOpen(false); }}
+                            className={`w-full flex items-center space-x-2 px-4 py-2.5 text-left text-ui font-medium ${
+                              isActive ? 'bg-[#00529b]/10 text-[#00529b]' : 'text-gray-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            <IconComponent className="w-4 h-4" />
+                            <span>{tab.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </nav>
 
-            {/* User Info & Actions - Enhanced */}
             <div className="flex items-center space-x-4">
               {user && (
                 <div className="hidden sm:flex items-center space-x-3">
-                  <div className="flex items-center space-x-3 bg-white/80 backdrop-blur-sm rounded-xl px-3 py-2 border border-white/30 shadow-sm">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 flex items-center justify-center">
+                  <div className="flex items-center space-x-3 bg-gray-100 rounded-lg px-3 py-2 border border-gray-200">
+                    <div className="w-8 h-8 rounded-full bg-[#00529b] flex items-center justify-center">
                       <User className="w-4 h-4 text-white" />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium text-slate-700">
-                        {user.username}
-                      </span>
-                      <span 
-                        className="text-xs px-2 py-0.5 rounded-full font-medium"
-                        style={{ 
-                          backgroundColor: user.role === 'admin' ? '#fef2f2' : '#eff6ff',
-                          color: user.role === 'admin' ? '#dc2626' : '#2563eb'
-                        }}
-                      >
+                      <span className="text-ui font-medium text-gray-700">{user.username}</span>
+                      <span className={`text-caption px-2 py-0.5 rounded-full font-medium ${user.role === 'admin' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
                         {user.role}
                       </span>
                     </div>
                   </div>
                   <button
                     onClick={handleLogout}
-                    className="flex items-center space-x-2 px-3 py-2 rounded-xl transition-all duration-200 text-slate-600 hover:text-slate-800 hover:bg-white/80 backdrop-blur-sm border border-transparent hover:border-white/30"
+                    className="flex items-center space-x-2 px-3 py-2 rounded-lg text-ui font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-colors"
                   >
                     <LogOut className="w-4 h-4" />
-                    <span className="text-sm font-medium">Logout</span>
+                    <span>Logout</span>
                   </button>
                 </div>
               )}
-
-              
-              {/* Mobile Menu Button - Enhanced */}
               <button
-                className="md:hidden p-2.5 rounded-xl bg-white/80 backdrop-blur-sm border border-white/30 shadow-sm text-slate-600 hover:text-slate-800 hover:bg-white/90 transition-all duration-200"
+                className="md:hidden p-2.5 rounded-lg bg-gray-100 border border-gray-200 text-gray-600 hover:bg-gray-200"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               >
                 {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -280,64 +279,99 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         </div>
       </header>
 
-      {/* Mobile Menu - Enhanced */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-white/95 backdrop-blur-xl border-b border-white/30 shadow-lg">
+        <div className="md:hidden bg-white border-b border-gray-200 shadow-sm">
           <div className="container mx-auto px-4 py-4">
-            <nav className="space-y-2">
-              {getNavigationTabs(user?.role).map((tab) => {
+            <nav className="space-y-1">
+              {navigationTabs.map((tab) => {
                 const isActive = currentTab === tab.id;
                 const isCompleted = getProgress(tab.id);
                 const IconComponent = tab.icon;
-                
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => {
-                      setCurrentTab(tab.id as any);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between p-4 rounded-xl transition-all duration-300 group ${
-                      isActive 
-                        ? 'shadow-lg' 
-                        : 'bg-white/80 backdrop-blur-sm border border-white/30 text-slate-600 hover:bg-white/90 hover:text-slate-800'
+                    onClick={() => { setCurrentTab(tab.id as any); setMobileMenuOpen(false); }}
+                    className={`w-full flex items-center justify-between p-4 rounded-lg text-left font-medium transition-colors ${
+                      isActive ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'
                     }`}
-                    style={isActive ? {
-                      background: 'rgba(0, 82, 155, 0.8)',
-                      boxShadow: '0 4px 16px rgba(0, 82, 155, 0.3)',
-                      color: '#ffffff'
-                    } : {}}
                   >
                     <div className="flex items-center space-x-3">
-                      <IconComponent className={`w-5 h-5 transition-transform duration-200 ${isActive ? 'scale-110 text-white' : 'group-hover:scale-105'}`} />
-                      <div className="text-left">
-                        <div className="font-medium" style={isActive ? { color: '#ffffff' } : {}}>{tab.label}</div>
-                        <div className={`text-xs ${isActive ? 'text-white/80' : 'text-slate-500'}`} style={isActive ? { color: 'rgba(255, 255, 255, 0.8)' } : {}}>
-                          {getTabStats(tab.id)}
-                        </div>
+                      <IconComponent className="w-5 h-5" />
+                      <div>
+                        <div>{tab.label}</div>
+                        <div className={`text-caption ${isActive ? 'text-white/90' : 'text-gray-500'}`}>{getTabStats(tab.id)}</div>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
-                      {isCompleted && (
-                        <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/80' : 'bg-green-500'}`} />
-                      )}
-                      <ChevronRight className={`w-4 h-4 transition-transform duration-200 group-hover:translate-x-1 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                      {isCompleted && <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/80' : 'bg-green-500'}`} />}
+                      <ChevronRight className="w-4 h-4" />
                     </div>
                   </button>
                 );
               })}
+              {advancedTabs.length > 0 && (
+                <>
+                  <button
+                    onClick={() => setAdvancedMobileOpen(!advancedMobileOpen)}
+                    className={`w-full flex items-center justify-between p-4 rounded-lg text-left font-medium transition-colors ${
+                      currentTab === 'performance' || currentTab === 'email' ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <Settings className="w-5 h-5" />
+                      <div>
+                        <div>Advanced</div>
+                        <div className={`text-caption ${currentTab === 'performance' || currentTab === 'email' ? 'text-white/90' : 'text-gray-500'}`}>
+                          Performance, Email
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 transition-transform ${advancedMobileOpen ? 'rotate-90' : ''}`} />
+                  </button>
+                  {advancedMobileOpen && (
+                    <div className="pl-4 space-y-0.5 border-l-2 border-gray-200 ml-4">
+                      {advancedTabs.map((tab) => {
+                        const isActive = currentTab === tab.id;
+                        const IconComponent = tab.icon;
+                        return (
+                          <button
+                            key={tab.id}
+                            onClick={() => { setCurrentTab(tab.id as any); setMobileMenuOpen(false); setAdvancedMobileOpen(false); }}
+                            className={`w-full flex items-center justify-between p-3 rounded-lg text-left font-medium transition-colors ${
+                              isActive ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-3">
+                              <IconComponent className="w-4 h-4" />
+                              <span>{tab.label}</span>
+                            </div>
+                            {isActive && <ChevronRight className="w-4 h-4" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
             </nav>
           </div>
         </div>
       )}
 
-
-      {/* Main Content */}
       <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="animate-fade-in">
           {children}
         </div>
       </main>
+
+      {/* Single matching overlay: visible on any tab when matching is in progress (Database or Careers) */}
+      <MatchingProgressBar
+        totalCVs={matchingProgress.totalCVs}
+        processedCVs={matchingProgress.processedCVs}
+        currentStage={matchingProgress.currentStage}
+        estimatedTimeRemaining={matchingProgress.estimatedTimeRemaining}
+        isVisible={matchingProgress.isVisible}
+      />
     </div>
   );
 }

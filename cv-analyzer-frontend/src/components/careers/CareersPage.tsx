@@ -16,7 +16,6 @@ import {
   User,
   RefreshCw,
   Target,
-  ChevronUp,
   Filter
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
@@ -46,7 +45,7 @@ export default function CareersPage() {
     selectedJob,
     matchJobCandidates
   } = useCareersStore();
-  const { setCurrentTab } = useAppStore();
+  const { setCurrentTab, setMatchingProgress, setLoading: setAppLoading } = useAppStore();
   
   // User session store for isolated state management
   const {
@@ -92,7 +91,6 @@ export default function CareersPage() {
   };
 
   const handleCloseJobDetails = () => {
-    console.log('Close button clicked, clearing selected job');
     selectJob(null);
   };
 
@@ -148,18 +146,22 @@ export default function CareersPage() {
   };
 
   const handleMatchCandidates = async (job: JobPostingListItem) => {
+    const totalCVs = job.application_count ?? 0;
+    if (totalCVs === 0) return;
     try {
-      // First select the job to load its applications
-      selectJob(job);
-      
-      // Wait a moment for applications to load
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Run the matching
-      await matchJobCandidates(job.job_id);
-      
-      // Navigate to match results tab
+      // Show matching overlay immediately (same as Database) and switch to Match tab so user sees animation
+      setMatchingProgress({
+        totalCVs,
+        processedCVs: 0,
+        currentStage: 'initializing',
+        isVisible: true,
+        estimatedTimeRemaining: Math.max(30, totalCVs * 3),
+      });
+      setAppLoading('careersMatching', true);
       setCurrentTab('match');
+      selectJob(job);
+      await new Promise((r) => setTimeout(r, 500));
+      await matchJobCandidates(job.job_id);
     } catch (error) {
       console.error('Failed to match candidates:', error);
       alert('Failed to match candidates. Please try again.');
@@ -248,21 +250,18 @@ export default function CareersPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Job Postings</h1>
-          <p className="text-gray-600 mt-1">
-            {user.role === 'admin' 
-              ? 'Manage all job postings and applications' 
-              : `Manage your job postings and applications (${user.username})`
-            }
+          <h1 className="text-2xl font-bold text-gray-900">Careers</h1>
+          <p className="text-gray-600 mt-0.5">
+            {user.role === 'admin' ? 'Manage job postings and applications' : `Your job postings (${user.username})`}
           </p>
         </div>
-        <div className="flex space-x-3">
+        <div className="flex flex-wrap gap-3">
           <Button
             onClick={handleRefresh}
-            className="bg-white hover:bg-gray-50 text-black border border-gray-300"
+            variant="outline"
+            className="border-gray-300 text-gray-700"
             disabled={isRefreshing}
           >
             {isRefreshing ? (
@@ -277,20 +276,19 @@ export default function CareersPage() {
               </>
             )}
             </Button>
-          <Button 
+          <Button
             onClick={() => setShowCreateForm(true)}
-            className="bg-white hover:bg-gray-50 text-black border border-gray-300"
+            className="bg-[#00529b] hover:bg-[#003d73] !text-white border-0"
           >
-            <FileText className="w-4 h-4 mr-2" />
-            Post JD as File
+            <FileText className="w-4 h-4 mr-2 !text-white" />
+            <span className="!text-white">Post JD as File</span>
           </Button>
           {/* 🚨 ADMIN-ONLY DELETE ALL BUTTON 🚨 */}
           <AdminOnly>
             {jobPostings.length > 0 && (
               <Button
                 onClick={() => setShowDeleteConfirm(true)}
-                className="bg-red-600 hover:bg-red-700 text-white border border-red-600"
-                style={{ color: 'white' }}
+                className="bg-red-600 hover:bg-red-700 text-white border-0"
                 disabled={isDeletingAll}
               >
                 {isDeletingAll ? (
@@ -329,7 +327,7 @@ export default function CareersPage() {
         <select
           value={jobFilter}
           onChange={(e) => setJobFilter(e.target.value as 'all' | 'yours' | 'others')}
-          className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
         >
           <option value="all">All Jobs</option>
           <option value="yours">Your Jobs</option>
@@ -382,7 +380,7 @@ export default function CareersPage() {
               <div className="flex justify-center space-x-3">
                 <Button
                   onClick={() => setShowCreateForm(true)}
-                  className="bg-white hover:bg-gray-50 text-black border border-gray-300"
+                  className="bg-[#00529b] hover:bg-[#003d73] text-white border-0"
                 >
                   <FileText className="w-4 h-4 mr-2" />
                   Post JD as File
@@ -393,11 +391,10 @@ export default function CareersPage() {
         ) : (
           filteredJobs.map((job) => (
             <div key={job.job_id} className="space-y-4">
-              <Card 
-                className={`hover:shadow-md transition-shadow cursor-pointer ${
-                  selectedJob?.job_id === job.job_id ? 'ring-2 ring-blue-500 bg-blue-50' : ''
+              <Card
+                className={`hover:shadow-md transition-shadow border-gray-200 ${
+                  selectedJob?.job_id === job.job_id ? 'ring-2 ring-[#00529b] bg-[#00529b]/5' : ''
                 }`}
-                onClick={() => handleSelectJob(job)}
               >
               <CardHeader>
                     <div className="flex items-start justify-between">
@@ -440,64 +437,45 @@ export default function CareersPage() {
                         </div>
                         
                         {/* Email Subject Template for Naukri */}
-                        {job.email_subject_template && (
-                          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
-                                <div className="text-xs font-medium text-blue-700 mb-1">Email Subject for Naukri/Candidates:</div>
-                                <div className="flex items-center space-x-2">
-                                  <code className="text-sm font-mono text-blue-900 bg-blue-100 px-2 py-1 rounded">
-                                    {job.email_subject_template}
-                                  </code>
-                                  <span className="text-xs text-blue-600">({job.email_subject_id})</span>
+                        <div className="mt-3">
+                          {job.email_subject_template && (
+                            <div className="flex-1 min-w-0 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-xs font-medium text-blue-700 mb-1">Email Subject for Naukri/Candidates:</div>
+                                  <div className="flex items-center flex-wrap gap-2">
+                                    <code className="text-sm font-mono text-blue-900 bg-blue-100 px-2 py-1 rounded break-all">
+                                      {job.email_subject_template}
+                                    </code>
+                                    <span className="text-xs text-blue-600">({job.email_subject_id})</span>
+                                  </div>
                                 </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (job.email_subject_template) {
+                                      navigator.clipboard.writeText(job.email_subject_template);
+                                      setCopiedLink(`${job.job_id}-subject`);
+                                      setTimeout(() => setCopiedLink(null), 2000);
+                                    }
+                                  }}
+                                  className="shrink-0 text-blue-600 hover:text-blue-700 hover:bg-blue-100"
+                                  title="Copy Email Subject"
+                                >
+                                  {copiedLink === `${job.job_id}-subject` ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                                </Button>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (job.email_subject_template) {
-                                    navigator.clipboard.writeText(job.email_subject_template);
-                                    setCopiedLink(`${job.job_id}-subject`);
-                                    setTimeout(() => setCopiedLink(null), 2000);
-                                  }
-                                }}
-                                className="ml-2 text-blue-600 hover:text-blue-700 hover:bg-blue-100"
-                                title="Copy Email Subject"
-                              >
-                                {copiedLink === `${job.job_id}-subject` ? (
-                                  <Check className="w-4 h-4" />
-                                ) : (
-                                  <Copy className="w-4 h-4" />
-                                )}
-                              </Button>
+                              <div className="text-xs text-blue-600 mt-2">
+                                💡 Paste this subject when posting on Naukri or sharing with candidates
+                              </div>
                             </div>
-                            <div className="text-xs text-blue-600 mt-2">
-                              💡 Paste this subject when posting on Naukri or sharing with candidates
-                            </div>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
                       
                       <div className="flex items-center space-x-2 ml-4">
-                    {/* Match Candidates Button - Only show if job has applications */}
-                    {(job.application_count || 0) > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleMatchCandidates(job);
-                        }}
-                        title="Match Candidates"
-                        className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold px-3 py-1 shadow-md hover:shadow-lg transition-all duration-200"
-                      >
-                        <Target className="w-4 h-4 mr-1" />
-                        Match ({job.application_count || 0})
-                      </Button>
-                    )}
-                    
                     {/* Edit button - only show if user can edit */}
                     {job.can_edit && (
                       <Button
@@ -591,29 +569,34 @@ export default function CareersPage() {
                     
                   </div>
               </div>
+              {/* Match + View Applied Candidates — side by side, bottom-right */}
+              {(job.application_count || 0) > 0 && (
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleMatchCandidates(job);
+                    }}
+                    title="Match Candidates"
+                    className="bg-[#00529b] hover:bg-[#003d73] !text-white"
+                  >
+                    <Target className="w-4 h-4 mr-1 !text-white" />
+                    <span className="!text-white">Match ({job.application_count || 0})</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleSelectJob(job)}
+                    className="bg-[#00529b] hover:bg-[#003d73] !text-white"
+                  >
+                    <Users className="w-4 h-4 mr-2 !text-white" />
+                    <span className="!text-white">View Applied Candidates ({job.application_count || 0})</span>
+                  </Button>
+                </div>
+              )}
               </CardHeader>
               
-                {selectedJob?.job_id === job.job_id && (
-                  <CardContent>
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-semibold text-gray-900">Job Applications</h3>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCloseJobDetails();
-                        }}
-                        className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-2"
-                        title="Collapse job details"
-                      >
-                        <ChevronUp className="w-4 h-4" />
-                      </Button>
-                    </div>
-                    <ApplicationsList />
-                  </CardContent>
-                )}
-        </Card>
+              </Card>
         
               {/* Edit Job Form - Show directly below the job being edited */}
               {showEditForm && editingJob && editingJobData && editingJob.job_id === job.job_id && (
@@ -642,7 +625,35 @@ export default function CareersPage() {
         )}
       </div>
 
-
+      {/* Applicants for selected job — full-width table */}
+      {selectedJob && (
+        <div className="mt-8 border border-gray-200 rounded-xl bg-white overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-gray-200 bg-gray-50">
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Applicants for {selectedJob.job_title}
+              </h2>
+              <span className="text-sm text-gray-600">
+                {(selectedJob.application_count ?? 0)} candidate{(selectedJob.application_count ?? 0) !== 1 ? 's' : ''}
+              </span>
+              {(selectedJob.application_count || 0) > 0 && (
+                <Button
+                  size="sm"
+                  onClick={() => handleMatchCandidates(selectedJob)}
+                  className="bg-[#00529b] hover:bg-[#003d73] !text-white"
+                >
+                  <Target className="w-4 h-4 mr-2 !text-white" />
+                  <span className="!text-white">Match ({selectedJob.application_count || 0})</span>
+                </Button>
+              )}
+            </div>
+            <Button variant="outline" size="sm" onClick={handleCloseJobDetails} className="border-gray-300">
+              Close applicants
+            </Button>
+          </div>
+          <ApplicationsList />
+        </div>
+      )}
 
       {/* 🚨 ADMIN-ONLY DELETE CONFIRMATION DIALOG 🚨 */}
       <AdminOnly>

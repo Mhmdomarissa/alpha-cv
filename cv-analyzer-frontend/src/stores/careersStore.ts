@@ -110,14 +110,12 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
   },
 
   createJobPostingWithFormData: async (file: File | null, formData: any) => {
-    console.log('🚀 createJobPostingWithFormData called in store');
     set({ isCreatingJob: true, error: null });
     try {
       logger.info('Creating job posting with form data', { 
         hasFile: !!file,
         jobTitle: formData.jobTitle 
       });
-      console.log('📡 Making API call to createJobPostingWithFormData');
       const result = await api.createJobPostingWithFormData(file, formData);
       
       logger.info('Job posting created successfully', { 
@@ -141,13 +139,11 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
   },
 
   createManualJobPosting: async (formData: any) => {
-    console.log('🚀 createManualJobPosting called in store');
     set({ isCreatingJob: true, error: null });
     try {
       logger.info('Creating manual job posting', { 
         jobTitle: formData.jobTitle 
       });
-      console.log('📡 Making API call to createManualJobPosting');
       const result = await api.createManualJobPosting(formData);
       
       logger.info('Manual job posting created successfully', { 
@@ -267,6 +263,15 @@ loadJobPostings: async () => {
       if (cvIds.length === 0) {
         throw new Error('No applications found to match');
       }
+
+      // Show single matching overlay (same as Database flow)
+      appStore.setMatchingProgress({
+        totalCVs: cvIds.length,
+        processedCVs: 0,
+        currentStage: 'initializing',
+        isVisible: true,
+        estimatedTimeRemaining: Math.max(30, cvIds.length * 3),
+      });
       
       // Get the job posting details to find the original JD ID
       const jobData = await api.getJobForMatching(jobId);
@@ -362,9 +367,6 @@ loadJobPostings: async () => {
       });
       
       // Store match results in app store for display in match tab
-      // Import useAppStore dynamically to avoid circular dependency
-      const { useAppStore } = await import('./appStore');
-      const appStore = useAppStore.getState();
       appStore.setCareersMatchResult(matchResults);
       appStore.setCareersMatchData({
         jobId: originalJdId, // Use the actual JD ID that was used for matching
@@ -395,7 +397,7 @@ loadJobPostings: async () => {
         isLoading: false
       }));
       
-      // Clear careers matching loading state
+      appStore.hideMatchingProgress?.();
       appStore.setLoading('careersMatching', false);
       
       return {
@@ -414,9 +416,8 @@ loadJobPostings: async () => {
         error: errorMessage
       });
       
-      // Clear careers matching loading state on error
+      appStore.hideMatchingProgress?.();
       appStore.setLoading('careersMatching', false, errorMessage);
-      
       throw error;
     }
   },

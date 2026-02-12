@@ -1,19 +1,21 @@
 'use client';
 import { useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useAppStore } from '@/stores/appStore';
 import AppLayoutNew from '@/components/layout/AppLayoutNew';
-import DashboardPage from '@/components/dashboard/DashboardPage';
-import UploadPageNew from '@/components/upload/UploadPageNew';
-import DatabasePageNew from '@/components/database/DatabasePageNew';
-import MatchingPageNew from '@/components/results/MatchingPageNew';
-import SystemPanel from '@/components/system/SystemPanel';
-import ReportGenerator from '@/components/reports/ReportGenerator';
-import { CareersPage } from '@/components/careers';
-import PerformancePage from '@/components/performance/PerformancePage';
-import EmailPage from '@/components/email/EmailPage';
 import ErrorBanner from '@/components/common/ErrorBanner';
 import { LoadingPage } from '@/components/ui/loading';
 import Protected from '@/components/layout/Protected';
+
+const DashboardPage = dynamic(() => import('@/components/dashboard/DashboardPage'), { loading: () => <LoadingPage title="Loading..." subtitle="Dashboard" /> });
+const UploadPageNew = dynamic(() => import('@/components/upload/UploadPageNew'), { loading: () => <LoadingPage title="Loading..." subtitle="Upload" /> });
+const DatabasePageNew = dynamic(() => import('@/components/database/DatabasePageNew'), { loading: () => <LoadingPage title="Loading..." subtitle="Database" /> });
+const MatchingPageNew = dynamic(() => import('@/components/results/MatchingPageNew'), { loading: () => <LoadingPage title="Loading..." subtitle="Matching" /> });
+const SystemPanel = dynamic(() => import('@/components/system/SystemPanel'), { loading: () => <LoadingPage title="Loading..." subtitle="System" /> });
+const ReportGenerator = dynamic(() => import('@/components/reports/ReportGenerator'), { loading: () => <LoadingPage title="Loading..." subtitle="Reports" /> });
+const CareersPage = dynamic(() => import('@/components/careers').then(m => ({ default: m.CareersPage })), { loading: () => <LoadingPage title="Loading..." subtitle="Careers" /> });
+const PerformancePage = dynamic(() => import('@/components/performance/PerformancePage'), { loading: () => <LoadingPage title="Loading..." subtitle="Performance" /> });
+const EmailPage = dynamic(() => import('@/components/email/EmailPage'), { loading: () => <LoadingPage title="Loading..." subtitle="Email" /> });
 
 export default function HomePage() {
   const { currentTab, systemHealth, loadSystemHealth, loadingStates } = useAppStore();
@@ -67,7 +69,7 @@ export default function HomePage() {
             ))}
           </div>
           {/* Dynamic Tab Content */}
-          <div className="animate-fade-in">
+          <div>
             {renderTabContent()}
           </div>
         </div>

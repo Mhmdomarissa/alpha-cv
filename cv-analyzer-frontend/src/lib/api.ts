@@ -20,6 +20,11 @@ import {
   LoginRequest,
   LoginResponse,
   UserProfile,
+  SendOTPRequest,
+  VerifyOTPRequest,
+  VerifyPasswordRequest,
+  VerifyPasswordResponse,
+  OTPResponse,
   AdminUser,
   CreateUserRequest,
   UpdateUserRequest,
@@ -33,7 +38,30 @@ import {
 
 class ApiClient {
   private client: AxiosInstance;
-  
+
+  /**
+   * Sanitize sensitive data from request payloads before logging
+   */
+  private sanitizeRequestData(data: any): any {
+    if (!data || typeof data !== 'object') {
+      return data;
+    }
+
+    const sensitiveFields = ['password', 'token', 'access_token', 'refresh_token', 'otp', 'secret', 'api_key', 'authorization'];
+    const sanitized = { ...data };
+
+    for (const key in sanitized) {
+      const lowerKey = key.toLowerCase();
+      if (sensitiveFields.some(field => lowerKey.includes(field))) {
+        sanitized[key] = '***REDACTED***';
+      } else if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
+        sanitized[key] = this.sanitizeRequestData(sanitized[key]);
+      }
+    }
+
+    return sanitized;
+  }
+
   constructor() {
     this.client = axios.create({
       baseURL: config.apiUrl,
@@ -47,10 +75,12 @@ class ApiClient {
     this.client.interceptors.request.use((config) => {
       const requestId = uuidv4();
       config.headers['x-request-id'] = requestId;
-      
+
+      // Sanitize sensitive data from logs
+      const sanitizedData = this.sanitizeRequestData(config.data);
       logger.info(`API Request: ${config.method?.toUpperCase()} ${config.url}`, {
         requestId,
-        data: config.data,
+        ...(sanitizedData && { data: sanitizedData }),
       });
       return config;
     });
@@ -82,13 +112,13 @@ class ApiClient {
   // CV endpoints
   async uploadCV(file: File, cvText?: string): Promise<UploadResponse> {
     const formData = new FormData();
-    
+
     if (file) {
       formData.append('file', file);
     } else if (cvText) {
       formData.append('cv_text', cvText);
     }
-    
+
     const response = await this.client.post<UploadResponse>('/api/cv/upload-cv', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -97,14 +127,16 @@ class ApiClient {
     return response.data;
   }
 
-  async listCVs(): Promise<CVListResponse> {
-    const response = await this.client.get<CVListResponse>('/api/cv/cvs');
+  async listCVs(params?: { limit?: number; offset?: number }): Promise<CVListResponse> {
+    const response = await this.client.get<CVListResponse>('/api/cv/cvs', {
+      params: params ?? {},
+    });
     return response.data;
   }
 
   async getCVDetails(cvId: string): Promise<CVDataResponse> {
-    const response = await this.client.get<CVDataResponse>(`/api/cv/${cvId}`);
-    return response.data;
+    const response = await this.client.get<{ status: string; cv: CVDataResponse }>(`/api/cv/${cvId}`);
+    return response.data.cv;
   }
 
   async deleteCV(cvId: string): Promise<{ success: boolean; message: string }> {
@@ -125,7 +157,7 @@ class ApiClient {
   async standardizeCV(cvText: string, filename?: string): Promise<StandardizeResponse> {
     const payload: { cv_text: string; cv_filename?: string } = { cv_text: cvText };
     if (filename) payload.cv_filename = filename;
-    
+
     const response = await this.client.post<StandardizeResponse>('/api/cv/standardize-cv', payload);
     return response.data;
   }
@@ -160,13 +192,13 @@ class ApiClient {
   // JD endpoints
   async uploadJD(file: File, jdText?: string): Promise<UploadResponse> {
     const formData = new FormData();
-    
+
     if (file) {
       formData.append('file', file);
     } else if (jdText) {
       formData.append('jd_text', jdText);
     }
-    
+
     const response = await this.client.post<UploadResponse>('/api/jd/upload-jd', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -175,14 +207,16 @@ class ApiClient {
     return response.data;
   }
 
-  async listJDs(): Promise<JDListResponse> {
-    const response = await this.client.get<JDListResponse>('/api/jd/jds');
+  async listJDs(params?: { limit?: number; offset?: number }): Promise<JDListResponse> {
+    const response = await this.client.get<JDListResponse>('/api/jd/jds', {
+      params: params ?? {},
+    });
     return response.data;
   }
 
   async getJDDetails(jdId: string): Promise<JDDataResponse> {
-    const response = await this.client.get<JDDataResponse>(`/api/jd/jd/${jdId}`);
-    return response.data;
+    const response = await this.client.get<{ status: string; jd: JDDataResponse }>(`/api/jd/jd/${jdId}`);
+    return response.data.jd;
   }
 
   async deleteJD(jdId: string): Promise<{ success: boolean; message: string }> {
@@ -203,7 +237,7 @@ class ApiClient {
   async standardizeJD(jdText: string, filename?: string): Promise<StandardizeResponse> {
     const payload: { jd_text: string; jd_filename?: string } = { jd_text: jdText };
     if (filename) payload.jd_filename = filename;
-    
+
     const response = await this.client.post<StandardizeResponse>('/api/jd/standardize-jd', payload);
     return response.data;
   }
@@ -221,38 +255,38 @@ class ApiClient {
 
 
   async unifiedJobUpdate(
-    jdId: string | null, 
-    jobId: string | null, 
+    jdId: string | null,
+    jobId: string | null,
     formData: any
   ): Promise<any> {
     // Backend expects form data, not JSON
     const formDataObj = new FormData();
-    
+
     if (jobId) {
       formDataObj.append('job_id', jobId);
     } else if (jdId) {
       formDataObj.append('jd_id', jdId);
     }
-    
+
     formDataObj.append('job_title', formData.jobTitle || '');
     formDataObj.append('job_location', formData.jobLocation || '');
     formDataObj.append('job_summary', formData.jobSummary || '');
     formDataObj.append('key_responsibilities', formData.keyResponsibilities || '');
     formDataObj.append('qualifications', formData.qualifications || '');
-    
+
     if (formData.companyName) {
       formDataObj.append('company_name', formData.companyName);
     }
     if (formData.additionalInfo) {
       formDataObj.append('additional_info', formData.additionalInfo);
     }
-    
-     const token = localStorage.getItem('auth_token');
-     const response = await this.client.post('/api/careers/admin/jobs/unified-update', formDataObj, {
-       headers: {
-         'Content-Type': 'multipart/form-data',
-         'Authorization': `Bearer ${token}`,
-       }
+
+    const token = localStorage.getItem('auth_token');
+    const response = await this.client.post('/api/careers/admin/jobs/unified-update', formDataObj, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        'Authorization': `Bearer ${token}`,
+      }
     });
     return response.data;
   }
@@ -293,27 +327,27 @@ class ApiClient {
   }
 
   // Clear database
-async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; message: string }> {
-  const response = await this.client.post<{ status: string; message: string }>('/api/clear-database', null, {
-    params: { confirm },
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  return response.data;
-}
+  async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; message: string }> {
+    const response = await this.client.post<{ status: string; message: string }>('/api/clear-database', null, {
+      params: { confirm },
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.data;
+  }
 
 
-// Download CV by ID
+  // Download CV by ID
   async downloadCV(cvId: string): Promise<{ blob: Blob; filename: string }> {
     const response = await this.client.get(`/api/cv/${cvId}/download`, {
       responseType: 'blob',
     });
-    
+
     // Extract filename from Content-Disposition header
     const contentDisposition = response.headers['content-disposition'];
     let filename = `cv_${cvId}.pdf`; // fallback filename
-    
+
     if (contentDisposition) {
       // Try different patterns for filename extraction
       const patterns = [
@@ -321,7 +355,7 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
         /filename=([^;]+)/i,
         /filename\*?=UTF-8''([^;]+)/i
       ];
-      
+
       for (const pattern of patterns) {
         const match = contentDisposition.match(pattern);
         if (match && match[1]) {
@@ -330,13 +364,13 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
         }
       }
     }
-    
+
     // If we still have a generic filename, try to get it from the CV metadata
     if (filename.startsWith('cv_') && filename.includes(cvId)) {
       // We could potentially fetch CV metadata here, but for now use a better fallback
       filename = `CV_${cvId}.pdf`;
     }
-    
+
     return { blob: response.data, filename };
   }
 
@@ -345,6 +379,8 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
     const response = await this.client.post<LoginResponse>('/api/auth/login', {
       username,
       password,
+    }, {
+      timeout: 10000, // 10 second timeout for auth
     });
     return response.data;
   }
@@ -354,6 +390,38 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
       headers: {
         Authorization: `Bearer ${token}`,
       },
+      timeout: 5000, // 5 second timeout for quick auth check
+    });
+    return response.data;
+  }
+
+  // OTP methods
+  async verifyPassword(username: string, password: string): Promise<VerifyPasswordResponse> {
+    const response = await this.client.post<VerifyPasswordResponse>('/api/auth/verify-password', {
+      username,
+      password,
+    }, {
+      timeout: 10000, // 10 second timeout for auth
+    });
+    return response.data;
+  }
+
+  async sendOTP(username: string, password: string): Promise<OTPResponse> {
+    const response = await this.client.post<OTPResponse>('/api/auth/send-otp', {
+      username,
+      password,
+    }, {
+      timeout: 30000, // 30 second timeout for email sending
+    });
+    return response.data;
+  }
+
+  async verifyOTP(username: string, otp: string): Promise<LoginResponse> {
+    const response = await this.client.post<LoginResponse>('/api/auth/verify-otp', {
+      username,
+      otp,
+    }, {
+      timeout: 10000, // 10 second timeout for auth
     });
     return response.data;
   }
@@ -398,9 +466,9 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
   async createJobPosting(file: File): Promise<JobPostingResponse> {
     const formData = new FormData();
     formData.append('file', file);
-    
+
     const response = await this.client.post<JobPostingResponse>(
-      '/api/careers/admin/jobs/post', 
+      '/api/careers/admin/jobs/post',
       formData,
       {
         headers: {
@@ -414,20 +482,20 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
 
   async createJobPostingWithFormData(file: File | null, formData: any): Promise<JobPostingResponse> {
     const formDataToSend = new FormData();
-    
+
     if (file) {
       formDataToSend.append('file', file);
     }
-    
+
     // Add form data fields
     if (formData.jobTitle) formDataToSend.append('job_title', formData.jobTitle);
     if (formData.jobLocation) formDataToSend.append('job_location', formData.jobLocation);
     if (formData.jobSummary) formDataToSend.append('job_summary', formData.jobSummary);
     if (formData.keyResponsibilities) formDataToSend.append('key_responsibilities', formData.keyResponsibilities);
     if (formData.qualifications) formDataToSend.append('qualifications', formData.qualifications);
-    
+
     const response = await this.client.post<JobPostingResponse>(
-      '/api/careers/admin/jobs/post', 
+      '/api/careers/admin/jobs/post',
       formDataToSend,
       {
         headers: {
@@ -441,7 +509,7 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
 
   async createManualJobPosting(formData: any): Promise<JobPostingResponse> {
     const formDataToSend = new FormData();
-    
+
     // Add required and optional form data fields
     formDataToSend.append('job_title', formData.jobTitle);
     if (formData.jobLocation) formDataToSend.append('job_location', formData.jobLocation);
@@ -450,9 +518,9 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
     if (formData.qualifications) formDataToSend.append('qualifications', formData.qualifications);
     if (formData.companyName) formDataToSend.append('company_name', formData.companyName);
     if (formData.additionalInfo) formDataToSend.append('additional_info', formData.additionalInfo);
-    
+
     const response = await this.client.post<JobPostingResponse>(
-      '/api/careers/admin/jobs/post-manual', 
+      '/api/careers/admin/jobs/post-manual',
       formDataToSend,
       {
         headers: {
@@ -465,42 +533,42 @@ async clearDatabase(token: string, confirm: boolean): Promise<{ status: string; 
   }
 
   async listJobPostings(includeInactive: boolean = false): Promise<JobPostingListItem[]> {
-  const response = await this.client.get<JobPostingListItem[]>(
-    '/api/careers/admin/jobs',
-    {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      },
-      params: {
-        include_inactive: includeInactive,
-        _t: Date.now() // Cache busting parameter
+    const response = await this.client.get<JobPostingListItem[]>(
+      '/api/careers/admin/jobs',
+      {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        },
+        params: {
+          include_inactive: includeInactive,
+          _t: Date.now() // Cache busting parameter
+        }
       }
-    }
-  );
-  return response.data;
-}
-
-// lib/api.ts
-
-async getPublicJob(token: string): Promise<PublicJobView> {
-  try {
-    const response = await this.client.get<PublicJobView>(`/api/careers/jobs/${token}`);
+    );
     return response.data;
-  } catch (error: any) {
-    logger.error('Failed to get public job:', error);
-    
-    // If it's a 404 error, throw a more specific error
-    if (error.response?.status === 404) {
-      throw new Error('Job not found or no longer available');
-    }
-    
-    // Re-throw the original error
-    throw error;
   }
-}
+
+  // lib/api.ts
+
+  async getPublicJob(token: string): Promise<PublicJobView> {
+    try {
+      const response = await this.client.get<PublicJobView>(`/api/careers/jobs/${token}`);
+      return response.data;
+    } catch (error: any) {
+      logger.error('Failed to get public job:', error);
+
+      // If it's a 404 error, throw a more specific error
+      if (error.response?.status === 404) {
+        throw new Error('Job not found or no longer available');
+      }
+
+      // Re-throw the original error
+      throw error;
+    }
+  }
 
   async getRecentJobPostings(limit: number = 5): Promise<JobPostingListItem[]> {
     try {
@@ -513,9 +581,9 @@ async getPublicJob(token: string): Promise<PublicJobView> {
   }
 
   async submitJobApplication(
-    token: string, 
+    token: string,
     applicantName: string,
-    applicantEmail: string, 
+    applicantEmail: string,
     applicantPhone: string | undefined,
     expectedSalary: number,
     yearsOfExperience: number,
@@ -528,9 +596,9 @@ async getPublicJob(token: string): Promise<PublicJobView> {
     formData.append('expected_salary', expectedSalary.toString());
     formData.append('years_of_experience', yearsOfExperience.toString());
     formData.append('cv_file', cvFile);
-    
+
     const response = await this.client.post<JobApplicationResponse>(
-      `/api/careers/jobs/${token}/apply`, 
+      `/api/careers/jobs/${token}/apply`,
       formData,
       {
         headers: {
@@ -616,17 +684,17 @@ async getPublicJob(token: string): Promise<PublicJobView> {
   }
 
   async updateJobStatus(jobId: string, status: { is_active: boolean }): Promise<{ success: boolean; message: string }> {
-  const response = await this.client.patch<{ success: boolean; message: string }>(
-    `/api/careers/admin/jobs/${jobId}/status`,
-    status,
-    {
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+    const response = await this.client.patch<{ success: boolean; message: string }>(
+      `/api/careers/admin/jobs/${jobId}/status`,
+      status,
+      {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+        }
       }
-    }
-  );
-  return response.data;
-}
+    );
+    return response.data;
+  }
 
   async matchJobCandidates(jobId: string, request: { min_score?: number; include_inactive?: boolean }): Promise<any> {
     const requestBody = {
@@ -634,7 +702,7 @@ async getPublicJob(token: string): Promise<PublicJobView> {
       min_score: request.min_score,
       include_inactive: request.include_inactive
     };
-    
+
     const response = await this.client.post(
       `/api/careers/admin/jobs/${jobId}/match-candidates`,
       requestBody,
@@ -646,6 +714,32 @@ async getPublicJob(token: string): Promise<PublicJobView> {
     );
     return response.data;
   }
+
+  // Notes methods
+  async addNote(cvId: string, note: string, hrUser: string = 'HR'): Promise<any> {
+    const response = await this.client.post(`/api/cv/${cvId}/note`, {
+      note,
+      hr_user: hrUser
+    });
+    return response.data;
+  }
+
+  async getNotes(cvId: string): Promise<any> {
+    const response = await this.client.get(`/api/cv/${cvId}/note`);
+    return response.data;
+  }
+
+  async deleteNote(cvId: string, hrUser: string): Promise<any> {
+    const response = await this.client.delete(`/api/cv/${cvId}/note/${hrUser}`);
+    return response.data;
+  }
+
+  async getAllNotes(): Promise<any> {
+    const response = await this.client.get('/api/cv/notes/all');
+    return response.data;
+  }
+
+
 
   async deleteJobPosting(jobId: string): Promise<{ success: boolean; message: string; details: any }> {
     const response = await this.client.delete(
@@ -727,26 +821,28 @@ export const apiClient = new ApiClient();
 export const api = {
   // Health
   healthCheck: () => RequestRetryHandler.withRetry(() => apiClient.healthCheck()),
-  
+
   // CV operations
   uploadCV: (file: File, cvText?: string) => RequestRetryHandler.withRetry(() => apiClient.uploadCV(file, cvText)),
-  listCVs: () => RequestRetryHandler.withRetry(() => apiClient.listCVs()),
+  listCVs: (params?: { limit?: number; offset?: number }) =>
+    RequestRetryHandler.withRetry(() => apiClient.listCVs(params)),
   getCVDetails: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVDetails(cvId)),
   deleteCV: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.deleteCV(cvId)),
   reprocessCV: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.reprocessCV(cvId)),
   getCVEmbeddings: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVEmbeddings(cvId)),
   standardizeCV: (cvText: string, filename?: string) => RequestRetryHandler.withRetry(() => apiClient.standardizeCV(cvText, filename)),
-  
+
   // CV Notes operations
   getAllCVsWithNotes: () => RequestRetryHandler.withRetry(() => apiClient.getAllCVsWithNotes()),
   getCVNotes: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVNotes(cvId)),
   getNotesSummary: (cvIds: string[]) => RequestRetryHandler.withRetry(() => apiClient.getNotesSummary(cvIds)),
   addOrUpdateNote: (cvId: string, note: string, hrUser: string) => RequestRetryHandler.withRetry(() => apiClient.addOrUpdateNote(cvId, note, hrUser)),
   deleteCVNote: (cvId: string, hrUser: string) => RequestRetryHandler.withRetry(() => apiClient.deleteCVNote(cvId, hrUser)),
-  
+
   // JD operations
   uploadJD: (file: File, jdText?: string) => RequestRetryHandler.withRetry(() => apiClient.uploadJD(file, jdText)),
-  listJDs: () => RequestRetryHandler.withRetry(() => apiClient.listJDs()),
+  listJDs: (params?: { limit?: number; offset?: number }) =>
+    RequestRetryHandler.withRetry(() => apiClient.listJDs(params)),
   getJDDetails: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.getJDDetails(jdId)),
   deleteJD: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.deleteJD(jdId)),
   reprocessJD: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.reprocessJD(jdId)),
@@ -754,11 +850,11 @@ export const api = {
   standardizeJD: (jdText: string, filename?: string) => RequestRetryHandler.withRetry(() => apiClient.standardizeJD(jdText, filename)),
   extractJDForUI: (jdId: string) => RequestRetryHandler.withRetry(() => apiClient.extractJDForUI(jdId)),
   unifiedJobUpdate: (jdId: string | null, jobId: string | null, formData: any) => RequestRetryHandler.withRetry(() => apiClient.unifiedJobUpdate(jdId, jobId, formData)),
-  
+
   // Matching
   matchCandidates: (request: MatchRequest) => RequestRetryHandler.withRetry(() => apiClient.matchCandidates(request)),
   matchText: (jdText: string, cvText: string) => RequestRetryHandler.withRetry(() => apiClient.matchText(jdText, cvText)),
-  
+
   // System
   getSystemStats: () => RequestRetryHandler.withRetry(() => apiClient.getSystemStats()),
   getDatabaseStatus: () => RequestRetryHandler.withRetry(() => apiClient.getDatabaseStatus()),
@@ -769,6 +865,9 @@ export const api = {
   // Auth
   login: (username: string, password: string) => RequestRetryHandler.withRetry(() => apiClient.login(username, password)),
   me: (token: string) => RequestRetryHandler.withRetry(() => apiClient.me(token)),
+  verifyPassword: (username: string, password: string) => RequestRetryHandler.withRetry(() => apiClient.verifyPassword(username, password)),
+  sendOTP: (username: string, password: string) => RequestRetryHandler.withRetry(() => apiClient.sendOTP(username, password)),
+  verifyOTP: (username: string, otp: string) => RequestRetryHandler.withRetry(() => apiClient.verifyOTP(username, otp)),
 
   // Admin Users (admin only)
   listUsers: (token: string) => RequestRetryHandler.withRetry(() => apiClient.listUsers(token)),
@@ -778,25 +877,25 @@ export const api = {
 
   // Careers API
   createJobPosting: (file: File) => RequestRetryHandler.withRetry(() => apiClient.createJobPosting(file)),
-  createJobPostingWithFormData: (file: File | null, formData: any) => 
+  createJobPostingWithFormData: (file: File | null, formData: any) =>
     RequestRetryHandler.withRetry(() => apiClient.createJobPostingWithFormData(file, formData)),
-  createManualJobPosting: (formData: any) => 
+  createManualJobPosting: (formData: any) =>
     RequestRetryHandler.withRetry(() => apiClient.createManualJobPosting(formData)),
-  listJobPostings: (includeInactive: boolean = false) => 
-  RequestRetryHandler.withRetry(() => apiClient.listJobPostings(includeInactive)),
+  listJobPostings: (includeInactive: boolean = false) =>
+    RequestRetryHandler.withRetry(() => apiClient.listJobPostings(includeInactive)),
   getPublicJob: (token: string) => RequestRetryHandler.withRetry(() => apiClient.getPublicJob(token)),
   getRecentJobPostings: (limit: number = 5) => RequestRetryHandler.withRetry(() => apiClient.getRecentJobPostings(limit)),
-  submitJobApplication: (token: string, name: string, email: string, phone: string | undefined, expectedSalary: number, yearsOfExperience: number, cvFile: File) => 
+  submitJobApplication: (token: string, name: string, email: string, phone: string | undefined, expectedSalary: number, yearsOfExperience: number, cvFile: File) =>
     RequestRetryHandler.withRetry(() => apiClient.submitJobApplication(token, name, email, phone, expectedSalary, yearsOfExperience, cvFile)),
   getJobApplications: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobApplications(jobId)),
 
-  
+
   getJobForMatching: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobForMatching(jobId)),
   getJobForEdit: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobForEdit(jobId)),
-  updateJobStatus: (jobId: string, status: { is_active: boolean }) => 
-  RequestRetryHandler.withRetry(() => apiClient.updateJobStatus(jobId, status)),
-  matchJobCandidates: (jobId: string, request: { min_score?: number; include_inactive?: boolean }) => 
-  RequestRetryHandler.withRetry(() => apiClient.matchJobCandidates(jobId, request)),
+  updateJobStatus: (jobId: string, status: { is_active: boolean }) =>
+    RequestRetryHandler.withRetry(() => apiClient.updateJobStatus(jobId, status)),
+  matchJobCandidates: (jobId: string, request: { min_score?: number; include_inactive?: boolean }) =>
+    RequestRetryHandler.withRetry(() => apiClient.matchJobCandidates(jobId, request)),
   deleteJobPosting: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.deleteJobPosting(jobId)),
   deleteAllJobPostings: () => RequestRetryHandler.withRetry(() => apiClient.deleteAllJobPostings()),
 
@@ -804,6 +903,19 @@ export const api = {
   getCategories: () => RequestRetryHandler.withRetry(() => apiClient.getCategories()),
   getCVsByCategory: (category: string) => RequestRetryHandler.withRetry(() => apiClient.getCVsByCategory(category)),
   matchByCategory: (jdId: string, topK?: number) => RequestRetryHandler.withRetry(() => apiClient.matchByCategory(jdId, topK)),
+
+  // Notes operations
+  addNote: (cvId: string, note: string, hrUser?: string) => RequestRetryHandler.withRetry(() => apiClient.addNote(cvId, note, hrUser)),
+  getNotes: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getNotes(cvId)),
+  deleteNote: (cvId: string, hrUser: string) => RequestRetryHandler.withRetry(() => apiClient.deleteNote(cvId, hrUser)),
+  getAllNotes: () => RequestRetryHandler.withRetry(() => apiClient.getAllNotes()),
+
+  // DatabasePageNew.tsx compatibility
+  // addOrUpdateNote: (cvId: string, note: string, hrUser: string) => RequestRetryHandler.withRetry(() => apiClient.addOrUpdateNote(cvId, note, hrUser)),
+  // getAllCVsWithNotes: () => RequestRetryHandler.withRetry(() => apiClient.getAllCVsWithNotes()),
+  // getCVNotes: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVNotes(cvId)),
+  // getNotesSummary: (cvIds: string[]) => RequestRetryHandler.withRetry(() => apiClient.getNotesSummary(cvIds)),
+  // deleteCVNote: (cvId: string, hrUser: string) => RequestRetryHandler.withRetry(() => apiClient.deleteCVNote(cvId, hrUser)),
 
   // Performance monitoring operations
   getSystemPerformance: () => RequestRetryHandler.withRetry(() => apiClient.getSystemPerformance()),

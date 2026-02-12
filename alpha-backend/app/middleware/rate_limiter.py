@@ -364,10 +364,21 @@ async def rate_limit_middleware(request: Request, call_next):
         bypass_reason = "localhost in development"
         logger.debug(f"🔓 Rate limit bypassed for localhost in development")
     
-    # Method 3: Health Check Endpoints (always allow)
+    # Method 3: Health Check and Auth Endpoints (always allow in development)
     if path in ["/api/health", "/health", "/", "/docs", "/redoc"]:
         bypass_rate_limit = True
         bypass_reason = "health/docs endpoint"
+    
+    # Method 3b: Auth endpoints bypass in development (to prevent login timeouts)
+    if not rate_limiter.is_production and path.startswith("/api/auth"):
+        bypass_rate_limit = True
+        bypass_reason = "auth endpoint in development"
+        logger.debug(f"🔓 Rate limit bypassed for auth endpoint: {path}")
+    
+    # Method 4: OPTIONS Preflight requests (always allow)
+    if method == "OPTIONS":
+        bypass_rate_limit = True
+        bypass_reason = "CORS preflight"
     
     # === APPLY BYPASS ===
     if bypass_rate_limit:

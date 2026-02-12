@@ -44,146 +44,21 @@ from app.services.s3_storage import get_s3_storage_service
 from app.deps.auth import require_admin, require_user
 from app.models.user import User
 from app.routes.cv_routes import process_cv_async
-
-# Storage directory for job application CVs
-STORAGE_DIR = os.getenv("CV_UPLOAD_DIR", "/data/uploads/cv")
-os.makedirs(STORAGE_DIR, exist_ok=True)
+from app.helpers.careers_helpers import (
+    generate_public_token,
+    validate_file_upload,
+    now_iso,
+    get_safe_applicant_name,
+    generate_email_subject_id,
+    generate_email_subject_template,
+    parse_email_subject,
+    MAX_FILE_SIZE,
+    SUPPORTED_EXTENSIONS,
+    STORAGE_DIR,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# Constants
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt']
-
-def generate_public_token() -> str:
-    """Generate secure random token for public job links"""
-    return secrets.token_urlsafe(32)
-
-def validate_file_upload(file: UploadFile) -> None:
-    """Validate uploaded file meets requirements"""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Filename is required")
-    
-    # Check file extension
-    file_ext = '.' + file.filename.split('.')[-1].lower() if '.' in file.filename else ''
-    if file_ext not in SUPPORTED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"File type {file_ext} not supported. Supported types: {SUPPORTED_EXTENSIONS}"
-        )
-    
-    # Note: File size validation happens during read if needed
-    logger.info(f"✅ File validation passed: {file.filename}")
-
-def _now_iso() -> str:
-    """Get current timestamp in ISO format"""
-    return datetime.utcnow().isoformat()
-
-def _get_safe_applicant_name(app_data: dict) -> str:
-    """
-    Get applicant name with fallback logic to prevent API failures.
-    This ensures the API never breaks due to null/empty applicant names.
-    """
-    # Try to get applicant_name first
-    name = app_data.get("applicant_name")
-    if name and name.strip() and name.lower() not in ["not specified", "unknown", "null"]:
-        return name.strip()
-    
-    # Fallback 1: Try candidate.full_name from structured data
-    candidate = app_data.get("candidate", {})
-    if isinstance(candidate, dict):
-        candidate_name = candidate.get("full_name")
-        if candidate_name and candidate_name.strip() and candidate_name.lower() not in ["not specified", "unknown", "null"]:
-            return candidate_name.strip()
-    
-    # Fallback 2: Try structured_info.name
-    structured_info = app_data.get("structured_info", {})
-    if isinstance(structured_info, dict):
-        structured_name = structured_info.get("name")
-        if structured_name and structured_name.strip() and structured_name.lower() not in ["not specified", "unknown", "null"]:
-            return structured_name.strip()
-    
-    # Fallback 3: Derive from email
-    email = app_data.get("applicant_email") or app_data.get("email", "")
-    if email and "@" in email:
-        # Extract name from email (part before @)
-        name_part = email.split("@")[0]
-        # Clean up the name: replace dots/underscores with spaces and title case
-        derived_name = name_part.replace(".", " ").replace("_", " ").replace("-", " ").title()
-        # Remove extra spaces
-        derived_name = " ".join(derived_name.split())
-        if derived_name:
-            logger.info(f"🔄 Derived applicant name from email {email}: {derived_name}")
-            return derived_name
-    
-    # Final fallback: Generic name
-    logger.warning(f"⚠️ No valid applicant name found for application {app_data.get('id', 'unknown')}, using fallback")
-    return "Applicant"
-
-def generate_email_subject_id(job_title: str) -> str:
-    """
-    Generate unique email subject ID from job title
-    Format: {JobTitleAbbreviation}-{Year}-{Counter}
-    Example: "Software Engineer" -> "SE-2025-001"
-    """
-    # Extract meaningful words from job title (skip common words)
-    common_words = {'and', 'or', 'the', 'a', 'an', 'in', 'at', 'for', 'with', 'by', 'to', 'of', 'as'}
-    words = [word.strip() for word in re.split(r'[^\w]+', job_title.upper()) if word.strip() and word.lower() not in common_words]
-    
-    # Create abbreviation from first letters of meaningful words
-    if len(words) >= 2:
-        # Take first letter of first 2-3 words
-        abbreviation = ''.join([word[0] for word in words[:3]])
-    elif len(words) == 1:
-        # Single word - take first 2-3 letters
-        abbreviation = words[0][:3]
-    else:
-        # Fallback
-        abbreviation = "JOB"
-    
-    # Ensure abbreviation is 2-4 characters
-    if len(abbreviation) < 2:
-        abbreviation = abbreviation + "J"
-    elif len(abbreviation) > 4:
-        abbreviation = abbreviation[:4]
-    
-    # Get current year
-    current_year = datetime.utcnow().year
-    
-    # Get next counter for this year and abbreviation
-    qdrant = get_qdrant_utils()
-    counter = qdrant.get_next_email_subject_counter(abbreviation, current_year)
-    
-    return f"{abbreviation}-{current_year}-{counter:03d}"
-
-def generate_email_subject_template(job_title: str, subject_id: str) -> str:
-    """
-    Generate full email subject template for Naukri
-    Format: "{Job Title} | {Subject ID}"
-    Example: "Software Engineer | SE-2025-001"
-    """
-    return f"{job_title.strip()} | {subject_id}"
-
-def parse_email_subject(subject: str) -> tuple[Optional[str], Optional[str]]:
-    """
-    Parse email subject to extract job title and subject ID
-    Handles Re:/Fwd: prefixes automatically
-    Returns: (job_title, subject_id) or (None, None) if parsing fails
-    """
-    # Remove Re:/Fwd: prefixes (case insensitive, multiple possible)
-    cleaned_subject = re.sub(r'^(re|fwd|fw):\s*', '', subject.strip(), flags=re.IGNORECASE)
-    cleaned_subject = re.sub(r'^(re|fwd|fw):\s*', '', cleaned_subject, flags=re.IGNORECASE)  # Handle multiple prefixes
-    
-    # Look for pattern: "Job Title | ID-YYYY-NNN"
-    match = re.match(r'^(.+?)\s*\|\s*([A-Z]{2,4}-\d{4}-\d{3})$', cleaned_subject.strip())
-    
-    if match:
-        job_title = match.group(1).strip()
-        subject_id = match.group(2).strip()
-        return job_title, subject_id
-    
-    return None, None
 
 # ==================== PUBLIC ENDPOINTS (No Authentication) ====================
 
@@ -240,7 +115,7 @@ async def get_recent_job_postings(limit: int = 5) -> List[JobPostingSummary]:
                 key_responsibilities=key_responsibilities,
                 qualifications=qualifications,
                 company_name=job.get("company_name"),
-                upload_date=job.get("created_date", job.get("upload_date", _now_iso())),
+                upload_date=job.get("created_date", job.get("upload_date", now_iso())),
                 filename=job.get("filename", "job_description.pdf"),
                 is_active=job.get("is_active", True),
                 application_count=0,  # Not needed for public view
@@ -342,7 +217,7 @@ async def get_public_job(public_token: str) -> PublicJobView:
             job_location=job_location,
             company_name=job_data.get("company_name", "Alpha Data Recruitment"),
             job_description=job_summary,  # Use updated summary or fall back to original
-            upload_date=job_data.get("created_date", job_data.get("upload_date", _now_iso())),
+            upload_date=job_data.get("created_date", job_data.get("upload_date", now_iso())),
             requirements=requirements[:10],  # Limit to top 10 for display
             responsibilities=responsibilities[:10],  # Limit to top 10 for display
             experience_required=str(experience_required),
@@ -410,37 +285,38 @@ async def apply_to_job(
         if len(file_content) > MAX_FILE_SIZE:
             raise HTTPException(status_code=400, detail=f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB")
         
-        # Store CV file in S3 for job applications
+        # Store CV file (local uploads folder; storage service may be S3 or local)
         persisted_path = None
         if cv_file.filename:
             file_ext = os.path.splitext(cv_file.filename)[1].lower() or '.pdf'
-            
-            # Save to temp file first
-            import tempfile
-            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
-                tmp.write(file_content)
-                tmp_path = tmp.name
-            
-            # Upload to S3
             s3_service = get_s3_storage_service()
+            dest_dir = os.path.join(s3_service.base_dir, "cvs")
+            os.makedirs(dest_dir, exist_ok=True)
+            dest_path = os.path.join(dest_dir, f"{application_id}{file_ext}")
+
             try:
+                # Primary: use storage service (handles local copy or S3)
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                    tmp.write(file_content)
+                    tmp_path = tmp.name
                 persisted_path = s3_service.upload_file(tmp_path, application_id, "cv", file_ext)
-                logger.info(f"✅ Job application CV uploaded to S3: {persisted_path}")
-                
-                # Cleanup temp file
+                logger.info(f"✅ Job application CV stored: {persisted_path}")
                 try:
                     os.unlink(tmp_path)
                 except Exception:
                     pass
             except Exception as e:
-                logger.error(f"❌ Failed to upload job application CV to S3: {e}")
-                # Cleanup temp file
+                logger.error(f"❌ Storage upload failed for job application CV: {e}")
+                # Fallback: write raw file to uploads/cvs so PDF is always available for preview/download
                 try:
-                    os.unlink(tmp_path)
-                except:
-                    pass
-                # Don't fail the application if S3 upload fails
-                persisted_path = None
+                    with open(dest_path, "wb") as f:
+                        f.write(file_content)
+                    persisted_path = dest_path
+                    logger.info(f"✅ Job application CV saved to uploads fallback: {persisted_path}")
+                except Exception as fallback_err:
+                    logger.error(f"❌ Fallback save to uploads failed: {fallback_err}")
+                    persisted_path = None
         
         # Check experience requirements and create warning if needed
         experience_warning = None
@@ -505,19 +381,14 @@ async def apply_to_job(
                     job_id=job_id
                 )
             except Exception as queue_error:
-                # Fallback to immediate basic response if queue is full
-                logger.warning(f"⚠️ Queue submission failed, falling back to immediate response: {str(queue_error)}")
-                
-                return JobApplicationResponse(
-                    success=True,
-                    application_id=application_id,
-                    message=f"Thank you, {applicant_name}! Your application has been received and will be processed shortly.",
-                    next_steps="Due to high volume, your application is being processed. You'll receive an email confirmation within 15-30 minutes.",
-                    job_id=None
-                )
+                # Fallback to synchronous processing if queue is full/overloaded
+                logger.warning(f"⚠️ Queue submission failed, falling back to synchronous processing: {str(queue_error)}")
+                # Continue to the synchronous processing path below instead of returning early
+                background_processing = False
         
         
         # OPTIMIZED ASYNC PROCESSING: Use the same optimized processing as regular CVs
+        # This path runs when background_processing=False OR when queue submission fails
         logger.info(f"🚀 Processing CV asynchronously for application {application_id}")
         
         # Import the optimized CV processing function
@@ -752,7 +623,7 @@ async def post_job(
             qdrant.store_document(
                 job_id, "jd", filename,
                 content_type,
-                extracted_text, _now_iso()
+                extracted_text, now_iso()
             )
         )
         
@@ -798,7 +669,7 @@ async def post_job(
             public_link=public_link,
             public_token=public_token,
             job_title=final_job_title,
-            upload_date=_now_iso(),
+            upload_date=now_iso(),
             filename=filename,
             is_active=True,
             company_name=company_name,
@@ -893,7 +764,7 @@ Additional Information:
             qdrant.store_document(
                 job_id, "jd", f"manual_job_{job_id}.txt",
                 "text/plain",
-                structured_text, _now_iso()
+                structured_text, now_iso()
             )
         )
         
@@ -938,7 +809,7 @@ Additional Information:
             public_link=public_link,
             public_token=public_token,
             job_title=final_job_title,
-            upload_date=_now_iso(),
+            upload_date=now_iso(),
             filename=f"manual_job_{job_id}.txt",
             is_active=True,
             company_name=company_name,
@@ -1035,7 +906,7 @@ async def list_job_postings(
                 key_responsibilities=key_responsibilities,
                 qualifications=qualifications,
                 company_name=job.get("company_name"),
-                upload_date=job.get("created_date", job.get("upload_date", _now_iso())),
+                upload_date=job.get("created_date", job.get("upload_date", now_iso())),
                 filename=job.get("filename", "job_description.pdf"),
                 is_active=job.get("is_active", True),
                 application_count=len(applications),
@@ -1272,7 +1143,7 @@ async def get_job_applications(
         summaries = []
         for app in applications:
             # Use safe applicant name function to prevent API failures
-            safe_applicant_name = _get_safe_applicant_name(app)
+            safe_applicant_name = get_safe_applicant_name(app)
             
             summary = JobApplicationSummary(
                 application_id=app["id"],
@@ -1413,7 +1284,7 @@ async def unified_job_update(
                 "structured_info": ui_data,
                 "company_name": company_name,
                 "additional_info": additional_info,
-                "updated_date": _now_iso()
+                "updated_date": now_iso()
             })
             
             if not success:

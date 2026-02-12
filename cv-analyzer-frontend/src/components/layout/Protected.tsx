@@ -16,12 +16,7 @@ export default function Protected({
   fallbackPath = '/login' 
 }: ProtectedProps) {
   const router = useRouter();
-  const { user, loading, initFromStorage } = useAuthStore();
-
-  useEffect(() => {
-    // Initialize auth from storage on mount
-    initFromStorage();
-  }, [initFromStorage]);
+  const { user, loading } = useAuthStore();
 
   useEffect(() => {
     if (!loading) {

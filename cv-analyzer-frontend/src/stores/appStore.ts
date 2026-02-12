@@ -38,6 +38,9 @@ interface AppState {
   // Data
   cvs: CVListItem[];
   jds: JDListItem[];
+  /** Total count from API when using pagination (so UI can show "X of Y") */
+  totalCVs: number | null;
+  totalJDs: number | null;
   selectedJD: string | null;
   selectedCVs: string[];
   
@@ -46,7 +49,13 @@ interface AppState {
   matchResult: MatchResponse | null;
   matchingProgress: MatchingProgress;
   
-  // Queue management removed
+  // Queue state
+  matchingQueue: {
+    isQueued: boolean;
+    queuePosition: number | null;
+    estimatedWaitTime: number | null; // seconds
+    message: string | null;
+  } | null;
   
   // Health
   systemHealth: HealthResponse | null;
@@ -74,6 +83,7 @@ interface AppState {
   
   // CV actions
   loadCVs: () => Promise<void>;
+  loadMoreCVs: () => Promise<void>;
   selectCV: (cvId: string) => void;
   deselectCV: (cvId: string) => void;
   selectAllCVs: () => void;
@@ -85,6 +95,7 @@ interface AppState {
   
   // JD actions
   loadJDs: () => Promise<void>;
+  loadMoreJDs: () => Promise<void>;
   selectJD: (jdId: string | null) => void;
   uploadJD: (file: File) => Promise<void>;
   deleteJD: (jdId: string) => Promise<void>;
@@ -96,6 +107,7 @@ interface AppState {
   clearMatchResult: () => void;
   setMatchingProgress: (progress: Partial<MatchingProgress>) => void;
   hideMatchingProgress: () => void;
+  setMatchingQueue: (queue: AppState['matchingQueue']) => void;
   
   // Queue management actions removed
   
@@ -109,6 +121,9 @@ interface AppState {
   setLoading: (operation: keyof AppState['loadingStates'], loading: boolean, error?: string) => void;
   clearError: (operation: keyof AppState['loadingStates']) => void;
 }
+
+/** Page size for CV/JD list API calls to keep responses small and fast */
+const LIST_PAGE_SIZE = 200;
 
 const defaultWeights: MatchWeights = {
   skills: 80,
@@ -125,6 +140,8 @@ export const useAppStore = create<AppState>()(
       databaseActiveTab: 'cvs',
       cvs: [],
       jds: [],
+      totalCVs: null,
+      totalJDs: null,
       selectedJD: null,
       selectedCVs: [],
       matchWeights: defaultWeights,
@@ -190,13 +207,35 @@ export const useAppStore = create<AppState>()(
         setLoading('cvs', true);
         
         try {
-          logger.info('Loading CVs from API');
-          const response = await api.listCVs();
-          set({ cvs: response.cvs });
+          logger.info('Loading CVs from API (paginated)');
+          const response = await api.listCVs({ limit: LIST_PAGE_SIZE, offset: 0 });
+          const total = response.total ?? response.cvs.length;
+          set({
+            cvs: response.cvs,
+            totalCVs: total,
+          });
           setLoading('cvs', false);
-          logger.info(`Loaded ${response.cvs.length} CVs`);
+          logger.info(`Loaded ${response.cvs.length} CVs${total > response.cvs.length ? ` of ${total}` : ''}`);
         } catch (error: any) {
           logger.error('Failed to load CVs', error);
+          setLoading('cvs', false, error.message);
+        }
+      },
+      
+      loadMoreCVs: async () => {
+        const { setLoading, cvs, totalCVs } = get();
+        if (totalCVs != null && cvs.length >= totalCVs) return;
+        setLoading('cvs', true);
+        try {
+          const response = await api.listCVs({ limit: LIST_PAGE_SIZE, offset: cvs.length });
+          set((s) => ({
+            cvs: [...s.cvs, ...response.cvs],
+            totalCVs: response.total ?? s.totalCVs ?? s.cvs.length + response.cvs.length,
+          }));
+          setLoading('cvs', false);
+          logger.info(`Loaded more CVs: ${cvs.length + response.cvs.length} total`);
+        } catch (error: any) {
+          logger.error('Failed to load more CVs', error);
           setLoading('cvs', false, error.message);
         }
       },
@@ -304,13 +343,35 @@ export const useAppStore = create<AppState>()(
         setLoading('jds', true);
         
         try {
-          logger.info('Loading JDs from API');
-          const response = await api.listJDs();
-          set({ jds: response.jds });
+          logger.info('Loading JDs from API (paginated)');
+          const response = await api.listJDs({ limit: LIST_PAGE_SIZE, offset: 0 });
+          const total = response.total ?? response.jds.length;
+          set({
+            jds: response.jds,
+            totalJDs: total,
+          });
           setLoading('jds', false);
-          logger.info(`Loaded ${response.jds.length} JDs`);
+          logger.info(`Loaded ${response.jds.length} JDs${total > response.jds.length ? ` of ${total}` : ''}`);
         } catch (error: any) {
           logger.error('Failed to load JDs', error);
+          setLoading('jds', false, error.message);
+        }
+      },
+      
+      loadMoreJDs: async () => {
+        const { setLoading, jds, totalJDs } = get();
+        if (totalJDs != null && jds.length >= totalJDs) return;
+        setLoading('jds', true);
+        try {
+          const response = await api.listJDs({ limit: LIST_PAGE_SIZE, offset: jds.length });
+          set((s) => ({
+            jds: [...s.jds, ...response.jds],
+            totalJDs: response.total ?? s.totalJDs ?? s.jds.length + response.jds.length,
+          }));
+          setLoading('jds', false);
+          logger.info(`Loaded more JDs: ${jds.length + response.jds.length} total`);
+        } catch (error: any) {
+          logger.error('Failed to load more JDs', error);
           setLoading('jds', false, error.message);
         }
       },
@@ -454,13 +515,72 @@ export const useAppStore = create<AppState>()(
           
           const result = await api.matchCandidates(matchRequest);
           
+          // Check if request was queued
+          if (result.is_queued) {
+            // Clear progress interval
+            clearInterval(progressInterval);
+            
+            // Set queue state
+            set({
+              matchingQueue: {
+                isQueued: true,
+                queuePosition: result.queue_position || null,
+                estimatedWaitTime: result.estimated_wait_time || null,
+                message: result.message || null,
+              }
+            });
+            
+            // Poll for results every 10 seconds
+            const pollInterval = setInterval(async () => {
+              try {
+                const pollResult = await api.matchCandidates(matchRequest);
+                
+                if (!pollResult.is_queued && pollResult.candidates.length > 0) {
+                  // Match completed!
+                  clearInterval(pollInterval);
+                  clearInterval(progressInterval);
+                  hideMatchingProgress();
+                  
+                  set({
+                    matchResult: pollResult,
+                    matchingQueue: null,
+                  });
+                  setLoading('matching', false);
+                  logger.info(`Matching completed: ${pollResult.candidates.length} candidates processed`);
+                } else if (pollResult.is_queued) {
+                  // Still queued, update position
+                  set({
+                    matchingQueue: {
+                      isQueued: true,
+                      queuePosition: pollResult.queue_position || null,
+                      estimatedWaitTime: pollResult.estimated_wait_time || null,
+                      message: pollResult.message || null,
+                    }
+                  });
+                }
+              } catch (error) {
+                logger.error('Failed to poll matching status', error);
+              }
+            }, 10000); // Poll every 10 seconds
+            
+            // Set timeout to stop polling after estimated wait time + buffer
+            const maxWaitTime = (result.estimated_wait_time || 600) * 1000 + 60000; // +1 minute buffer
+            setTimeout(() => {
+              clearInterval(pollInterval);
+            }, maxWaitTime);
+            
+            setLoading('matching', false);
+            return;
+          }
+          
           // Clear progress interval and hide progress bar
           clearInterval(progressInterval);
           hideMatchingProgress();
           
-          // Queue session completion removed
-          
-          set({ matchResult: result });
+          set({ 
+            matchResult: result,
+            matchingQueue: null,
+          });
           setLoading('matching', false);
           logger.info(`Matching completed: ${result.candidates.length} candidates processed`);
         } catch (error: any) {
@@ -488,6 +608,10 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           matchingProgress: { ...state.matchingProgress, isVisible: false },
         }));
+      },
+      
+      setMatchingQueue: (queue) => {
+        set({ matchingQueue: queue });
       },
       
       // System actions

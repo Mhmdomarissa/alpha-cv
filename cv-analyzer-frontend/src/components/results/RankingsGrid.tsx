@@ -590,9 +590,8 @@ export default function RankingsGrid() {
                       onMouseEnter={() => setHoveredCard(candidate.cv_id)}
                       onMouseLeave={() => setHoveredCard(null)}
                       style={{
-                        transition: 'all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                        animation: isVisible ? `fadeInUp 0.6s ease-out ${index * 0.1}s forwards` : 'none',
-                        opacity: 0
+                        transition: 'opacity 0.2s ease',
+                        opacity: isVisible ? 1 : 0
                       }}
                     >
                       {/* Animated background effect */}

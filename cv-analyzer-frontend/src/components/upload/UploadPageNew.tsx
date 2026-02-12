@@ -134,9 +134,7 @@ export default function UploadPageNew() {
     for (const f of jdItems.filter((x) => x.status === 'pending' && !!x.file)) {
       update(f.id, { status: 'processing', error: undefined });
       try {
-        console.log(`Uploading JD: ${f.file?.name}`);
         const response = await api.uploadJD(f.file as File);
-        console.log('JD upload response:', response);
         
         // Extract the ID from the response - handle different response formats
         let dbId: string | undefined = undefined;
@@ -146,7 +144,6 @@ export default function UploadPageNew() {
           dbId = response.cv_id;
         }
         
-        console.log(`Extracted JD dbId: ${dbId}`);
         
         update(f.id, {
           status: 'completed',
@@ -170,9 +167,7 @@ export default function UploadPageNew() {
     for (const f of cvItems.filter((x) => x.status === 'pending' && !!x.file)) {
       update(f.id, { status: 'processing', error: undefined });
       try {
-        console.log(`Uploading CV: ${f.file?.name}`);
         const response = await api.uploadCV(f.file as File);
-        console.log('CV upload response:', response);
         
         // Extract the ID from the response - handle different response formats
         let dbId: string | undefined = undefined;
@@ -182,7 +177,6 @@ export default function UploadPageNew() {
           dbId = response.jd_id;
         }
         
-        console.log(`Extracted CV dbId: ${dbId}`);
         
         update(f.id, {
           status: 'completed',
@@ -218,7 +212,6 @@ export default function UploadPageNew() {
     console.log("Completed CVs with dbId:", completedCVs);
     // Fallback: if no items have dbId, try to match by filename
     if (completedJDs.length === 0 && completedCVs.length === 0) {
-      console.log("No items with dbId, trying filename fallback");
       
       const completedJDsNoId = jdItems.filter(f => f.status === 'completed');
       const completedCVsNoId = cvItems.filter(f => f.status === 'completed');
@@ -234,22 +227,18 @@ export default function UploadPageNew() {
       // Try to find matching documents in the database by filename
       const jdFilename = completedJDsNoId[0].name;
       const cvFilenames = completedCVsNoId.map(f => f.name);
-      console.log("Looking for JD by filename:", jdFilename);
-      console.log("Looking for CVs by filenames:", cvFilenames);
       // Find JD in database by filename
       const jdInDB = jds.find(jd => jd.filename === jdFilename);
       if (!jdInDB) {
         alert(`Could not find Job Description "${jdFilename}" in the database`);
         return;
       }
-      console.log("Found JD in DB:", jdInDB);
       // Find CVs in database by filename
       const cvIdsInDB: string[] = [];
       for (const cvFilename of cvFilenames) {
         const cvInDB = cvs.find(cv => cv.filename === cvFilename);
         if (cvInDB) {
           cvIdsInDB.push(cvInDB.id);
-          console.log(`Found CV in DB: ${cvFilename} -> ${cvInDB.id}`);
         }
       }
       if (cvIdsInDB.length === 0) {
@@ -260,8 +249,6 @@ export default function UploadPageNew() {
       selectJD(jdInDB.id);
       deselectAllCVs(); // Clear existing selections
       cvIdsInDB.forEach(id => selectCV(id)); // Select only uploaded CVs
-      console.log("Selected JD ID:", jdInDB.id);
-      console.log("Selected CV IDs:", cvIdsInDB);
       // Run matching and navigate to results
       await runMatch();
       setCurrentTab('match');
@@ -279,8 +266,6 @@ export default function UploadPageNew() {
     // Use the first completed JD
     const jdId = completedJDs[0].dbId;
     const cvIds = completedCVs.map(f => f.dbId).filter(Boolean) as string[];
-    console.log("Selected JD ID:", jdId);
-    console.log("Selected CV IDs:", cvIds);
     // Set selections in the store
     selectJD(jdId || null);
     deselectAllCVs(); // Clear existing selections
@@ -291,7 +276,6 @@ export default function UploadPageNew() {
   };
   /* ---------------------------------- UI utils ---------------------------------- */
   const removeFile = (id: string) => {
-    console.log(`Removing file with ID: ${id} from queue`);
     remove(id);
   };
   

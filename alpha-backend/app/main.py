@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 # Routers
-from app.routes import cv_routes, jd_routes, special_routes, careers_routes
+from app.routes import cv_routes, jd_routes, special_routes, careers_routes, storage_routes
 from app.routes.auth_routes import router as auth_router
 from app.routes.admin_routes import router as admin_router
 from app.routes.performance_routes import router as performance_router
@@ -42,11 +42,13 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("🚀 Starting CV Analyzer API...")
 
-        # Required envs
+        # Required envs - OpenAI key is optional (warn if missing, but don't fail)
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
-            logger.error("❌ OPENAI_API_KEY environment variable is required")
-            raise RuntimeError("OPENAI_API_KEY not configured")
+            logger.warning("⚠️ OPENAI_API_KEY environment variable not set - OpenAI features will be disabled")
+            logger.warning("⚠️ Email CV processing and LLM features will not work without OpenAI key")
+        else:
+            logger.info("✅ OPENAI_API_KEY configured")
 
         qdrant_host = os.getenv("QDRANT_HOST", "qdrant")
         qdrant_port = os.getenv("QDRANT_PORT", "6333")
@@ -96,29 +98,33 @@ async def lifespan(app: FastAPI):
         await get_enterprise_job_queue()  # This will start the workers
         logger.info("✅ Enterprise job queue ready")
 
+        # EMAIL SCHEDULER DISABLED - Commented out to prevent OpenAI calls from email CV processing
         # Only start email scheduler on ONE worker (not all workers)
         # Use a file lock to ensure only one scheduler runs across all workers
-        import fcntl
+        # import fcntl
         scheduler_task = None
         scheduler = None
         scheduler_lock_file = None
         
-        try:
-            scheduler_lock_file = open("/tmp/email_scheduler.lock", "w")
-            fcntl.flock(scheduler_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            # We got the lock! This worker will run the scheduler
-            logger.info("📧 Starting email scheduler (acquired lock)...")
-            from app.services.email_scheduler import get_email_scheduler
-            import asyncio
-            scheduler = get_email_scheduler()
-            scheduler_task = asyncio.create_task(scheduler.start_scheduler())
-            logger.info("✅ Email scheduler started (checking every 5 minutes)")
-        except BlockingIOError:
-            # Another worker already has the lock and is running the scheduler
-            logger.info("⏭️ Email scheduler already running on another worker")
-            if scheduler_lock_file:
-                scheduler_lock_file.close()
-            scheduler_lock_file = None
+        # DISABLED: Email scheduler commented out to stop OpenAI calls
+        # try:
+        #     scheduler_lock_file = open("/tmp/email_scheduler.lock", "w")
+        #     fcntl.flock(scheduler_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        #     # We got the lock! This worker will run the scheduler
+        #     logger.info("📧 Starting email scheduler (acquired lock)...")
+        #     from app.services.email_scheduler import get_email_scheduler
+        #     import asyncio
+        #     scheduler = get_email_scheduler()
+        #     scheduler_task = asyncio.create_task(scheduler.start_scheduler())
+        #     logger.info("✅ Email scheduler started (checking every 5 minutes)")
+        # except BlockingIOError:
+        #     # Another worker already has the lock and is running the scheduler
+        #     logger.info("⏭️ Email scheduler already running on another worker")
+        #     if scheduler_lock_file:
+        #         scheduler_lock_file.close()
+        #     scheduler_lock_file = None
+        
+        logger.info("⏸️ Email scheduler is DISABLED (to prevent OpenAI calls)")
 
         logger.info("🎉 Startup complete")
         yield
@@ -157,8 +163,9 @@ app = FastAPI(
 # --------------------
 # Environment-specific origins
 dev_origins = [
-    "http://localhost:3000", "http://localhost:3001", "http://localhost:8000", "http://localhost",
-    "http://13.62.91.25:3001", "http://13.62.91.25:8001", "http://13.62.91.25:3000"
+    "http://localhost:3000", "http://localhost:8000", "http://localhost",
+    "http://127.0.0.1:3000", "http://127.0.0.1:8000", "http://127.0.0.1",
+    "http://13.62.91.25:3000", "http://13.62.91.25:8000"
 ]
 prod_origins = ["https://alphacv.alphadatarecruitment.ae"]
 
@@ -183,7 +190,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -245,6 +252,7 @@ app.include_router(careers_routes.router, prefix="/api/careers", tags=["Careers 
 
 # Email processing routes (Azure integration)
 app.include_router(email_router, prefix="/api/email", tags=["Email Processing & Azure Integration"])
+app.include_router(storage_routes.router, prefix="/api/storage", tags=["Local Storage"])
 
 
 

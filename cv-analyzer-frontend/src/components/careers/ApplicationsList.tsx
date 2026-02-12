@@ -1,27 +1,31 @@
 'use client';
 
-import React, { useState } from 'react';
-import { 
-  User, 
-  Mail, 
-  Phone, 
-  FileText, 
+import React, { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import {
+  User,
+  Mail,
+  Phone,
+  FileText,
   Download,
   X,
   Loader2,
   MessageSquare,
-  Edit3,
   Save,
-  Calendar
+  Eye,
+  DollarSign,
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
-import { Card, CardContent } from '@/components/ui/card-enhanced';
 import { Button } from '@/components/ui/button-enhanced';
 import { Badge } from '@/components/ui/badge';
-import { LoadingCard } from '@/components/ui/loading';
+
+const FilePreviewModal = dynamic(
+  () => import('@/components/ui/file-preview-modal').then((mod) => mod.FilePreviewModal),
+  { ssr: false }
+);
 
 export default function ApplicationsList() {
   const { applications, isLoading, selectedJob, viewingCVData, setViewingCVData, loadJobApplications } = useCareersStore();
@@ -93,36 +97,32 @@ export default function ApplicationsList() {
 
   const handleViewDetails = async (cvId: string, filename: string) => {
     setLoadingCVData(true);
+    setDetailNotes([]);
+    setEditingNoteIndex(null);
+    setEditNoteText('');
+    setNewNoteText('');
     try {
-      // Get CV data from the database (similar to how the eye button works in DB view)
-      const response = await api.getCVDetails(cvId);
-      
-      // Extract structured data from the nested structure
-      const cvData = (response as any).cv;
-      const structuredData = cvData?.structured_info;
-      const candidate = cvData?.candidate;
-      const textInfo = cvData?.text_info;
-      
-      // Find the job application data from the current applications list
-      const jobApplicationFromList = applications.find(app => app.application_id === cvId);
-      
-      // Use job application data from CV response if available (includes phone number)
-      const jobApplicationFromCV = cvData?.job_application;
-      
-      // Prefer CV job application data (has phone) over list data (missing phone)
-      const jobApplication = jobApplicationFromCV || jobApplicationFromList;
-      
-      
-      // Create formatted content with structured data and job application
+      const cvData = await api.getCVDetails(cvId);
+      const jobApplicationFromList = applications.find((app) => app.application_id === cvId);
+      const jobApplication = (cvData as any).job_application || jobApplicationFromList;
       const content = {
-        candidate: candidate,
-        structured: structuredData,
-        textInfo: textInfo,
-        uploadDate: cvData?.upload_date,
+        candidate: cvData.candidate,
+        structured_info: cvData.structured_info,
+        text_info: cvData.text_info,
+        upload_date: (cvData as any).upload_date,
         job_application: jobApplication
+          ? {
+              applicant_name: jobApplicationFromList?.applicant_name,
+              applicant_email: jobApplicationFromList?.applicant_email,
+              applicant_phone: jobApplicationFromList?.applicant_phone,
+              application_date: jobApplicationFromList?.application_date,
+              expected_salary: jobApplicationFromList?.expected_salary ?? (jobApplication as any).expected_salary,
+              application_status: (jobApplication as any).application_status,
+              years_of_experience: (jobApplication as any).years_of_experience,
+            }
+          : null,
       };
-      
-      setViewingCVData({ cvId, filename, content: JSON.stringify(content, null, 2) });
+      setViewingCVData({ cvId, filename, content: JSON.stringify(content) });
     } catch (error) {
       console.error('Failed to load CV data:', error);
       setViewingCVData({ cvId, filename, content: 'Failed to load CV content' });
@@ -131,21 +131,139 @@ export default function ApplicationsList() {
     }
   };
 
+  const [detailNotes, setDetailNotes] = useState<any[]>([]);
+  const [editingNoteIndex, setEditingNoteIndex] = useState<number | null>(null);
+  const [editNoteText, setEditNoteText] = useState('');
+  const [newNoteText, setNewNoteText] = useState('');
+  const [savingPanelNote, setSavingPanelNote] = useState(false);
+  const [pdfPreview, setPdfPreview] = useState<{ cvId: string; fileName: string } | null>(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  // Load PDF via download API (works for job applications; avoids CORS and ensures file is available)
+  useEffect(() => {
+    if (!pdfPreview) {
+      if (pdfBlobUrl) {
+        URL.revokeObjectURL(pdfBlobUrl);
+        setPdfBlobUrl(null);
+      }
+      setPdfLoadError(null);
+      return;
+    }
+    let cancelled = false;
+    setPdfLoading(true);
+    setPdfLoadError(null);
+    (async () => {
+      try {
+        const { blob } = await api.downloadCV(pdfPreview.cvId);
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setPdfBlobUrl(url);
+      } catch (e) {
+        if (!cancelled) {
+          setPdfLoadError(e instanceof Error ? e.message : 'Failed to load PDF');
+        }
+      } finally {
+        if (!cancelled) setPdfLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pdfPreview?.cvId]);
+
+  const closePdfPreview = () => {
+    if (pdfBlobUrl) {
+      URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+    }
+    setPdfPreview(null);
+    setPdfLoadError(null);
+    setPdfLoading(false);
+  };
+
+  useEffect(() => {
+    if (!viewingCVData?.cvId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.getCVNotes(viewingCVData.cvId);
+        if (!cancelled) setDetailNotes(res.notes || []);
+      } catch {
+        if (!cancelled) setDetailNotes([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [viewingCVData?.cvId]);
+
+  const handlePanelAddNote = async () => {
+    if (!viewingCVData?.cvId || !newNoteText.trim() || !user?.username) return;
+    setSavingPanelNote(true);
+    try {
+      await api.addOrUpdateNote(viewingCVData.cvId, newNoteText.trim(), user.username);
+      const res = await api.getCVNotes(viewingCVData.cvId);
+      setDetailNotes(res.notes || []);
+      setNewNoteText('');
+      if (selectedJob) await loadJobApplications(selectedJob.job_id);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingPanelNote(false);
+    }
+  };
+
+  const handlePanelSaveEditNote = async () => {
+    if (editingNoteIndex == null || !viewingCVData?.cvId || !editNoteText.trim() || !user?.username) return;
+    setSavingPanelNote(true);
+    try {
+      await api.addOrUpdateNote(viewingCVData.cvId, editNoteText.trim(), user.username);
+      const res = await api.getCVNotes(viewingCVData.cvId);
+      setDetailNotes(res.notes || []);
+      setEditingNoteIndex(null);
+      setEditNoteText('');
+    } finally {
+      setSavingPanelNote(false);
+    }
+  };
+
+  const handlePanelDeleteNote = async (hrUser: string) => {
+    if (!viewingCVData?.cvId || !user?.username || !window.confirm('Delete this note?')) return;
+    try {
+      await api.deleteCVNote(viewingCVData.cvId, hrUser);
+      const res = await api.getCVNotes(viewingCVData.cvId);
+      setDetailNotes(res.notes || []);
+      if (selectedJob) await loadJobApplications(selectedJob.job_id);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const previewFileName = (filename: string, displayName: string) => {
+    const base = filename || displayName || 'document';
+    return base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
+  };
 
 
-  // No need to sort since we're not showing match scores
+
   const sortedApplications = applications;
 
   if (isLoading) {
-    return <LoadingCard count={3} />;
+    return (
+      <div className="p-6 flex justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-[#00529b]" />
+      </div>
+    );
   }
 
   if (applications.length === 0) {
     return (
-      <div className="text-center py-8">
-        <User className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
-        <p className="text-neutral-600">No applications yet</p>
-        <p className="text-sm text-neutral-500">
+      <div className="text-center py-12 px-4">
+        <User className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+        <p className="text-gray-600 font-medium">No applicants yet</p>
+        <p className="text-sm text-gray-500 mt-1">
           Share the job posting link to start receiving applications
         </p>
       </div>
@@ -153,355 +271,301 @@ export default function ApplicationsList() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="border-b border-gray-200 bg-gray-50">
+            <th className="text-left py-3 px-4 font-semibold text-gray-700">Candidate</th>
+            <th className="text-left py-3 px-4 font-semibold text-gray-700">Email</th>
+            <th className="text-left py-3 px-4 font-semibold text-gray-700">Expected salary</th>
+            <th className="text-left py-3 px-4 font-semibold text-gray-700">Applied</th>
+            <th className="text-left py-3 px-4 font-semibold text-gray-700">Notes</th>
+            <th className="text-right py-3 px-4 font-semibold text-gray-700">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sortedApplications.map((application) => (
+            <tr
+              key={application.application_id}
+              className="border-b border-gray-100 hover:bg-gray-50/80 align-top"
+            >
+              <td className="py-3 px-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                    <User className="w-4 h-4 text-gray-500" />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">{application.applicant_name}</span>
+                    {application.source === 'email_application' && (
+                      <Badge variant="secondary" className="ml-1 text-xs bg-purple-50 text-purple-700 border-0">
+                        Naukri
+                      </Badge>
+                    )}
+                    {application.cv_filename && (
+                      <p className="text-xs text-gray-500 truncate max-w-[180px]" title={application.cv_filename}>
+                        {application.cv_filename}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </td>
+              <td className="py-3 px-4">
+                <a href={`mailto:${application.applicant_email}`} className="text-[#00529b] hover:underline truncate block max-w-[200px]" title={application.applicant_email}>
+                  {application.applicant_email}
+                </a>
+                {application.applicant_phone && (
+                  <p className="text-xs text-gray-500 mt-0.5">{application.applicant_phone}</p>
+                )}
+              </td>
+              <td className="py-3 px-4">
+                {application.expected_salary != null ? (
+                  <span className="font-medium text-gray-900">AED {application.expected_salary.toLocaleString()}</span>
+                ) : (
+                  <span className="text-gray-400">—</span>
+                )}
+              </td>
+              <td className="py-3 px-4 text-gray-600">
+                {formatDate(application.application_date)}
+              </td>
+              <td className="py-3 px-4">
+                {application.has_notes ? (
+                  <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    {application.notes_count || 0}
+                  </span>
+                ) : (
+                  <span className="text-gray-400">—</span>
+                )}
+              </td>
+              <td className="py-3 px-4 text-right">
+                <div className="flex items-center justify-end gap-1 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-gray-300 text-gray-700 h-8"
+                    onClick={() => handleViewDetails(application.application_id, application.cv_filename)}
+                    title="View details & notes"
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    Details
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-gray-300 text-gray-700 h-8"
+                    onClick={() => {
+                      const name = application.applicant_name || 'document';
+                      const fn = previewFileName(application.cv_filename, name);
+                      setPdfPreview({ cvId: application.application_id, fileName: fn });
+                    }}
+                    title="View PDF"
+                  >
+                    <FileText className="w-4 h-4 mr-1" />
+                    PDF
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       
-      {sortedApplications.map((application) => (
-        <Card key={application.application_id} className="hover:shadow-md transition-shadow">
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center space-x-3 mb-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <User className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <h3 className="font-semibold text-neutral-900">
-                        {application.applicant_name}
-                      </h3>
-                      {/* Email/Naukri Source Badge */}
-                      {application.source === 'email_application' && (
-                        <Badge variant="secondary" className="bg-purple-100 text-purple-800 border border-purple-300">
-                          <Mail className="w-3 h-3 mr-1" />
-                          From Naukri
-                        </Badge>
-                      )}
-                      {application.expected_salary && (
-                        <Badge variant="secondary" className="bg-green-100 text-green-800">
-                          AED {application.expected_salary.toLocaleString()}
-                        </Badge>
-                      )}
-                      {application.has_notes && (
-                        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                          <MessageSquare className="w-3 h-3 mr-1" />
-                          {application.notes_count || 0} note{(application.notes_count || 0) > 1 ? 's' : ''}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-neutral-600">
-                      Applied {formatDate(application.application_date)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center space-x-2 text-sm text-neutral-600">
-                    <Mail className="w-4 h-4" />
-                    <span>{application.applicant_email}</span>
-                  </div>
-                  
-                  {application.applicant_phone && (
-                    <div className="flex items-center space-x-2 text-sm text-neutral-600">
-                      <Phone className="w-4 h-4" />
-                      <span>{application.applicant_phone}</span>
-                    </div>
-                  )}
-                  
-                  <div className="flex items-center space-x-2 text-sm text-neutral-600">
-                    <FileText className="w-4 h-4" />
-                    <span>{application.cv_filename}</span>
-                  </div>
-                </div>
-
-                {/* Notes Section */}
-                <div className="mt-4 pt-3 border-t border-gray-100">
-                  {application.has_notes && application.latest_note_text && editingNote !== application.application_id && (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-2">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-1">
-                            <MessageSquare className="w-4 h-4 text-yellow-600" />
-                            <span className="text-sm font-medium text-yellow-800">Latest Note</span>
-                            <span className="text-xs text-yellow-600">
-                              by {application.latest_note_author}
-                            </span>
-                            {application.latest_note_date && (
-                              <span className="text-xs text-yellow-600">
-                                <Calendar className="w-3 h-3 inline mr-1" />
-                                {formatDate(application.latest_note_date)}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-yellow-800 whitespace-pre-wrap">
-                            {application.latest_note_text}
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEditNote(application.application_id, application.latest_note_text)}
-                          className="text-yellow-600 hover:text-yellow-700 hover:bg-yellow-100 ml-2"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Note editing form */}
-                  {editingNote === application.application_id && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-2">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <MessageSquare className="w-4 h-4 text-blue-600" />
-                        <span className="text-sm font-medium text-blue-800">
-                          {application.has_notes ? 'Edit Note' : 'Add Note'}
-                        </span>
-                      </div>
-                      <textarea
-                        value={noteText}
-                        onChange={(e) => setNoteText(e.target.value)}
-                        placeholder="Add your note about this candidate..."
-                        className="w-full p-2 border border-blue-300 rounded text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        rows={3}
-                      />
-                      <div className="flex justify-end space-x-2 mt-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleCancelNote}
-                          disabled={savingNote === application.application_id}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleSaveNote(application.application_id)}
-                          disabled={!noteText.trim() || savingNote === application.application_id}
-                          className="bg-blue-600 hover:bg-blue-700 text-white"
-                        >
-                          {savingNote === application.application_id ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
-                              Saving...
-                            </>
-                          ) : (
-                            <>
-                              <Save className="w-4 h-4 mr-1" />
-                              Save Note
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Add note button for candidates without notes */}
-                  {!application.has_notes && editingNote !== application.application_id && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditNote(application.application_id)}
-                      className="text-gray-600 hover:text-gray-700 hover:bg-gray-100"
-                    >
-                      <MessageSquare className="w-4 h-4 mr-1" />
-                      Add Note
-                    </Button>
-                  )}
-                </div>
-              </div>
-              
-              <div className="flex flex-col space-y-2 ml-4">
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => handleDownloadCV(application.application_id)}
-                  disabled={downloadingCV === application.application_id}
-                >
-                  {downloadingCV === application.application_id ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-1" />
-                      Downloading...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4 mr-1" />
-                      Download CV
-                    </>
-                  )}
-                </Button>
-                <Button 
-                  size="sm" 
-                  className="bg-primary-600 hover:bg-primary-700"
-                  onClick={() => handleViewDetails(application.application_id, application.cv_filename)}
-                >
-                  View Details
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-      
-      {/* CV Data Modal */}
+      {/* Right-side panel: Candidate details & notes */}
       {viewingCVData && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">CV Details</h3>
-                <p className="text-sm text-gray-500">{viewingCVData.filename}</p>
-              </div>
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/30"
+            onClick={() => {
+              setViewingCVData(null);
+              setEditingNoteIndex(null);
+              setEditNoteText('');
+              setNewNoteText('');
+            }}
+            aria-hidden
+          />
+          <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
+              <h2 className="text-lg font-semibold text-gray-900">Candidate details & notes</h2>
               <button
-                onClick={() => setViewingCVData(null)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                type="button"
+                onClick={() => {
+                  setViewingCVData(null);
+                  setEditingNoteIndex(null);
+                  setEditNoteText('');
+                  setNewNoteText('');
+                }}
+                className="p-2 rounded-lg hover:bg-gray-200"
+                aria-label="Close"
               >
-                <X className="w-6 h-6" />
+                <X className="w-5 h-5" />
               </button>
             </div>
-            
-            {/* Content */}
-            <div className="flex-1 overflow-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
               {loadingCVData ? (
-                <div className="flex items-center justify-center h-32">
-                  <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-                  <span className="ml-2 text-gray-600">Loading CV content...</span>
+                <div className="flex flex-col items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-[#00529b]" />
+                  <p className="text-gray-500 mt-2">Loading details...</p>
                 </div>
               ) : (
-                <div className="space-y-6">
-                  {(() => {
-                    try {
-                      const data = JSON.parse(viewingCVData.content);
-                      
-                      // Handle both direct structure and nested cv structure
-                      const cvData = data.cv || data;
-                      
-                      const candidate = cvData.candidate;
-                      const structured = cvData.structured_info || cvData.structured;
-                      const textInfo = cvData.text_info || cvData.textInfo;
-                      const uploadDate = cvData.upload_date || cvData.uploadDate;
-                      const jobApplication = cvData.job_application;
-                      
-                      return (
-                        <>
-                          {/* Candidate Information */}
-                          <div className="bg-white border rounded-lg p-4">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Candidate Information</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Full Name</label>
-                                <p className="text-gray-900">{jobApplication?.applicant_name || candidate?.full_name || 'N/A'}</p>
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Job Title</label>
-                                <p className="text-gray-900">{candidate?.job_title || 'N/A'}</p>
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Experience</label>
-                                <p className="text-gray-900">{candidate?.years_of_experience || 'N/A'} years</p>
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Upload Date</label>
-                                <p className="text-gray-900">{uploadDate ? new Date(uploadDate).toLocaleDateString() : 'N/A'}</p>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Contact Information */}
-                          <div className="bg-white border rounded-lg p-4">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information (Job Application)</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Email</label>
-                                <p className="text-gray-900">{jobApplication?.applicant_email || candidate?.contact_info?.email || 'N/A'}</p>
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Phone</label>
-                                <p className="text-gray-900">{jobApplication?.applicant_phone || candidate?.contact_info?.phone || 'N/A'}</p>
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Application Date</label>
-                                <p className="text-gray-900">{jobApplication?.application_date ? new Date(jobApplication.application_date).toLocaleDateString() : 'N/A'}</p>
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Application Status</label>
-                                <p className="text-gray-900 capitalize">{jobApplication?.application_status || 'N/A'}</p>
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Expected Salary</label>
-                                <p className="text-gray-900">{jobApplication?.expected_salary ? `AED ${jobApplication.expected_salary.toLocaleString()}` : 'N/A'}</p>
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Years of Experience</label>
-                                <p className="text-gray-900">{jobApplication?.years_of_experience ? `${jobApplication.years_of_experience} years` : 'N/A'}</p>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Skills */}
-                          <div className="bg-white border rounded-lg p-4">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                              Skills ({candidate?.skills_count || 0})
-                            </h3>
-                            <div className="space-y-2">
-                              {candidate?.skills?.map((skill: string, index: number) => (
-                                <div key={index} className="text-gray-800">{skill}</div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Responsibilities */}
-                          <div className="bg-white border rounded-lg p-4">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                              Responsibilities ({candidate?.responsibilities_count || 0})
-                            </h3>
-                            <div className="space-y-2">
-                              {candidate?.responsibilities?.map((responsibility: string, index: number) => (
-                                <div key={index} className="text-gray-800">• {responsibility}</div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Text Preview */}
-                          <div className="bg-white border rounded-lg p-4">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Text Preview</h3>
-                            <div className="bg-gray-50 rounded p-3">
-                              <p className="text-gray-800 text-sm whitespace-pre-wrap">
-                                {textInfo?.extracted_text_preview || 'No preview available'}
-                              </p>
-                            </div>
-                            <p className="text-sm text-gray-500 mt-2">
-                              Text length: {textInfo?.extracted_text_length || 0} characters
+                (() => {
+                  try {
+                    const data = JSON.parse(viewingCVData.content);
+                    const candidate = data.candidate;
+                    const structured = data.structured_info;
+                    const jobApplication = data.job_application;
+                    const skills = candidate?.skills || structured?.skills_sentences || [];
+                    const responsibilities = candidate?.responsibilities || structured?.responsibility_sentences || [];
+                    const displayName = jobApplication?.applicant_name || candidate?.full_name || 'Unknown';
+                    const fileName = previewFileName(viewingCVData.filename, displayName);
+                    return (
+                      <>
+                        <div className="rounded-xl border border-gray-200 p-4 bg-gray-50">
+                          <h3 className="text-base font-bold text-gray-900">
+                            {displayName}
+                          </h3>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {candidate?.job_title || '—'}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {candidate?.years_of_experience ?? '—'} years • {skills.length} skills
+                          </p>
+                          {structured?.category && (
+                            <p className="text-xs text-gray-500 mt-1">Category: {structured.category}</p>
+                          )}
+                          {jobApplication?.expected_salary != null && (
+                            <p className="text-sm font-semibold text-gray-800 mt-2 flex items-center gap-1">
+                              <DollarSign className="w-4 h-4" />
+                              Salary asked: AED {Number(jobApplication.expected_salary).toLocaleString()}
                             </p>
-                          </div>
-
-                        </>
-                      );
-                    } catch (error) {
-                      return (
-                        <div className="bg-gray-50 rounded-lg p-4">
-                          <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono max-h-96 overflow-auto">
-                            {viewingCVData.content}
-                          </pre>
+                          )}
+                          <Button
+                            size="sm"
+                            className="mt-3 w-full bg-[#00529b] hover:bg-[#003d73] text-white"
+                            onClick={() => setPdfPreview({ cvId: viewingCVData.cvId, fileName })}
+                          >
+                            <Eye className="w-4 h-4 mr-2" />
+                            View full PDF
+                          </Button>
                         </div>
-                      );
-                    }
-                  })()}
-                </div>
+                        <div className="rounded-xl border border-gray-200 p-4">
+                          <h4 className="text-sm font-semibold text-gray-900 mb-2">Skills</h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {skills.slice(0, 30).map((s: string, i: number) => (
+                              <span key={i} className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-800">{s}</span>
+                            ))}
+                            {skills.length > 30 && <span className="text-xs text-gray-500">+{skills.length - 30} more</span>}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-gray-200 p-4">
+                          <h4 className="text-sm font-semibold text-gray-900 mb-2">Responsibilities</h4>
+                          <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
+                            {responsibilities.slice(0, 15).map((r: string, i: number) => (
+                              <li key={i} className="line-clamp-2">{r}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="rounded-xl border border-gray-200 p-4">
+                          <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <MessageSquare className="w-4 h-4" /> Notes ({detailNotes.length})
+                          </h4>
+                          <div className="space-y-3 max-h-48 overflow-y-auto">
+                            {detailNotes.length === 0 ? (
+                              <p className="text-sm text-gray-500">No notes yet. Add one below.</p>
+                            ) : (
+                              detailNotes.map((note: any, i: number) => (
+                                <div key={i} className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                                  {editingNoteIndex === i ? (
+                                    <div className="space-y-2">
+                                      <textarea
+                                        value={editNoteText}
+                                        onChange={(e) => setEditNoteText(e.target.value)}
+                                        className="w-full text-sm border border-gray-300 rounded-lg p-2 resize-none focus:ring-2 focus:ring-[#00529b]"
+                                        rows={2}
+                                      />
+                                      <div className="flex gap-2">
+                                        <Button size="sm" onClick={handlePanelSaveEditNote} disabled={savingPanelNote} className="bg-[#00529b] hover:bg-[#003d73]">
+                                          {savingPanelNote ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                          <span className="ml-1">Save</span>
+                                        </Button>
+                                        <Button size="sm" variant="outline" onClick={() => { setEditingNoteIndex(null); setEditNoteText(''); }}>Cancel</Button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <p className="text-sm text-gray-800">{note.note}</p>
+                                      <div className="flex items-center justify-between mt-2">
+                                        <span className="text-xs text-gray-500">{note.hr_user} • {note.updated_at ? new Date(note.updated_at).toLocaleDateString() : ''}</span>
+                                        {note.hr_user === user?.username && (
+                                          <div className="flex gap-2">
+                                            <button type="button" className="text-xs text-[#00529b] hover:underline" onClick={() => { setEditingNoteIndex(i); setEditNoteText(note.note || ''); }}>Edit</button>
+                                            <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => handlePanelDeleteNote(note.hr_user)}>Delete</button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <textarea
+                              value={newNoteText}
+                              onChange={(e) => setNewNoteText(e.target.value)}
+                              placeholder="Add a note..."
+                              className="w-full text-sm border border-gray-300 rounded-lg p-2 resize-none focus:ring-2 focus:ring-[#00529b]"
+                              rows={2}
+                            />
+                            <Button
+                              size="sm"
+                              className="mt-2 bg-[#00529b] hover:bg-[#003d73] text-white"
+                              onClick={handlePanelAddNote}
+                              disabled={savingPanelNote || !newNoteText.trim()}
+                            >
+                              {savingPanelNote ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <MessageSquare className="w-4 h-4 mr-2" />}
+                              Add note
+                            </Button>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  } catch {
+                    return (
+                      <p className="text-gray-500">Failed to load details.</p>
+                    );
+                  }
+                })()
               )}
             </div>
-            
-            {/* Footer */}
-            <div className="flex justify-end gap-3 p-6 border-t">
-              <Button
-                variant="outline"
-                onClick={() => setViewingCVData(null)}
-              >
-                Close
-              </Button>
+          </div>
+        </>
+      )}
+
+      {pdfPreview && (
+        pdfLoading ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-white rounded-lg p-6 flex flex-col items-center gap-3">
+              <Loader2 className="w-10 h-10 animate-spin text-[#00529b]" />
+              <p className="text-gray-700">Loading PDF...</p>
             </div>
           </div>
-        </div>
+        ) : pdfLoadError ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-white rounded-lg p-6 max-w-sm flex flex-col items-center gap-3">
+              <p className="text-red-600">{pdfLoadError}</p>
+              <Button onClick={closePdfPreview} variant="outline">Close</Button>
+            </div>
+          </div>
+        ) : pdfBlobUrl ? (
+          <FilePreviewModal
+            isOpen
+            onClose={closePdfPreview}
+            fileUrl={pdfBlobUrl}
+            fileName={pdfPreview.fileName}
+            fileId={pdfPreview.cvId}
+            fileType="application/pdf"
+          />
+        ) : null
       )}
     </div>
   );

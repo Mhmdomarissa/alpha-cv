@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 
 /**
@@ -9,10 +9,15 @@ import { useAuthStore } from '@/stores/authStore';
  */
 export default function AuthInitializer() {
   const initFromStorage = useAuthStore((state) => state.initFromStorage);
+  const hasInitialized = useRef(false);
 
   useEffect(() => {
-    initFromStorage();
-  }, [initFromStorage]);
+    // Only initialize once on mount
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      initFromStorage();
+    }
+  }, []); // Empty dependency array - only run once on mount
 
   // This component doesn't render anything
   return null;

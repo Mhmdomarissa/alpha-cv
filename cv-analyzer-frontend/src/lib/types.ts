@@ -16,6 +16,7 @@ export interface CVListItem extends BaseDocument {
   skills: string[];
   responsibilities_count: number;
   text_length: number;
+  category?: string;
 }
 
 export interface CVDataResponse {
@@ -90,12 +91,20 @@ export interface CVListResponse {
   status: string;
   count: number;
   cvs: CVListItem[];
+  /** Present when using pagination (limit/offset) */
+  total?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export interface JDListResponse {
   status: string;
   count: number;
   jds: JDListItem[];
+  /** Present when using pagination (limit/offset) */
+  total?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export interface UploadResponse {
@@ -181,6 +190,11 @@ export interface CandidateBreakdown {
 }
 
 export interface MatchResponse {
+  // Queue status fields
+  is_queued?: boolean;
+  queue_position?: number | null;
+  estimated_wait_time?: number | null; // seconds
+  message?: string | null;
   jd_id: string;
   jd_job_title: string;
   jd_years: number;
@@ -266,27 +280,6 @@ export interface EmbeddingsInfoResponse {
   timestamp: number;
 }
 
-export interface CVDataResponse {
-  status: string;
-  cv_id: string;
-  storage_locations: {
-    documents: any;
-    structured: any;
-    embeddings: any;
-  };
-  timestamp: number;
-}
-
-export interface JDDataResponse {
-  status: string;
-  jd_id: string;
-  storage_locations: {
-    documents: any;
-    structured: any;
-    embeddings: any;
-  };
-  timestamp: number;
-}
 
 export interface DatabaseViewResponse {
   success: boolean;
@@ -318,6 +311,33 @@ export interface LoginResponse {
   role: 'admin' | 'user';
 }
 
+export interface VerifyPasswordRequest {
+  username: string;
+  password: string;
+}
+
+export interface VerifyPasswordResponse {
+  success: boolean;
+  requires_otp: boolean;  // True for regular users, False for admin
+  message: string;
+}
+
+export interface SendOTPRequest {
+  username: string;
+  password: string;  // Still verify password for security
+}
+
+export interface VerifyOTPRequest {
+  username: string;  // Username instead of email
+  otp: string;
+}
+
+export interface OTPResponse {
+  message: string;
+  success: boolean;
+  masked_email?: string;  // Masked email for display (e.g., "syed****@example.com")
+}
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -330,16 +350,19 @@ export interface AdminUser {
   username: string;
   role: 'admin' | 'user';
   is_active: boolean;
+  email?: string;
 }
 
 export interface CreateUserRequest {
   username: string;
   password: string;
+  email?: string;  // Required for non-admin users
   role: 'admin' | 'user';
 }
 
 export interface UpdateUserRequest {
   password?: string;
+  email?: string;
   role?: 'admin' | 'user';
   is_active?: boolean;
 }

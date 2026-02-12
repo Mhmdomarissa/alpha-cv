@@ -13,13 +13,6 @@ services:
       - ./.env
       - ./security_hardening.env
     runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     environment:
       NODE_ENV: "production"
       ENVIRONMENT: "production"
@@ -45,7 +38,6 @@ services:
       CPU_THRESHOLD_PERCENT: "85"
       PYTHON_MEMORY_LIMIT: "12288"
       UVICORN_WORKERS: "6"
-      # Heavy load optimizations for 20 conc
       # Heavy load optimizations for 20 concurrent users
       WORKER_CONNECTIONS: "4096"
       KEEPALIVE_TIMEOUT: "65"
@@ -89,6 +81,10 @@ services:
         reservations:
           memory: 6G
           cpus: '2.0'
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   # ============================================================================
   # Frontend (Next.js) - Memory Optimized
@@ -98,16 +94,16 @@ services:
       context: ./cv-analyzer-frontend
       dockerfile: Dockerfile
     # Port 3000 removed - internal only, accessed via nginx
-    # THIS PREVENTS MALWARE ATTACKS - attackers cannot reach frontend directly
+    # Security: Frontend only accessible through nginx reverse proxy
     # ports:
     #   - "3000:3000"
     
-    # PERMANENT MALWARE FIX: Block malware IP at DNS level
+    # Security: Block suspicious IPs at DNS level
     extra_hosts:
       - "89.144.31.18:127.0.0.1"
       - "176.117.107.158:127.0.0.1"
     
-    # Read-only filesystem prevents malware from writing files
+    # Security: Read-only filesystem for enhanced protection
     read_only: true
     tmpfs:
       - /tmp
@@ -355,7 +351,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/16
+        - subnet: 172.25.0.0/16
     driver_opts:
       com.docker.network.bridge.enable_icc: "true"
       com.docker.network.bridge.enable_ip_masquerade: "true"
