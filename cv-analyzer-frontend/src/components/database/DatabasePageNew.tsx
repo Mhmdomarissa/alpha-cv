@@ -25,7 +25,7 @@ import {
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
-import { config } from '@/lib/config';
+import { getApiBaseUrl } from '@/lib/config';
 import { Button } from '@/components/ui/button-enhanced';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CVListItem, JDListItem } from '@/lib/types';
@@ -123,12 +123,17 @@ export default function DatabasePageNew() {
     setPreviewLoadError(null);
     (async () => {
       try {
-        const { blob } = await api.downloadCV(preview.id);
+        const { blob, filename: apiFilename } = await api.downloadCV(preview.id);
         if (cancelled) return;
         setPreviewBlobUrl(URL.createObjectURL(blob));
+
+        // Update filename from API if it has a better extension (e.g. .docx instead of .pdf)
+        if (apiFilename && apiFilename !== preview.name) {
+          setPreview(prev => prev ? { ...prev, name: apiFilename } : null);
+        }
       } catch (e) {
         if (!cancelled) {
-          setPreviewLoadError(e instanceof Error ? e.message : 'Failed to load PDF');
+          setPreviewLoadError(e instanceof Error ? e.message : 'Failed to load document');
         }
       } finally {
         if (!cancelled) setPreviewLoading(false);
@@ -155,16 +160,16 @@ export default function DatabasePageNew() {
   }, [loadCVs, loadJDs]);
 
   useEffect(() => {
-      if (cvs.length === 0) return;
+    if (cvs.length === 0) return;
     const ids = cvs.map((c) => c.id).filter(Boolean);
-        if (ids.length === 0) return;
+    if (ids.length === 0) return;
     api.getNotesSummary(ids).then((r) => {
       const next: Record<string, number> = {};
       (r.summaries || []).forEach((s: any) => {
         if (s.cv_id && (s.notes_count || 0) > 0) next[s.cv_id] = s.notes_count;
       });
       setNotesSummary(next);
-    }).catch(() => {});
+    }).catch(() => { });
   }, [cvs]);
 
   useEffect(() => {
@@ -290,11 +295,31 @@ export default function DatabasePageNew() {
 
   const previewFileName = (item: { filename?: string; full_name?: string; job_title?: string }, type: 'cv' | 'jd') => {
     const base = item.filename || (type === 'cv' ? item.full_name : item.job_title) || 'document';
-    return base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
+
+    // Check if it's already a valid extension
+    const lower = base.toLowerCase();
+    if (lower.endsWith('.pdf') || lower.endsWith('.docx') || lower.endsWith('.doc')) {
+      return base;
+    }
+
+    // Default to PDF if no extension or unknown
+    return `${base}.pdf`;
   };
 
   const openPreview = (id: string, type: 'cv' | 'jd', name: string, item?: CVListItem | JDListItem) => {
-    const fileName = item ? previewFileName(item, type) : `${name}.pdf`;
+    // If item is available, use previewFileName logic
+    if (item) {
+      const fileName = previewFileName(item, type);
+      setPreview({ id, type, name: fileName });
+      return;
+    }
+
+    // If only name provided, check its extension
+    const lower = name.toLowerCase();
+    const fileName = (lower.endsWith('.pdf') || lower.endsWith('.docx') || lower.endsWith('.doc'))
+      ? name
+      : `${name}.pdf`;
+
     setPreview({ id, type, name: fileName });
   };
 
@@ -365,29 +390,29 @@ export default function DatabasePageNew() {
           <p className="text-gray-600 mt-0.5">
             Select a folder, choose candidates and a job description, then run matching.
           </p>
-            </div>
+        </div>
         <div className="flex items-center gap-3 flex-wrap">
-              <Button
-                variant="outline"
-                size="sm"
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => { loadCVs(); loadJDs(); }}
             className="inline-flex items-center gap-2"
-              >
+          >
             <RefreshCw className="w-4 h-4" />
             Refresh
-              </Button>
+          </Button>
           {canMatch && (
-              <Button
+            <Button
               variant="primary"
               onClick={handleMatch}
               className="inline-flex items-center gap-2 bg-[#00529b] hover:bg-[#003d73] !text-white border-0"
             >
               <Target className="w-4 h-4 !text-white" />
               <span className="!text-white">Match {selectedCVs.length} with {selectedJDDisplay ? getJDDisplay(selectedJDDisplay).title : 'JD'}</span>
-              </Button>
+            </Button>
           )}
-            </div>
-          </div>
+        </div>
+      </div>
 
       <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-4 lg:gap-6">
         {/* Sidebar: Folders + JDs - stacks on mobile */}
@@ -400,9 +425,8 @@ export default function DatabasePageNew() {
             <nav className="space-y-0.5">
               <button
                 onClick={() => { setActiveFolder(CATEGORY_ALL); setPage(1); }}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm font-medium transition-colors ${
-                  activeFolder === CATEGORY_ALL ? 'bg-[#00529b] hover:bg-[#003d73] !text-white' : 'text-gray-700 hover:bg-gray-100 hover:!text-gray-900'
-                }`}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm font-medium transition-colors ${activeFolder === CATEGORY_ALL ? 'bg-[#00529b] hover:bg-[#003d73] !text-white' : 'text-gray-700 hover:bg-gray-100 hover:!text-gray-900'
+                  }`}
               >
                 <span className={activeFolder === CATEGORY_ALL ? '!text-white' : ''}>All candidates</span>
                 <span className={activeFolder === CATEGORY_ALL ? '!text-white' : 'text-gray-500'}>{cvs.length}</span>
@@ -410,15 +434,14 @@ export default function DatabasePageNew() {
               {loadingCategories ? (
                 <div className="flex items-center gap-2 px-3 py-2 text-gray-500 text-sm">
                   <Loader2 className="w-4 h-4 animate-spin" /> Loading…
-              </div>
+                </div>
               ) : (
                 folderList.map(([cat, count]) => (
                   <button
                     key={cat}
                     onClick={() => { setActiveFolder(cat); setPage(1); }}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm font-medium transition-colors ${
-                      activeFolder === cat ? 'bg-[#00529b] hover:bg-[#003d73] !text-white' : 'text-gray-700 hover:bg-gray-100 hover:!text-gray-900'
-                    }`}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm font-medium transition-colors ${activeFolder === cat ? 'bg-[#00529b] hover:bg-[#003d73] !text-white' : 'text-gray-700 hover:bg-gray-100 hover:!text-gray-900'
+                      }`}
                   >
                     <span className={`truncate ${activeFolder === cat ? '!text-white' : ''}`}>{cat}</span>
                     <span className={activeFolder === cat ? '!text-white' : 'text-gray-500'}>{count}</span>
@@ -441,11 +464,10 @@ export default function DatabasePageNew() {
                 jds.map((jd) => (
                   <label
                     key={jd.id}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm ${
-                      selectedJD === jd.id ? 'bg-[#00529b]/10 text-[#00529b] font-medium' : 'hover:bg-gray-100'
-                    }`}
-                >
-                  <input
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm ${selectedJD === jd.id ? 'bg-[#00529b]/10 text-[#00529b] font-medium' : 'hover:bg-gray-100'
+                      }`}
+                  >
+                    <input
                       type="radio"
                       name="jd"
                       checked={selectedJD === jd.id}
@@ -456,8 +478,8 @@ export default function DatabasePageNew() {
                   </label>
                 ))
               )}
-                </div>
-                </div>
+            </div>
+          </div>
 
           {(selectedCVs.length > 0 || selectedJD) && (
             <div className="border-t border-gray-200 pt-4 space-y-2">
@@ -469,8 +491,8 @@ export default function DatabasePageNew() {
                 <ListChecks className="w-4 h-4" />
                 Selected CVs ({selectedCVs.length})
               </Button>
-              </div>
-            )}
+            </div>
+          )}
         </aside>
 
         {/* Main: Search + List */}
@@ -501,11 +523,11 @@ export default function DatabasePageNew() {
                 onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                 className="w-full min-w-0 pl-9 pr-4 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:ring-offset-0 focus:border-[#00529b]"
               />
-          </div>
+            </div>
             {view === 'candidates' && (
               <div className="flex items-center gap-2 flex-wrap">
-          <select
-            value={notesFilter}
+                <select
+                  value={notesFilter}
                   onChange={(e) => { setNotesFilter(e.target.value as 'all' | 'with_notes' | 'without_notes'); setPage(1); }}
                   className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
                   title="Filter by notes"
@@ -513,13 +535,13 @@ export default function DatabasePageNew() {
                   <option value="all">All candidates</option>
                   <option value="with_notes">With notes</option>
                   <option value="without_notes">Without notes</option>
-          </select>
+                </select>
                 <Button variant="outline" size="sm" onClick={selectAllInFolder}>
                   {allOnPageSelected ? 'Deselect all on this page' : 'Select all on this page'}
                 </Button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
           {view === 'candidates' && filteredCVs.length > 0 && (
             <p className="text-sm text-gray-500 mb-2">
@@ -536,103 +558,102 @@ export default function DatabasePageNew() {
                   <FileText className="w-12 h-12 mb-3 text-gray-300" />
                   <p className="font-medium text-gray-700">{search ? 'No job descriptions match your search.' : 'No job descriptions yet.'}</p>
                   <p className="text-sm mt-1">Upload JDs from the Upload tab.</p>
-        </div>
+                </div>
               ) : (
                 <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-                  {filteredJDs.map((jd) => {
-                    const d = getJDDisplay(jd);
-                    const isSelected = selectedJD === jd.id;
-              return (
-                      <div
-                        key={jd.id}
-                        className={`rounded-xl border-2 p-4 transition-colors ${
-                          isSelected ? 'border-[#00529b] bg-[#00529b]/5' : 'border-gray-200 hover:border-gray-300 bg-white'
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <button
-                            type="button"
-                            onClick={() => selectJD(isSelected ? null : jd.id)}
-                            className="shrink-0 mt-0.5 p-0.5 rounded text-gray-500 hover:text-[#00529b]"
-                            aria-label={isSelected ? 'Deselect JD' : 'Select JD for matching'}
-                            title={isSelected ? 'Deselect' : 'Select for matching'}
-                          >
-                            {isSelected ? <CheckSquare className="w-5 h-5 text-[#00529b]" /> : <Square className="w-5 h-5" />}
-                          </button>
-                          <div className="min-w-0 flex-1">
-                            <h3 className="font-semibold text-gray-900 truncate">{d.title}</h3>
-                            <p className="text-xs text-gray-500 mt-0.5">{d.skillsCount} skills</p>
-        </div>
-                          <div className="flex items-center gap-1 shrink-0">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+                    {filteredJDs.map((jd) => {
+                      const d = getJDDisplay(jd);
+                      const isSelected = selectedJD === jd.id;
+                      return (
+                        <div
+                          key={jd.id}
+                          className={`rounded-xl border-2 p-4 transition-colors ${isSelected ? 'border-[#00529b] bg-[#00529b]/5' : 'border-gray-200 hover:border-gray-300 bg-white'
+                            }`}
+                        >
+                          <div className="flex items-start gap-3">
                             <button
                               type="button"
-                              className="inline-flex items-center justify-center font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 rounded-lg text-neutral-700 hover:bg-neutral-100 focus:ring-neutral-500 active:bg-neutral-200 text-sm gap-2 h-8 w-8 p-0"
-                              title="View details & notes"
-                              onClick={() => setDetailJDId(jd.id)}
-                              aria-label="View details & notes"
+                              onClick={() => selectJD(isSelected ? null : jd.id)}
+                              className="shrink-0 mt-0.5 p-0.5 rounded text-gray-500 hover:text-[#00529b]"
+                              aria-label={isSelected ? 'Deselect JD' : 'Select JD for matching'}
+                              title={isSelected ? 'Deselect' : 'Select for matching'}
                             >
-                              <FileTextIcon className="w-4 h-4" aria-hidden />
+                              {isSelected ? <CheckSquare className="w-5 h-5 text-[#00529b]" /> : <Square className="w-5 h-5" />}
                             </button>
-                  <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0"
-                              onClick={() => openPreview(jd.id, 'jd', d.title, jd)}
-                              aria-label="Preview PDF"
-                              title="View PDF"
-                            >
-                              <Eye className="w-4 h-4" />
-                  </Button>
-                            <div className="relative">
-                      <Button
+                            <div className="min-w-0 flex-1">
+                              <h3 className="font-semibold text-gray-900 truncate">{d.title}</h3>
+                              <p className="text-xs text-gray-500 mt-0.5">{d.skillsCount} skills</p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 rounded-lg text-neutral-700 hover:bg-neutral-100 focus:ring-neutral-500 active:bg-neutral-200 text-sm gap-2 h-8 w-8 p-0"
+                                title="View details & notes"
+                                onClick={() => setDetailJDId(jd.id)}
+                                aria-label="View details & notes"
+                              >
+                                <FileTextIcon className="w-4 h-4" aria-hidden />
+                              </button>
+                              <Button
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 w-8 p-0"
-                                onClick={() => setOpenMenuJDId(openMenuJDId === jd.id ? null : jd.id)}
-                                aria-label="More"
+                                onClick={() => openPreview(jd.id, 'jd', d.title, jd)}
+                                aria-label="Preview PDF"
+                                title="View PDF"
                               >
-                                <MoreVertical className="w-4 h-4" />
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              <div className="relative">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => setOpenMenuJDId(openMenuJDId === jd.id ? null : jd.id)}
+                                  aria-label="More"
+                                >
+                                  <MoreVertical className="w-4 h-4" />
+                                </Button>
+                                {openMenuJDId === jd.id && (
+                                  <>
+                                    <div className="fixed inset-0 z-10" onClick={() => setOpenMenuJDId(null)} />
+                                    <div className="absolute right-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[120px]">
+                                      <button
+                                        className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                                        onClick={() => { handleDeleteJD(jd.id); setOpenMenuJDId(null); }}
+                                      >
+                                        <Trash2 className="w-4 h-4" /> Delete
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {totalJDs != null && jds.length < totalJDs && (
+                    <div className="px-4 pb-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => loadMoreJDs()}
+                        disabled={loadingStates.jds.isLoading}
+                      >
+                        {loadingStates.jds.isLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                        ) : null}
+                        Load more job descriptions ({jds.length} of {totalJDs} loaded)
                       </Button>
-                              {openMenuJDId === jd.id && (
-                                <>
-                                  <div className="fixed inset-0 z-10" onClick={() => setOpenMenuJDId(null)} />
-                                  <div className="absolute right-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[120px]">
-            <button
-                                      className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                                      onClick={() => { handleDeleteJD(jd.id); setOpenMenuJDId(null); }}
-            >
-                                      <Trash2 className="w-4 h-4" /> Delete
-            </button>
-        </div>
-                                </>
-        )}
-      </div>
-            </div>
-            </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {totalJDs != null && jds.length < totalJDs && (
-                  <div className="px-4 pb-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                      className="w-full"
-                      onClick={() => loadMoreJDs()}
-                      disabled={loadingStates.jds.isLoading}
-                    >
-                      {loadingStates.jds.isLoading ? (
-                        <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
-                      ) : null}
-                      Load more job descriptions ({jds.length} of {totalJDs} loaded)
-                  </Button>
-                </div>
-              )}
-              </>
+                    </div>
+                  )}
+                </>
               )
-                    ) : filteredCVs.length === 0 ? (
+            ) : filteredCVs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-gray-500">
                 <Users className="w-12 h-12 mb-3 text-gray-300" />
                 <p className="font-medium text-gray-700">
@@ -641,20 +662,19 @@ export default function DatabasePageNew() {
                 <p className="text-sm mt-1">
                   {!search && activeFolder === CATEGORY_ALL && 'Upload CVs from the Upload tab.'}
                 </p>
-                      </div>
-                    ) : (
+              </div>
+            ) : (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-                        {paginatedCVs.map((cv) => {
+                  {paginatedCVs.map((cv) => {
                     const d = getCVDisplay(cv);
                     const isSelected = selectedCVs.includes(cv.id);
                     const noteCount = notesSummary[cv.id] ?? 0;
-                          return (
-                            <div
-                              key={cv.id}
-                        className={`rounded-xl border-2 p-4 transition-colors ${
-                          isSelected ? 'border-[#00529b] bg-[#00529b]/5' : 'border-gray-200 hover:border-gray-300 bg-white'
-                        }`}
+                    return (
+                      <div
+                        key={cv.id}
+                        className={`rounded-xl border-2 p-4 transition-colors ${isSelected ? 'border-[#00529b] bg-[#00529b]/5' : 'border-gray-200 hover:border-gray-300 bg-white'
+                          }`}
                       >
                         <div className="flex items-start gap-3">
                           <button
@@ -678,44 +698,44 @@ export default function DatabasePageNew() {
                             <div className="flex flex-wrap items-center gap-1.5 mt-2">
                               <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">
                                 {d.category}
-                                      </span>
+                              </span>
                               {noteCount > 0 && (
                                 <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 flex items-center gap-1">
                                   <MessageSquare className="w-3 h-3" /> {noteCount}
                                 </span>
                               )}
-                                    </div>
+                            </div>
                           </div>
                           <div className="flex flex-col gap-1 shrink-0">
-                                    <Button
+                            <Button
                               variant="ghost"
-                                      size="sm"
+                              size="sm"
                               className="h-8 w-8 p-0"
                               onClick={() => setDetailCVId(cv.id)}
                               title="View details & notes"
                             >
                               <FileTextIcon className="w-4 h-4" />
-                                    </Button>
-                                        <Button
+                            </Button>
+                            <Button
                               variant="ghost"
-                                          size="sm"
+                              size="sm"
                               className="h-8 w-8 p-0"
                               onClick={() => openPreview(cv.id, 'cv', d.name, cv)}
                               aria-label="Preview PDF"
                               title="View PDF"
                             >
                               <Eye className="w-4 h-4" />
-                                        </Button>
+                            </Button>
                             <div className="relative">
-                                        <Button
+                              <Button
                                 variant="ghost"
-                                          size="sm"
+                                size="sm"
                                 className="h-8 w-8 p-0"
                                 onClick={() => setOpenMenuCVId(openMenuCVId === cv.id ? null : cv.id)}
                                 aria-label="More"
                               >
                                 <MoreVertical className="w-4 h-4" />
-                                        </Button>
+                              </Button>
                               {openMenuCVId === cv.id && (
                                 <>
                                   <div className="fixed inset-0 z-10" onClick={() => setOpenMenuCVId(null)} />
@@ -727,15 +747,15 @@ export default function DatabasePageNew() {
                                       <Trash2 className="w-4 h-4" /> Delete
                                     </button>
                                   </div>
-                                                </>
-                                              )}
-                                            </div>
-                                          </div>
-                                          </div>
-                                        </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     );
                   })}
-                                    </div>
+                </div>
 
                 {(totalPages > 1 || (totalCVs != null && cvs.length < totalCVs)) && (
                   <div className="flex flex-col gap-2 px-4 py-3 border-t border-gray-200">
@@ -745,29 +765,29 @@ export default function DatabasePageNew() {
                       </p>
                       {totalPages > 1 && (
                         <div className="flex gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => setPage((p) => Math.max(1, p - 1))}
                             disabled={page <= 1}
                           >
                             Previous
-                                </Button>
-                                    <Button
+                          </Button>
+                          <Button
                             variant="outline"
-                                      size="sm"
+                            size="sm"
                             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                             disabled={page >= totalPages}
                           >
                             Next
-                                </Button>
-                      </div>
-              )}
-            </div>
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                     {totalCVs != null && cvs.length < totalCVs && (
-                  <Button
-                    variant="outline"
-                    size="sm"
+                      <Button
+                        variant="outline"
+                        size="sm"
                         className="w-full"
                         onClick={() => loadMoreCVs()}
                         disabled={loadingStates.cvs.isLoading}
@@ -776,15 +796,15 @@ export default function DatabasePageNew() {
                           <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
                         ) : null}
                         Load more candidates ({cvs.length} of {totalCVs} loaded)
-                  </Button>
+                      </Button>
                     )}
-                </div>
-              )}
+                  </div>
+                )}
               </>
             )}
-                      </div>
+          </div>
         </main>
-                      </div>
+      </div>
 
       {/* Detail panel: full CV + notes + View PDF */}
       {detailCVId && (
@@ -799,19 +819,19 @@ export default function DatabasePageNew() {
             >
               <X className="w-5 h-5" />
             </button>
-                    </div>
+          </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-6">
             {detailLoading ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-[#00529b]" />
                 <p className="text-gray-500 mt-2">Loading details...</p>
-                      </div>
+              </div>
             ) : detailCV ? (
               <>
                 <div className="rounded-xl border border-gray-200 p-4 bg-gray-50">
                   <h3 className="text-base font-bold text-gray-900">
                     {detailCV.candidate?.full_name || detailCV.structured_info?.full_name || 'Unknown'}
-                      </h3>
+                  </h3>
                   <p className="text-sm text-gray-600 mt-1">
                     {detailCV.candidate?.job_title || detailCV.structured_info?.job_title || '—'}
                   </p>
@@ -823,9 +843,9 @@ export default function DatabasePageNew() {
                   <p className="text-xs text-gray-500 mt-1">
                     Category: {detailCV.structured_info?.category ?? 'General'}
                   </p>
-                                  <Button
+                  <Button
                     variant="primary"
-                                    size="sm"
+                    size="sm"
                     className="mt-3 w-full bg-[#00529b] hover:bg-[#003d73]"
                     onClick={() => {
                       const displayName = detailCV.candidate?.full_name || detailCV.filename || 'document';
@@ -835,8 +855,8 @@ export default function DatabasePageNew() {
                   >
                     <Eye className="w-4 h-4 mr-2" />
                     View full PDF
-                              </Button>
-                            </div>
+                  </Button>
+                </div>
                 <div className="rounded-xl border border-gray-200 p-4">
                   <h4 className="text-sm font-semibold text-gray-900 mb-2">Skills</h4>
                   <div className="flex flex-wrap gap-1.5">
@@ -851,8 +871,8 @@ export default function DatabasePageNew() {
                         </>
                       );
                     })()}
-                    </div>
-            </div>
+                  </div>
+                </div>
                 <div className="rounded-xl border border-gray-200 p-4">
                   <h4 className="text-sm font-semibold text-gray-900 mb-2">Responsibilities</h4>
                   <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
@@ -860,7 +880,7 @@ export default function DatabasePageNew() {
                       <li key={i} className="line-clamp-2">{r}</li>
                     ))}
                   </ul>
-          </div>
+                </div>
                 <div className="rounded-xl border border-gray-200 p-4">
                   <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
                     <MessageSquare className="w-4 h-4" /> Notes ({detailNotes.length})
@@ -885,8 +905,8 @@ export default function DatabasePageNew() {
                                   Save
                                 </Button>
                                 <Button size="sm" variant="outline" onClick={() => { setEditingNoteIndex(null); setEditNoteText(''); }}>Cancel</Button>
-    </div>
-        </div>
+                              </div>
+                            </div>
                           ) : (
                             <>
                               <p className="text-sm text-gray-800">{note.note}</p>
@@ -908,15 +928,15 @@ export default function DatabasePageNew() {
                                     >
                                       Delete
                                     </button>
-          </div>
+                                  </div>
                                 )}
-        </div>
+                              </div>
                             </>
                           )}
-            </div>
+                        </div>
                       ))
-        )}
-      </div>
+                    )}
+                  </div>
                   <div className="mt-3 pt-3 border-t border-gray-200">
                     <textarea
                       value={newNoteText}
@@ -934,14 +954,14 @@ export default function DatabasePageNew() {
                       {savingNote ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <MessageSquare className="w-4 h-4 mr-2" />}
                       Add note
                     </Button>
-            </div>
-          </div>
+                  </div>
+                </div>
               </>
             ) : (
               <p className="text-gray-500">Failed to load details.</p>
-        )}
-      </div>
-              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Backdrop when detail panel is open */}
@@ -973,13 +993,13 @@ export default function DatabasePageNew() {
             >
               <X className="w-5 h-5" />
             </button>
-        </div>
+          </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-6">
             {detailJDLoading ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-[#00529b]" />
                 <p className="text-gray-500 mt-2">Loading JD...</p>
-      </div>
+              </div>
             ) : detailJD ? (
               <>
                 <div className="rounded-xl border border-gray-200 p-4 bg-gray-50">
@@ -1004,15 +1024,15 @@ export default function DatabasePageNew() {
                     <Eye className="w-4 h-4 mr-2" />
                     View full PDF
                   </Button>
-        </div>
+                </div>
                 <div className="rounded-xl border border-gray-200 p-4">
                   <h4 className="text-sm font-semibold text-gray-900 mb-2">Required skills</h4>
                   <div className="flex flex-wrap gap-1.5">
                     {(detailJD.job_requirements?.skills || detailJD.structured_info?.skills || []).slice(0, 30).map((s: string, i: number) => (
                       <span key={i} className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-800">{s}</span>
-            ))}
-          </div>
-          </div>
+                    ))}
+                  </div>
+                </div>
                 <div className="rounded-xl border border-gray-200 p-4">
                   <h4 className="text-sm font-semibold text-gray-900 mb-2">Responsibilities</h4>
                   <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
@@ -1020,13 +1040,13 @@ export default function DatabasePageNew() {
                       <li key={i} className="line-clamp-2">{r}</li>
                     ))}
                   </ul>
-          </div>
+                </div>
               </>
-        ) : (
+            ) : (
               <p className="text-gray-500">Failed to load JD.</p>
-        )}
-      </div>
-              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* How to match - short hint */}
@@ -1038,7 +1058,7 @@ export default function DatabasePageNew() {
           <li>Select the candidates you want to match (use &quot;Select all on this page&quot; or tick individual cards).</li>
           <li>Click &quot;Match N with [JD name]&quot; to run AI matching and see results on the Match tab.</li>
         </ol>
-          </div>
+      </div>
 
       {/* Preview modal: CV uses download API (blob URL) so job-application CVs work; JD uses storage URL */}
       {preview && (
@@ -1065,7 +1085,7 @@ export default function DatabasePageNew() {
             fileUrl={
               preview.type === 'cv' && previewBlobUrl
                 ? previewBlobUrl
-                : `${config.apiUrl}/api/storage/files/${preview.type}/${preview.id}`
+                : `${getApiBaseUrl()}/api/storage/files/${preview.type}/${preview.id}`
             }
             fileName={preview.name}
             fileId={preview.id}

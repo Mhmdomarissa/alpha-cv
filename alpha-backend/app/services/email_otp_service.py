@@ -19,7 +19,7 @@ class EmailOTPService:
         self.client_secret = os.getenv("AZURE_CLIENT_SECRET", "your-client-secret-here")
         self.tenant_id = os.getenv("AZURE_TENANT_ID", "your-tenant-id")
         
-        # Email settings
+        # Email settings (match dev: use defaults; do not set OTP_FROM_* in .env unless needed)
         self.from_email = os.getenv("OTP_FROM_EMAIL", "cv@alphadatarecruitment.ae")
         self.from_name = os.getenv("OTP_FROM_NAME", "Alpha CV System")
         
@@ -111,7 +111,8 @@ If you did not request this code, please ignore this email.
 This is an automated message from Alpha CV System. Please do not reply to this email.
             """
             
-            # Microsoft Graph API email message format
+            # Microsoft Graph API: do NOT set "from" when using application permission
+            # (sender is the user in the URL). Some tenants drop delivery if "from" is set.
             message = {
                 "message": {
                     "subject": subject,
@@ -131,10 +132,7 @@ This is an automated message from Alpha CV System. Please do not reply to this e
             }
             
             # Send email via Microsoft Graph API
-            # Try using /me/sendMail first (if using delegated permissions)
-            # Otherwise use /users/{email}/sendMail (requires application permissions)
             send_mail_url = f"{self.graph_base_url}/users/{self.from_email}/sendMail"
-            
             headers = {
                 'Authorization': f'Bearer {access_token}',
                 'Content-Type': 'application/json'

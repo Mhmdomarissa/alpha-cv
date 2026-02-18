@@ -1,59 +1,53 @@
 #!/bin/bash
 
 ###############################################################################
-# Unified Stop Script
-# 
-# Stops all services gracefully
-# Preserves all data (volumes are NOT removed)
-# 
-# Usage: ./scripts/stop.sh
+# Stop CV Analyzer - CPU-only stack
+#
+# Stops all services started with docker-compose.cpu.yml.
+# Preserves all data (volumes are NOT removed; never use -v).
+#
+# Usage: ./scripts/stop-cpu.sh
 ###############################################################################
 
-set -e  # Exit on any error
+set -e
 
-# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+COMPOSE_FILE="docker-compose.cpu.yml"
 
 cd "$PROJECT_ROOT"
 
-# Detect docker compose command
 if docker compose version >/dev/null 2>&1; then
-    COMPOSE_CMD="docker compose"
+    COMPOSE_CMD="docker compose -f $COMPOSE_FILE"
 elif command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE_CMD="docker-compose"
+    COMPOSE_CMD="docker-compose -f $COMPOSE_FILE"
 else
     echo -e "${RED}[ERROR] Docker Compose not found${NC}"
     exit 1
 fi
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  Stopping CV Analyzer System${NC}"
+echo -e "${BLUE}  Stopping CV Analyzer (CPU-only)${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
-# Check if docker-compose.yml exists
-if [ ! -f "docker-compose.yml" ]; then
-    echo -e "${RED}[ERROR] docker-compose.yml not found!${NC}"
+if [ ! -f "$COMPOSE_FILE" ]; then
+    echo -e "${RED}[ERROR] $COMPOSE_FILE not found!${NC}"
     exit 1
 fi
 
-# Stop services gracefully
 echo -e "${YELLOW}[INFO] Stopping all services...${NC}"
 $COMPOSE_CMD stop
 
-# Remove containers (but NOT volumes - data is safe)
-echo -e "${YELLOW}[INFO] Removing containers...${NC}"
+echo -e "${YELLOW}[INFO] Removing containers (volumes preserved)...${NC}"
 $COMPOSE_CMD down --remove-orphans
 
-# Verify volumes are still intact
 echo ""
 echo -e "${YELLOW}[INFO] Verifying data volumes (safety check)...${NC}"
 VOLUMES=($($COMPOSE_CMD config --volumes 2>/dev/null || echo ""))
@@ -69,14 +63,14 @@ fi
 
 echo ""
 echo -e "${BLUE}========================================${NC}"
-echo -e "${GREEN}  System Stopped${NC}"
+echo -e "${GREEN}  CPU stack stopped${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
-echo -e "${GREEN}Data Safety:${NC}"
+echo -e "${GREEN}Data safety:${NC}"
 echo "  - All Docker volumes preserved"
 echo "  - Database data safe"
 echo "  - Uploaded files safe"
 echo ""
 echo -e "${YELLOW}Start again with:${NC}"
-echo "  ./scripts/start.sh"
+echo "  ./scripts/start-cpu.sh"
 echo ""

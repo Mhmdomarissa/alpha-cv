@@ -71,18 +71,21 @@ class ApiClient {
       },
     });
 
-    // Request interceptor - add request ID
-    this.client.interceptors.request.use((config) => {
+    // Request interceptor: use same origin when page is HTTPS (avoids mixed content)
+    this.client.interceptors.request.use((requestConfig) => {
+      if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+        requestConfig.baseURL = window.location.origin;
+      }
       const requestId = uuidv4();
-      config.headers['x-request-id'] = requestId;
+      requestConfig.headers['x-request-id'] = requestId;
 
       // Sanitize sensitive data from logs
-      const sanitizedData = this.sanitizeRequestData(config.data);
-      logger.info(`API Request: ${config.method?.toUpperCase()} ${config.url}`, {
+      const sanitizedData = this.sanitizeRequestData(requestConfig.data);
+      logger.info(`API Request: ${requestConfig.method?.toUpperCase()} ${requestConfig.url}`, {
         requestId,
         ...(sanitizedData && { data: sanitizedData }),
       });
-      return config;
+      return requestConfig;
     });
 
     // Response interceptor - log responses and handle errors

@@ -26,10 +26,13 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
     const [scale, setScale] = useState(1.0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [loadingStatus, setLoadingStatus] = useState<string>('Initializing...');
     const [containerWidth, setContainerWidth] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const docxContainerRef = useRef<HTMLDivElement>(null);
 
     const isPdf = fileName.toLowerCase().endsWith('.pdf');
+    const isDocx = fileName.toLowerCase().endsWith('.docx') || fileName.toLowerCase().endsWith('.doc');
 
     // Measure container width so PDF page can scale to fit (avoids right-side clipping)
     useEffect(() => {
@@ -47,10 +50,135 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
 
     useEffect(() => {
         if (isOpen) {
-            setLoading(isPdf);
+            setLoading(isPdf || isDocx);
+            setLoadingStatus('Initializing...');
             setError(null);
         }
-    }, [isOpen, fileUrl, isPdf]);
+    }, [isOpen, fileUrl, isPdf, isDocx]);
+
+    // Render DOCX files
+    useEffect(() => {
+        if (!isOpen || !isDocx) return;
+
+        let cancelled = false;
+
+        setLoading(true);
+        setLoadingStatus('Starting DOCX load...');
+        setError(null);
+
+        const loadDocx = async () => {
+            try {
+                // 1. Fetch the blob first
+                console.log('Fetching DOCX blob from:', fileUrl);
+                setLoadingStatus('Downloading document...');
+                const response = await fetch(fileUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to load DOCX file: ${response.statusText}`);
+                }
+                const blob = await response.blob();
+                console.log('DOCX blob fetched, size:', blob.size);
+
+                if (cancelled) return;
+
+                // 2. Try docx-preview (Primary Renderer)
+                try {
+                    console.log('Attempting render with docx-preview...');
+                    setLoadingStatus('Loading renderer...');
+                    // Dynamic import inside the effect
+                    const docxPreview = await import('docx-preview');
+                    const renderAsync = docxPreview.renderAsync;
+
+                    if (cancelled) return;
+
+                    // Create a timeout promise to fallback if it hangs
+                    const timeoutMs = 5000; // 5 seconds timeout for primary renderer
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('docx-preview timeout')), timeoutMs)
+                    );
+
+                    // Clear previous content
+                    if (docxContainerRef.current) docxContainerRef.current.innerHTML = '';
+
+                    // Race between rendering and timeout
+                    setLoadingStatus('Rendering layout...');
+                    await Promise.race([
+                        renderAsync(blob, docxContainerRef.current!, undefined, {
+                            className: 'docx-wrapper',
+                            inWrapper: true,
+                            ignoreWidth: false,
+                            ignoreHeight: false,
+                            renderHeaders: true,
+                            renderFooters: true,
+                            renderFootnotes: true,
+                            renderEndnotes: true,
+                        }),
+                        timeoutPromise
+                    ]);
+
+                    console.log('docx-preview rendering success');
+                    if (!cancelled) setLoading(false);
+                    return; // Success!
+
+                } catch (primaryErr) {
+                    console.warn('docx-preview failed or timed out:', primaryErr);
+                    setLoadingStatus('Primary renderer failed. Attempting fallback...');
+                    // Fallback will proceed below
+                }
+
+                if (cancelled) return;
+
+                // 3. Try Mammoth (Fallback Renderer)
+                try {
+                    console.log('Attempting render with Mammoth fallback...');
+                    setLoadingStatus('Loading fallback viewer...');
+                    const mammoth = (await import('mammoth')).default;
+
+                    // Convert blob to array buffer for mammoth
+                    const arrayBuffer = await blob.arrayBuffer();
+                    setLoadingStatus('Converting content...');
+                    const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+
+                    if (cancelled) return;
+
+                    if (docxContainerRef.current) {
+                        docxContainerRef.current.innerHTML = `
+                            <div class="mammoth-content p-8 bg-white text-black">
+                                <style>
+                                    .mammoth-content p { margin-bottom: 1em; line-height: 1.5; }
+                                    .mammoth-content h1 { font-size: 2em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; }
+                                    .mammoth-content h2 { font-size: 1.5em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; }
+                                    .mammoth-content h3 { font-size: 1.25em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; }
+                                    .mammoth-content ul, .mammoth-content ol { margin-bottom: 1em; padding-left: 2em; list-style-type: disc; }
+                                    .mammoth-content table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
+                                    .mammoth-content td, .mammoth-content th { border: 1px solid #ddd; padding: 8px; }
+                                </style>
+                                ${result.value}
+                            </div>
+                        `;
+                    }
+                    console.log('Mammoth rendering success');
+                    if (!cancelled) setLoading(false);
+
+                } catch (fallbackErr) {
+                    console.error('Mammoth fallback failed:', fallbackErr);
+                    throw new Error('Failed to render DOCX with standard or fallback viewers.');
+                }
+
+            } catch (err) {
+                console.error('DOCX load error:', err);
+                if (!cancelled) {
+                    setError('Failed to load DOCX document. ' + (err instanceof Error ? err.message : String(err)));
+                    setLoading(false);
+                }
+            }
+        };
+
+        loadDocx();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, isDocx, fileUrl]);
 
     function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
         setNumPages(numPages);
@@ -91,13 +219,14 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                 </DialogHeader>
 
                 <div ref={scrollContainerRef} className="flex-1 overflow-auto bg-gray-900 flex flex-col items-center p-4 relative min-w-0">
-                    {loading && isPdf && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10">
-                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
+                    {loading && (isPdf || isDocx) && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/50 z-10 backdrop-blur-sm">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mb-4"></div>
+                            <p className="text-indigo-300 font-medium">{loadingStatus}</p>
                         </div>
                     )}
 
-                    {error && isPdf && (
+                    {error && (isPdf || isDocx) && (
                         <div className="flex flex-col items-center justify-center text-gray-400 p-8">
                             <p className="text-red-400 mb-4">{error}</p>
                             <Button onClick={() => window.open(fileUrl, '_blank')}>
@@ -131,6 +260,16 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                                 )}
                             </Document>
                         </div>
+                    ) : isDocx ? (
+                        <div className="w-full max-w-4xl">
+                            <div
+                                ref={docxContainerRef}
+                                className="docx-container bg-white p-8 rounded-lg shadow-2xl min-h-[600px]"
+                                style={{
+                                    fontSize: `${scale * 100}%`,
+                                }}
+                            />
+                        </div>
                     ) : (
                         <div className="w-full flex flex-col h-full">
                             {extractedText ? (
@@ -153,7 +292,7 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                                         <div className="w-20 h-20 bg-indigo-900/30 rounded-full flex items-center justify-center mb-6">
                                             <Maximize2 className="w-10 h-10 text-indigo-400" />
                                         </div>
-                                        <h3 className="text-xl font-bold text-white mb-2">Non-PDF Preview</h3>
+                                        <h3 className="text-xl font-bold text-white mb-2">Preview Not Available</h3>
                                         <p className="text-gray-400 mb-8">
                                             Direct preview for {fileName.split('.').pop()?.toUpperCase()} files is limited.
                                             You can view the extracted content or download the original file.
@@ -178,6 +317,35 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                     <div className="bg-gray-800 border-t border-gray-700 p-3 flex items-center justify-between shrink-0">
                         <span className="text-sm text-gray-300">
                             {numPages} page{numPages !== 1 ? 's' : ''} · Scroll to view
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setScale(s => Math.max(0.5, s - 0.1))}
+                                className="text-gray-300 hover:text-white"
+                            >
+                                <ZoomOut className="w-4 h-4" />
+                            </Button>
+                            <span className="text-xs text-gray-400 w-12 text-center">
+                                {Math.round(scale * 100)}%
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setScale(s => Math.min(2.0, s + 0.1))}
+                                className="text-gray-300 hover:text-white"
+                            >
+                                <ZoomIn className="w-4 h-4" />
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {isDocx && (
+                    <div className="bg-gray-800 border-t border-gray-700 p-3 flex items-center justify-between shrink-0">
+                        <span className="text-sm text-gray-300">
+                            DOCX Document
                         </span>
                         <div className="flex items-center gap-2">
                             <Button

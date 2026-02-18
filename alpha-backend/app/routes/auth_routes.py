@@ -180,22 +180,28 @@ async def send_otp(data: SendOTPRequest, session: Session = Depends(get_session)
             )
         
         otp_service = get_otp_service()
-        email_otp_service = get_email_otp_service()
-        
-        # Generate OTP
-        otp = otp_service.generate_otp()
+        # Fixed OTP when email is disabled (env: OTP_DISABLE_EMAIL=1, OTP_FIXED_CODE=123456)
+        use_fixed_otp = os.getenv("OTP_DISABLE_EMAIL", "").strip().lower() in ("1", "true", "yes")
+        fixed_otp = os.getenv("OTP_FIXED_CODE", "123456").strip() or "123456"
+        if use_fixed_otp:
+            otp = fixed_otp
+            logger.info(f"📧 OTP email disabled: using fixed OTP for user {data.username}")
+        else:
+            otp = otp_service.generate_otp()
         
         # Store OTP with username (using stored email)
         otp_service.store_otp(email=user.email, otp=otp, username=data.username)
         
-        # Send OTP email to stored email address
-        logger.info(f"📧 Sending OTP to {user.email} for user {data.username}")
-        # Await async email sending
-        email_sent = await email_otp_service.send_otp_email(
-            to_email=user.email,
-            otp=otp,
-            username=data.username
-        )
+        if use_fixed_otp:
+            email_sent = True  # Skip sending email
+        else:
+            email_otp_service = get_email_otp_service()
+            logger.info(f"📧 Sending OTP to {user.email} for user {data.username}")
+            email_sent = await email_otp_service.send_otp_email(
+                to_email=user.email,
+                otp=otp,
+                username=data.username
+            )
         
         if email_sent:
             # Mask email for display (e.g., "syed****@example.com")

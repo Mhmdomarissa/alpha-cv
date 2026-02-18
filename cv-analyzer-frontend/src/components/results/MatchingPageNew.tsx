@@ -32,7 +32,7 @@ const FilePreviewModal = dynamic(() => import('@/components/ui/file-preview-moda
 const QueueStatusModal = dynamic(() => import('@/components/common/QueueStatusModal').then(mod => mod.default), {
   ssr: false,
 });
-import { config } from '@/lib/config';
+import { getApiBaseUrl } from '@/lib/config';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
@@ -137,6 +137,7 @@ export default function MatchingPageNew() {
 
   const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortKey>('score');
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<{ isOpen: boolean; url: string; name: string; id: string; type: string; extractedText?: string }>({
     isOpen: false,
     url: '',
@@ -311,24 +312,43 @@ export default function MatchingPageNew() {
   };
 
   const handlePreviewFile = async (id: string, type: string, filename: string) => {
-    // Ensure filename has .pdf extension for proper PDF detection
-    // Simple check: if it doesn't end with .pdf, add it
-    const normalizedFilename = filename.toLowerCase().endsWith('.pdf') 
-      ? filename 
-      : `${filename}.pdf`;
-    
-    // Use same URL format as database page (without file extension)
-    const fileUrl = `${config.apiUrl}/api/storage/files/${type}/${id}`;
-
+    const normalizedFilename = filename.toLowerCase().endsWith('.pdf') ? filename : `${filename}.pdf`;
+    let fileUrl: string;
     let extractedText = '';
 
-    // For non-PDFs, fetch the extracted text
-    if (!normalizedFilename.toLowerCase().endsWith('.pdf')) {
+    if (type === 'cv') {
+      // Use CV download API (same as careers page) so preview works for both
+      // main CVs and job-application CVs (which may be stored under different paths).
       try {
-        const details = type === 'cv' ? await api.getCVDetails(id) : await api.getJDDetails(id);
-        extractedText = details?.text_info?.extracted_text_preview || '';
+        if (previewBlobUrl) {
+          URL.revokeObjectURL(previewBlobUrl);
+          setPreviewBlobUrl(null);
+        }
+        const { blob } = await api.downloadCV(id);
+        const blobUrl = URL.createObjectURL(blob);
+        setPreviewBlobUrl(blobUrl);
+        fileUrl = blobUrl;
       } catch (err) {
-        console.error('Failed to fetch extracted text for preview:', err);
+        console.error('Failed to load CV for preview:', err);
+        return;
+      }
+      if (!normalizedFilename.toLowerCase().endsWith('.pdf')) {
+        try {
+          const details = await api.getCVDetails(id);
+          extractedText = details?.text_info?.extracted_text_preview || '';
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      fileUrl = `${getApiBaseUrl()}/api/storage/files/${type}/${id}`;
+      if (!normalizedFilename.toLowerCase().endsWith('.pdf')) {
+        try {
+          const details = await api.getJDDetails(id);
+          extractedText = details?.text_info?.extracted_text_preview || '';
+        } catch {
+          // ignore
+        }
       }
     }
 
@@ -336,8 +356,8 @@ export default function MatchingPageNew() {
       isOpen: true,
       url: fileUrl,
       name: normalizedFilename,
-      id: id,
-      type: type,
+      id,
+      type,
       extractedText
     });
   };
@@ -1381,7 +1401,13 @@ export default function MatchingPageNew() {
 
       <FilePreviewModal
         isOpen={previewData.isOpen}
-        onClose={() => setPreviewData({ ...previewData, isOpen: false })}
+        onClose={() => {
+          if (previewBlobUrl) {
+            URL.revokeObjectURL(previewBlobUrl);
+            setPreviewBlobUrl(null);
+          }
+          setPreviewData((prev) => ({ ...prev, isOpen: false }));
+        }}
         fileUrl={previewData.url}
         fileName={previewData.name}
         fileId={previewData.id}

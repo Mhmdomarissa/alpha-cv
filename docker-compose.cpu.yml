@@ -81,6 +81,9 @@ services:
     build:
       context: ./cv-analyzer-frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE}
     extra_hosts:
       - "89.144.31.18:127.0.0.1"
       - "176.117.107.158:127.0.0.1"
@@ -91,8 +94,8 @@ services:
     env_file:
       - ./.env
     environment:
-      NEXT_PUBLIC_API_URL: "https://alphacv.alphadatarecruitment.ae"
-      NEXT_PUBLIC_API_BASE: "https://alphacv.alphadatarecruitment.ae"
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE}
       BACKEND_URL: "http://backend:8000"
       NODE_ENV: "production"
     restart: unless-stopped
@@ -209,10 +212,14 @@ services:
     image: nginx:alpine
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx-cache:/var/cache/nginx
       - ./maintenance.html:/usr/share/nginx/html/maintenance.html:ro
+      # SSL (used after running setup-ssl.sh init)
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -232,37 +239,36 @@ services:
           memory: 128M
           cpus: '0.1'
 
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    restart: unless-stopped
-    networks:
-      - cv-network
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=48h'
-      - '--storage.tsdb.retention.size=512MB'
-      - '--web.enable-lifecycle'
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.25'
-        reservations:
-          memory: 128M
-          cpus: '0.1'
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - prometheus_data:/prometheus
+  #   restart: unless-stopped
+  #   networks:
+  #     - cv-network
+  #   command:
+  #     - '--config.file=/etc/prometheus/prometheus.yml'
+  #     - '--storage.tsdb.path=/prometheus'
+  #     - '--web.console.libraries=/etc/prometheus/console_libraries'
+  #     - '--web.console.templates=/etc/prometheus/consoles'
+  #     - '--storage.tsdb.retention.time=48h'
+  #     - '--storage.tsdb.retention.size=512MB'
+  #     - '--web.enable-lifecycle'
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 256M
+  #         cpus: '0.25'
+  #       reservations:
+  #         memory: 128M
+  #         cpus: '0.1'
 
   redis-exporter:
     image: oliver006/redis_exporter:latest
-    ports:
-      - "9121:9121"
+    # Port 9121 not published - metrics only inside Docker network (no internet exposure)
     environment:
       - REDIS_ADDR=redis://redis:6379
       - REDIS_PASSWORD=""
@@ -287,8 +293,8 @@ volumes:
     driver: local
   redis_data:
     driver: local
-  prometheus_data:
-    driver: local
+  # prometheus_data:
+  #   driver: local
   nginx-cache:
     driver: local
 
