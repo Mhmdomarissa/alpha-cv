@@ -1,4 +1,4 @@
-import { config } from './config';
+import { config, getApiBaseUrl } from './config';
 
 /**
  * Authentication utilities for token management and API helpers
@@ -49,7 +49,7 @@ export function clearToken(): void {
  * Get user role from /api/auth/me endpoint
  */
 export async function getRoleFromMe(token: string): Promise<'admin' | 'user'> {
-  const response = await fetch(`${config.apiUrl}/api/auth/me`, {
+  const response = await fetch(`${getApiBaseUrl()}/api/auth/me`, {
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',

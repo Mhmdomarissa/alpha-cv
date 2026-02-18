@@ -1,8 +1,8 @@
 'use client';
 import React, { useEffect } from 'react';
-import { 
-  Upload, 
-  Database, 
+import {
+  Upload,
+  Database,
   Users,
   FileText,
   BarChart3,
@@ -15,17 +15,22 @@ import { useAppStore } from '@/stores/appStore';
 import { TypewriterCycle } from '@/components/ui/Typewriter';
 
 export default function DashboardPage() {
-  const { 
-    cvs, 
-    jds, 
-    matchResult, 
-    setCurrentTab, 
+  const {
+    cvs,
+    jds,
+    totalCVs,
+    totalJDs,
+    matchResult,
+    setCurrentTab,
     setDatabaseActiveTab,
-    loadCVs, 
+    loadCVs,
     loadJDs
   } = useAppStore();
-  
-  const totalDocuments = cvs.length + jds.length;
+
+  // Use total counts from store if available, otherwise fall back to array length
+  const cvCount = totalCVs ?? cvs.length;
+  const jdCount = totalJDs ?? jds.length;
+  const totalDocuments = cvCount + jdCount;
   const totalMatches = matchResult?.candidates.length || 0;
 
   // Load documents when component mounts
@@ -42,7 +47,7 @@ export default function DashboardPage() {
           <div className="w-16 h-16 rounded-xl flex items-center justify-center bg-[#00529b] shadow-sm">
             <svg width="36" height="36" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
               <g transform="translate(0,200) scale(0.1,-0.1)" fill="white">
-                <path d="M0 1000 l0 -1000 1000 0 1000 0 0 1000 0 1000 -1000 0 -1000 0 0 -1000z m925 779 c-153 -31 -275 -94 -275 -142 0 -11 -20 -62 -44 -111 -25 -50 -50 -118 -57 -151 -11 -53 -10 -65 6 -99 26 -54 21 -90 -21 -159 -27 -46 -37 -74 -38 -107 l-1 -45 53 -3 52 -3 0 -38 c0 -23 6 -44 15 -51 11 -9 13 -16 5 -24 -16 -16 -12 -44 9 -56 17 -9 19 -18 14 -85 -5 -63 -3 -75 11 -81 31 -12 5 -24 -52 -24 -37 0 -66 6 -81 16 -22 16 -23 22 -18 91 5 66 4 74 -15 84 -16 9 -19 17 -14 44 4 19 2 36 -4 40 -5 3 -10 21 -10 40 0 36 -13 46 -53 38 -69 -13 -74 46 -12 163 25 46 45 91 45 98 0 7 -9 34 -20 58 -17 40 -18 53 -9 104 5 33 30 100 55 150 24 49 44 100 44 111 0 22 42 63 89 87 82 42 230 74 346 74 l70 0 -90 -19z m55 -1181 c27 -29 38 -73 45 -188 5 -72 4 -99 -7 -111 -14 -18 -119 -91 -123 -87 -2 2 2 27 8 56 9 43 8 64 -6 116 -9 36 -17 79 -17 98 -1 40 -25 111 -40 116 -5 2 -10 8 -10 13 0 5 29 9 65 9 53 0 68 -4 85 -22z"/>
+                <path d="M0 1000 l0 -1000 1000 0 1000 0 0 1000 0 1000 -1000 0 -1000 0 0 -1000z m925 779 c-153 -31 -275 -94 -275 -142 0 -11 -20 -62 -44 -111 -25 -50 -50 -118 -57 -151 -11 -53 -10 -65 6 -99 26 -54 21 -90 -21 -159 -27 -46 -37 -74 -38 -107 l-1 -45 53 -3 52 -3 0 -38 c0 -23 6 -44 15 -51 11 -9 13 -16 5 -24 -16 -16 -12 -44 9 -56 17 -9 19 -18 14 -85 -5 -63 -3 -75 11 -81 31 -12 5 -24 -52 -24 -37 0 -66 6 -81 16 -22 16 -23 22 -18 91 5 66 4 74 -15 84 -16 9 -19 17 -14 44 4 19 2 36 -4 40 -5 3 -10 21 -10 40 0 36 -13 46 -53 38 -69 -13 -74 46 -12 163 25 46 45 91 45 98 0 7 -9 34 -20 58 -17 40 -18 53 -9 104 5 33 30 100 55 150 24 49 44 100 44 111 0 22 42 63 89 87 82 42 230 74 346 74 l70 0 -90 -19z m55 -1181 c27 -29 38 -73 45 -188 5 -72 4 -99 -7 -111 -14 -18 -119 -91 -123 -87 -2 2 2 27 8 56 9 43 8 64 -6 116 -9 36 -17 79 -17 98 -1 40 -25 111 -40 116 -5 2 -10 8 -10 13 0 5 29 9 65 9 53 0 68 -4 85 -22z" />
               </g>
             </svg>
           </div>
@@ -68,7 +73,7 @@ export default function DashboardPage() {
           </div>
           <div className="text-2xl font-bold text-gray-800">{totalDocuments}</div>
           <p className="text-ui font-medium text-gray-600">Total Documents</p>
-          <p className="text-caption text-gray-500">{cvs.length} CVs, {jds.length} JDs</p>
+          <p className="text-caption text-gray-500">{cvCount} CVs, {jdCount} JDs</p>
         </div>
         <button
           onClick={() => { setDatabaseActiveTab('cvs'); setCurrentTab('database'); }}
@@ -77,7 +82,7 @@ export default function DashboardPage() {
           <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center mb-4">
             <Users className="w-6 h-6 text-white" />
           </div>
-          <div className="text-2xl font-bold text-gray-800">{cvs.length}</div>
+          <div className="text-2xl font-bold text-gray-800">{cvCount}</div>
           <p className="text-ui font-medium text-gray-600">Candidates</p>
           <p className="text-caption text-gray-500">Ready for matching</p>
         </button>
@@ -88,7 +93,7 @@ export default function DashboardPage() {
           <div className="w-12 h-12 rounded-lg bg-amber-600 flex items-center justify-center mb-4">
             <Briefcase className="w-6 h-6 text-white" />
           </div>
-          <div className="text-2xl font-bold text-gray-800">{jds.length}</div>
+          <div className="text-2xl font-bold text-gray-800">{jdCount}</div>
           <p className="text-ui font-medium text-gray-600">Job Positions</p>
           <p className="text-caption text-gray-500">Available for matching</p>
         </button>
@@ -106,16 +111,16 @@ export default function DashboardPage() {
         <div className="bg-white rounded-xl p-5 sm:p-8 border border-gray-200 shadow-sm animate-fade-in-up animation-delay-200">
           <div className="flex items-center space-x-4 mb-6">
             <div className="w-12 h-12 rounded-lg bg-[#00529b] flex items-center justify-center">
-              <svg 
-                width="24" 
-                height="24" 
-                viewBox="0 0 200 200" 
-                fill="none" 
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 200 200"
+                fill="none"
                 xmlns="http://www.w3.org/2000/svg"
                 className="text-white"
               >
                 <g transform="translate(0,200) scale(0.1,-0.1)" fill="currentColor">
-                  <path d="M0 1000 l0 -1000 1000 0 1000 0 0 1000 0 1000 -1000 0 -1000 0 0 -1000z m925 779 c-153 -31 -275 -94 -275 -142 0 -11 -20 -62 -44 -111 -25 -50 -50 -118 -57 -151 -11 -53 -10 -65 6 -99 26 -54 21 -90 -21 -159 -27 -46 -37 -74 -38 -107 l-1 -45 53 -3 52 -3 0 -38 c0 -23 6 -44 15 -51 11 -9 13 -16 5 -24 -16 -16 -12 -44 9 -56 17 -9 19 -18 14 -85 -5 -63 -3 -75 11 -81 31 -12 5 -24 -52 -24 -37 0 -66 6 -81 16 -22 16 -23 22 -18 91 5 66 4 74 -15 84 -16 9 -19 17 -14 44 4 19 2 36 -4 40 -5 3 -10 21 -10 40 0 36 -13 46 -53 38 -69 -13 -74 46 -12 163 25 46 45 91 45 98 0 7 -9 34 -20 58 -17 40 -18 53 -9 104 5 33 30 100 55 150 24 49 44 100 44 111 0 22 42 63 89 87 82 42 230 74 346 74 l70 0 -90 -19z m55 -1181 c27 -29 38 -73 45 -188 5 -72 4 -99 -7 -111 -14 -18 -119 -91 -123 -87 -2 2 2 27 8 56 9 43 8 64 -6 116 -9 36 -17 79 -17 98 -1 40 -25 111 -40 116 -5 2 -10 8 -10 13 0 5 29 9 65 9 53 0 68 -4 85 -22z"/>
+                  <path d="M0 1000 l0 -1000 1000 0 1000 0 0 1000 0 1000 -1000 0 -1000 0 0 -1000z m925 779 c-153 -31 -275 -94 -275 -142 0 -11 -20 -62 -44 -111 -25 -50 -50 -118 -57 -151 -11 -53 -10 -65 6 -99 26 -54 21 -90 -21 -159 -27 -46 -37 -74 -38 -107 l-1 -45 53 -3 52 -3 0 -38 c0 -23 6 -44 15 -51 11 -9 13 -16 5 -24 -16 -16 -12 -44 9 -56 17 -9 19 -18 14 -85 -5 -63 -3 -75 11 -81 31 -12 5 -24 -52 -24 -37 0 -66 6 -81 16 -22 16 -23 22 -18 91 5 66 4 74 -15 84 -16 9 -19 17 -14 44 4 19 2 36 -4 40 -5 3 -10 21 -10 40 0 36 -13 46 -53 38 -69 -13 -74 46 -12 163 25 46 45 91 45 98 0 7 -9 34 -20 58 -17 40 -18 53 -9 104 5 33 30 100 55 150 24 49 44 100 44 111 0 22 42 63 89 87 82 42 230 74 346 74 l70 0 -90 -19z m55 -1181 c27 -29 38 -73 45 -188 5 -72 4 -99 -7 -111 -14 -18 -119 -91 -123 -87 -2 2 2 27 8 56 9 43 8 64 -6 116 -9 36 -17 79 -17 98 -1 40 -25 111 -40 116 -5 2 -10 8 -10 13 0 5 29 9 65 9 53 0 68 -4 85 -22z" />
                 </g>
               </svg>
             </div>
@@ -200,7 +205,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            <div 
+            <div
               className="w-3 h-3 rounded-full animate-pulse"
               style={{ backgroundColor: '#10b981' }}
             />

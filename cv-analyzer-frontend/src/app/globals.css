@@ -509,3 +509,58 @@ body {
   .glass-card { border: 2px solid var(--gray-600); }
   .gradient-text { color: var(--gray-900); }
 }
+
+/* DOCX Viewer Styles */
+.docx-container {
+  font-family: 'Calibri', 'Arial', sans-serif;
+  line-height: 1.6;
+  color: #000;
+}
+
+.docx-wrapper {
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.docx-wrapper section.docx {
+  background: white;
+  padding: 1rem;
+  margin-bottom: 0;
+}
+
+.docx-wrapper p {
+  margin: 0.5rem 0;
+  line-height: 1.5;
+}
+
+.docx-wrapper table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+}
+
+.docx-wrapper table td,
+.docx-wrapper table th {
+  border: 1px solid #ddd;
+  padding: 0.5rem;
+}
+
+.docx-wrapper h1,
+.docx-wrapper h2,
+.docx-wrapper h3,
+.docx-wrapper h4,
+.docx-wrapper h5,
+.docx-wrapper h6 {
+  margin: 1rem 0 0.5rem 0;
+  font-weight: bold;
+}
+
+.docx-wrapper ul,
+.docx-wrapper ol {
+  margin: 0.5rem 0;
+  padding-left: 2rem;
+}
+
+.docx-wrapper li {
+  margin: 0.25rem 0;
+}

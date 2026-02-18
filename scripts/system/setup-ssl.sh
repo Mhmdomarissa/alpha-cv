@@ -18,7 +18,8 @@ set -euo pipefail
 DOMAIN="alphacv.alphadatarecruitment.ae"
 EMAIL="admin@alphadatarecruitment.ae"
 STAGING=0  # Set to 1 for testing, 0 for production certificates
-COMPOSE_CMD="docker compose"
+COMPOSE_FILE="docker-compose.cpu.yml"
+COMPOSE_CMD="docker-compose -f $COMPOSE_FILE"
 
 # Colors for output
 RED='\033[0;31m'
@@ -53,13 +54,15 @@ check_dependencies() {
         exit 1
     fi
     
-    if ! docker compose version &> /dev/null; then
+    if ! docker compose version &> /dev/null 2>&1; then
         if ! command -v docker-compose &> /dev/null; then
             log_error "Docker Compose is not installed"
             exit 1
         else
-            COMPOSE_CMD="docker-compose"
+            COMPOSE_CMD="docker-compose -f $COMPOSE_FILE"
         fi
+    else
+        COMPOSE_CMD="docker compose -f $COMPOSE_FILE"
     fi
     
     log_success "Dependencies check passed"
@@ -90,10 +93,19 @@ check_domain() {
     fi
 }
 
+# Ensure we're in project root (where docker-compose.cpu.yml and nginx.conf are)
+check_project_root() {
+    if [ ! -f "$COMPOSE_FILE" ] || [ ! -f "nginx.conf" ]; then
+        log_error "Run this script from the project root (where $COMPOSE_FILE and nginx.conf exist)"
+        exit 1
+    fi
+}
+
 # Initial certificate setup
 init_certificates() {
     log_info "Starting initial SSL certificate setup for $DOMAIN..."
     
+    check_project_root
     check_dependencies
     create_directories
     check_domain
@@ -126,7 +138,18 @@ init_certificates() {
         
         log_success "Certificate obtained successfully!"
         
-        # Restart with HTTPS configuration
+        # Switch nginx to HTTPS config (cert paths and 443)
+        log_info "Switching nginx to HTTPS configuration..."
+        if [ -f "nginx-ssl.conf" ]; then
+            cp nginx.conf nginx.conf.http-backup
+            cp nginx-ssl.conf nginx.conf
+            log_success "nginx.conf updated for HTTPS"
+        else
+            log_error "nginx-ssl.conf not found - cannot enable HTTPS"
+            exit 1
+        fi
+        
+        # Restart services with HTTPS
         log_info "Restarting services with HTTPS configuration..."
         $COMPOSE_CMD down
         $COMPOSE_CMD up -d
@@ -154,6 +177,7 @@ init_certificates() {
 
 # Renew certificates
 renew_certificates() {
+    check_project_root
     log_info "Renewing SSL certificates..."
     
     if docker run --rm \
@@ -176,6 +200,7 @@ renew_certificates() {
 
 # Check certificate status
 check_status() {
+    check_project_root
     log_info "Checking SSL certificate status..."
     
     if [ -f "./certbot/conf/live/$DOMAIN/fullchain.pem" ]; then
@@ -205,6 +230,7 @@ check_status() {
 
 # Rollback to HTTP configuration
 rollback_configuration() {
+    check_project_root
     log_warning "Rolling back to HTTP-only configuration..."
     
     # Backup current nginx.conf
@@ -231,7 +257,7 @@ http {
     ''      close;
   }
 
-  upstream frontend { server frontend:3000; }
+  upstream frontend { server frontend:8000; }
   upstream backend  { server backend:8000; }
 
   server {
