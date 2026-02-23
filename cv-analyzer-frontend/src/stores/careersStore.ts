@@ -252,7 +252,7 @@ loadJobPostings: async () => {
     const { useAppStore } = await import('./appStore');
     const appStore = useAppStore.getState();
     appStore.setLoading('careersMatching', true);
-    
+    let progressInterval: ReturnType<typeof setInterval> | undefined;
     try {
       logger.info('Matching candidates for job', { jobId, minScore });
       
@@ -264,15 +264,54 @@ loadJobPostings: async () => {
         throw new Error('No applications found to match');
       }
 
-      // Show single matching overlay (same as Database flow)
+      const totalCVs = cvIds.length;
+      const totalBatches = Math.max(1, Math.ceil(totalCVs / 50));
+      const estimatedTotalSeconds = Math.max(30, totalCVs * 5);
+      const startTime = Date.now();
       appStore.setMatchingProgress({
-        totalCVs: cvIds.length,
+        totalCVs,
         processedCVs: 0,
         currentStage: 'initializing',
         isVisible: true,
-        estimatedTimeRemaining: Math.max(30, cvIds.length * 3),
+        estimatedTimeRemaining: estimatedTotalSeconds,
+        currentBatch: 0,
+        totalBatches,
+        phase: 'initializing',
       });
-      
+
+      const progressStageFromPercent = (pct: number): 'initializing' | 'processing' | 'analyzing' | 'scoring' | 'finalizing' => {
+        if (pct < 20) return 'initializing';
+        if (pct < 40) return 'processing';
+        if (pct < 70) return 'analyzing';
+        if (pct < 90) return 'scoring';
+        return 'finalizing';
+      };
+      progressInterval = setInterval(() => {
+        const elapsed = (Date.now() - startTime) / 1000;
+        const progressPercent = Math.min(95, (elapsed / estimatedTotalSeconds) * 100);
+        const processedCVs = Math.min(totalCVs, Math.floor((progressPercent / 100) * totalCVs));
+        const estimatedTimeRemaining = Math.max(0, Math.ceil(estimatedTotalSeconds - elapsed));
+        let phase: 'initializing' | 'batches' | 'llm_verification' | 'finalizing' = 'initializing';
+        let currentBatch = 0;
+        if (progressPercent >= 92) {
+          phase = 'finalizing';
+          currentBatch = totalBatches;
+        } else if (progressPercent >= 75) {
+          phase = 'llm_verification';
+          currentBatch = totalBatches;
+        } else if (progressPercent >= 5) {
+          phase = 'batches';
+          currentBatch = Math.min(totalBatches, Math.max(1, Math.floor(((progressPercent - 5) / 70) * totalBatches)));
+        }
+        appStore.setMatchingProgress({
+          processedCVs,
+          currentStage: progressStageFromPercent(progressPercent),
+          estimatedTimeRemaining,
+          currentBatch,
+          phase,
+        });
+      }, 500);
+
       // Get the job posting details to find the original JD ID
       const jobData = await api.getJobForMatching(jobId);
       let originalJdId = (jobData as any).jd_id || jobId; // Use jd_id if available, fallback to jobId
@@ -361,6 +400,16 @@ loadJobPostings: async () => {
         cv_ids: cvIds
       });
       
+      clearInterval(progressInterval);
+      appStore.setMatchingProgress({
+        processedCVs: totalCVs,
+        currentStage: 'finalizing',
+        estimatedTimeRemaining: 0,
+        currentBatch: totalBatches,
+        phase: 'finalizing',
+      });
+      appStore.hideMatchingProgress?.();
+
       logger.info(`Matching completed for job ${jobId}`, { 
         totalCandidates: matchResults.candidates.length,
         matchResults: matchResults
@@ -397,7 +446,6 @@ loadJobPostings: async () => {
         isLoading: false
       }));
       
-      appStore.hideMatchingProgress?.();
       appStore.setLoading('careersMatching', false);
       
       return {
@@ -408,15 +456,11 @@ loadJobPostings: async () => {
         top_candidates: applicationsWithScores.slice(0, 10)
       };
     } catch (error: any) {
-      logger.error('Failed to match candidates:', error);
-      // Extract error message from detail (backend) or message (network)
-      const errorMessage = error?.detail || error?.response?.data?.detail || error?.message || 'Failed to match candidates';
-      set({ 
-        isLoading: false, 
-        error: errorMessage
-      });
-      
+      if (progressInterval !== undefined) clearInterval(progressInterval);
       appStore.hideMatchingProgress?.();
+      logger.error('Failed to match candidates:', error);
+      const errorMessage = error?.detail || error?.response?.data?.detail || error?.message || 'Failed to match candidates';
+      set({ isLoading: false, error: errorMessage });
       appStore.setLoading('careersMatching', false, errorMessage);
       throw error;
     }

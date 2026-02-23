@@ -117,6 +117,17 @@ function resolveYears(candidate: any, cvIndex: Record<string, any>): string {
   return typeof yrs === 'number' ? `${yrs} years` : 'Experience n/a';
 }
 
+function resolveExpectedSalary(candidate: any, applications: any[]): number | null {
+  const fromCandidate = candidate?.expected_salary;
+  if (typeof fromCandidate === 'number' && fromCandidate > 0) return fromCandidate;
+  if (applications?.length) {
+    const app = applications.find((a: any) => a.application_id === candidate?.cv_id);
+    const salary = app?.expected_salary ?? (app as any)?.expected_salary;
+    if (typeof salary === 'number' && salary > 0) return salary;
+  }
+  return null;
+}
+
 // --- Component -----------------------------------------------------------
 export default function MatchingPageNew() {
   const {
@@ -806,6 +817,7 @@ export default function MatchingPageNew() {
               const displayName = resolveCandidateName(candidate, cvIndex);
               const title = resolveTitle(candidate, cvIndex);
               const yearsText = resolveYears(candidate, cvIndex);
+              const expectedSalary = resolveExpectedSalary(candidate, applications ?? []);
               const cvMeta = cvIndex[candidate?.cv_id];
               const filename = cvMeta?.filename || `cv_${candidate.cv_id}.pdf`;
 
@@ -845,6 +857,9 @@ export default function MatchingPageNew() {
                             </div>
                             <p className="text-sm text-gray-600">
                               {title} • {yearsText}
+                              {expectedSalary != null && (
+                                <span className="text-gray-700 font-medium"> • Expected: AED {expectedSalary.toLocaleString()}</span>
+                              )}
                             </p>
                           </div>
                         </div>

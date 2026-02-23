@@ -393,6 +393,9 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         currentStage={matchingProgress.currentStage}
         estimatedTimeRemaining={matchingProgress.estimatedTimeRemaining}
         isVisible={matchingProgress.isVisible}
+        currentBatch={matchingProgress.currentBatch}
+        totalBatches={matchingProgress.totalBatches}
+        phase={matchingProgress.phase}
       />
     </div>
   );

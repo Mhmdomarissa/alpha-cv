@@ -199,7 +199,7 @@ async def process_cv_async(cv_data: dict) -> dict:
             with ThreadPoolExecutor() as executor:
                 return await loop.run_in_executor(executor, qdrant.store_document,
                     cv_id, "cv", filename, cv_data.get("file_ext", ".txt").lstrip("."),
-                    raw_content, _now_iso(), cv_data.get("persisted_path"), cv_data.get("mime_type", "text/plain")
+                    extracted_text, _now_iso(), cv_data.get("persisted_path"), cv_data.get("mime_type", "text/plain")
                 )
         
         async def store_structured():
@@ -472,13 +472,13 @@ async def upload_cv(
         
         mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         
-        # 3a) Raw doc (+ file_path)
+        # 3a) Raw doc (+ file_path) — store PII-reduced text; email/phone kept in structured_cv
         qdrant.store_document(
             doc_id=cv_id,
             doc_type="cv",
             filename=filename,
             file_format=file_ext.lstrip("."),
-            raw_content=raw_content,
+            raw_content=extracted_text,
             upload_date=_now_iso(),
             file_path=persisted_path,          # 👈 store the path
             mime_type=mime_type                 # 👈 store the mime

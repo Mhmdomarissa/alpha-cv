@@ -315,6 +315,7 @@ async def process_candidates_chunk_parallel(candidates_chunk: list, jd_structure
                 cv_name=cv_structured["name"],
                 cv_job_title=cv_structured["job_title"],
                 cv_years=cv_structured["years_of_experience"],
+                expected_salary=cv_structured.get("expected_salary"),
                 skills_score=match_result.skills_score / 100.0,
                 responsibilities_score=match_result.responsibilities_score / 100.0,
                 job_title_score=match_result.title_score / 100.0,

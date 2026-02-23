@@ -616,6 +616,7 @@ class QdrantUtils:
                 "category": s.get("category", ""),
                 "skills_sentences": (s.get("skills_sentences", []) or s.get("skills", []) or [])[:20],
                 "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
+                "expected_salary": s.get("expected_salary"),
             }
             return result
         except Exception as e:
@@ -656,6 +657,7 @@ class QdrantUtils:
                     "category": s.get("category", ""),
                     "skills_sentences": (s.get("skills_sentences", []) or s.get("skills", []) or [])[:20],
                     "responsibility_sentences": (s.get("responsibilities", []) or s.get("responsibility_sentences", []) or [])[:10],
+                    "expected_salary": s.get("expected_salary"),
                 }
                 results.append(result)
             
@@ -1280,6 +1282,16 @@ class QdrantUtils:
                 self.client.upsert(collection_name=collection_name, points=[updated_point])
                 
                 logger.info(f"✅ Linked application {application_id} to job {job_id} (attempt {attempt + 1})")
+
+                # Auto-deactivate job when application count reaches 250
+                try:
+                    count = self.get_application_count_for_job(job_id)
+                    if count >= 250:
+                        self.update_job_posting_status(job_id, False)
+                        logger.info(f"✅ Job {job_id} set to inactive (applications reached {count})")
+                except Exception as cap_err:
+                    logger.warning(f"⚠️ Could not check/update job status after link: {cap_err}")
+
                 return True
                 
             except Exception as e:
@@ -1290,6 +1302,29 @@ class QdrantUtils:
                 return False
         
         return False
+
+    def get_application_count_for_job(self, job_id: str) -> int:
+        """
+        Return the number of applications for a job posting (lightweight count).
+        """
+        try:
+            collection_name = "cv_structured"
+            results = self.client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(key="job_id", match=MatchValue(value=job_id)),
+                        FieldCondition(key="is_job_application", match=MatchValue(value=True))
+                    ]
+                ),
+                limit=500,
+                with_payload=False,
+                with_vectors=False
+            )
+            return len(results[0]) if results and results[0] else 0
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to count applications for job {job_id}: {e}")
+            return 0
 
     def get_applications_for_job(self, job_id: str) -> List[Dict]:
         """
