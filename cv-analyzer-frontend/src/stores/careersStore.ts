@@ -13,6 +13,7 @@ interface CareersState {
   // Job postings
   jobPostings: JobPostingListItem[];
   selectedJob: JobPostingListItem | null;
+  totalJobPostings: number | null;
   
   // Applications
   applications: JobApplicationListItem[];
@@ -39,6 +40,7 @@ interface CareersActions {
   createJobPostingWithFormData: (file: File | null, formData: any) => Promise<JobPostingResponse | null>;
   createManualJobPosting: (formData: any) => Promise<JobPostingResponse | null>;
   loadJobPostings: () => Promise<void>;
+  loadMoreJobPostings: () => Promise<void>;
   selectJob: (job: JobPostingListItem | null) => void;
   updateJobStatus: (jobId: string, isActive: boolean) => Promise<boolean>;
   
@@ -73,6 +75,7 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
   // Initial state
   jobPostings: [],
   selectedJob: null,
+  totalJobPostings: null,
   applications: [],
   publicJob: null,
   viewingCVData: null,
@@ -167,25 +170,64 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
   },
   
   // stores/careersStore.ts
+  // Paginated load of job postings (first page)
+  loadJobPostings: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      logger.info('Loading job postings (paginated)');
+      // Load only the first page to reduce backend and frontend load
+      const { jobs, total } = await api.listJobPostingsPaged({
+        includeInactive: true,
+        limit: 5,
+        offset: 0,
+      });
+      
+      logger.info(`Loaded ${jobs.length} job postings (of ${total})`);
+      set({
+        jobPostings: jobs,
+        totalJobPostings: total,
+        isLoading: false,
+      });
+    } catch (error: any) {
+      logger.error('Failed to load job postings:', error);
+      set({ 
+        isLoading: false, 
+        error: error.message || 'Failed to load job postings' 
+      });
+    }
+  },
 
-// Update the loadJobPostings action
-loadJobPostings: async () => {
-  set({ isLoading: true, error: null });
-  try {
-    logger.info('Loading job postings');
-    // Pass true to include inactive job postings
-    const postings = await api.listJobPostings(true);
-    
-    logger.info(`Loaded ${postings.length} job postings`);
-    set({ jobPostings: postings, isLoading: false });
-  } catch (error: any) {
-    logger.error('Failed to load job postings:', error);
-    set({ 
-      isLoading: false, 
-      error: error.message || 'Failed to load job postings' 
-    });
-  }
-},
+  // Load additional pages of job postings
+  loadMoreJobPostings: async () => {
+    const { jobPostings, totalJobPostings } = get();
+    // Nothing more to load
+    if (totalJobPostings != null && jobPostings.length >= totalJobPostings) {
+      return;
+    }
+
+    set({ isLoading: true, error: null });
+    try {
+      const { jobs, total } = await api.listJobPostingsPaged({
+        includeInactive: true,
+        limit: 5,
+        offset: jobPostings.length,
+      });
+
+      set((state) => ({
+        jobPostings: [...state.jobPostings, ...jobs],
+        totalJobPostings: typeof total === 'number'
+          ? total
+          : state.totalJobPostings ?? state.jobPostings.length + jobs.length,
+        isLoading: false,
+      }));
+    } catch (error: any) {
+      logger.error('Failed to load more job postings:', error);
+      set({
+        isLoading: false,
+        error: error.message || 'Failed to load more job postings',
+      });
+    }
+  },
   
   selectJob: (job: JobPostingListItem | null) => {
     if (job) {

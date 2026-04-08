@@ -1,7 +1,8 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Download, Maximize2, FileText } from 'lucide-react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { renderAsync } from 'docx-preview';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button-enhanced';
 import { Badge } from '@/components/ui/badge';
 
@@ -13,18 +14,61 @@ interface FilePreviewModalProps {
     fileId: string;
     fileType: string;
     extractedText?: string;
+    /** When provided, DOCX preview uses this blob instead of fetching fileUrl (avoids empty response / CORS) */
+    blob?: Blob | null;
 }
 
-export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, fileType, extractedText }: FilePreviewModalProps) {
+export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, fileType, extractedText, blob: blobProp }: FilePreviewModalProps) {
     const [iframeLoaded, setIframeLoaded] = useState(false);
+    const [docxReady, setDocxReady] = useState(false);
+    const [docxError, setDocxError] = useState(false);
+    const [containerMounted, setContainerMounted] = useState(false);
+    const docxContainerRef = useRef<HTMLDivElement>(null);
 
     const isPdf = fileName.toLowerCase().endsWith('.pdf');
     const isDocx = fileName.toLowerCase().endsWith('.docx') || fileName.toLowerCase().endsWith('.doc');
-    const useNativeView = isPdf || isDocx;
+    const usePdfIframe = isPdf;
 
     useEffect(() => {
-        if (isOpen && useNativeView) setIframeLoaded(false);
-    }, [isOpen, fileUrl, useNativeView]);
+        if (isOpen && usePdfIframe) setIframeLoaded(false);
+    }, [isOpen, fileUrl, usePdfIframe]);
+
+    // Render DOCX with docx-preview; use blob prop when provided to avoid refetch (0 B) issues
+    useEffect(() => {
+        if (!isOpen || !isDocx) {
+            setDocxReady(false);
+            setDocxError(false);
+            setContainerMounted(false);
+            return;
+        }
+        const container = docxContainerRef.current;
+        if (!container) return;
+        setDocxReady(false);
+        setDocxError(false);
+        container.innerHTML = '';
+        let cancelled = false;
+        (async () => {
+            try {
+                let blob: Blob;
+                if (blobProp && blobProp.size > 0) {
+                    blob = blobProp;
+                } else if (fileUrl) {
+                    const res = await fetch(fileUrl);
+                    if (!res.ok) throw new Error('Failed to load document');
+                    blob = await res.blob();
+                    if (blob.size === 0) throw new Error('Document is empty');
+                } else {
+                    throw new Error('No file source');
+                }
+                if (cancelled) return;
+                await renderAsync(blob, container);
+                if (!cancelled) setDocxReady(true);
+            } catch (e) {
+                if (!cancelled) setDocxError(true);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [isOpen, isDocx, fileUrl, blobProp, containerMounted]);
 
     const handleDownload = () => {
         const link = document.createElement('a');
@@ -38,6 +82,7 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="max-w-5xl w-[90vw] h-[90vh] flex flex-col p-0 overflow-hidden bg-gray-900 border-gray-800">
+                <DialogTitle className="sr-only">Preview: {fileName}</DialogTitle>
                 <Button
                     variant="ghost"
                     size="sm"
@@ -49,7 +94,7 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                 </Button>
 
                 <div className="flex-1 flex flex-col min-h-0 relative bg-white">
-                    {useNativeView ? (
+                    {usePdfIframe ? (
                         <>
                             {!iframeLoaded && (
                                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 z-10">
@@ -62,6 +107,32 @@ export function FilePreviewModal({ isOpen, onClose, fileUrl, fileName, fileId, f
                                 title={`Preview: ${fileName}`}
                                 className="flex-1 w-full min-h-0 border-0"
                                 onLoad={() => setIframeLoaded(true)}
+                            />
+                        </>
+                    ) : isDocx ? (
+                        <>
+                            {!docxReady && !docxError && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 z-10">
+                                    <div className="animate-spin rounded-full h-10 w-10 border-2 border-indigo-500 border-t-transparent mb-3" />
+                                    <p className="text-gray-600 text-sm">Loading document…</p>
+                                </div>
+                            )}
+                            {docxError && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 z-10 p-6">
+                                    <p className="text-red-600 mb-4">Could not preview this document.</p>
+                                    <Button variant="primary" onClick={handleDownload}>
+                                        <Download className="w-4 h-4 mr-2" />
+                                        Download
+                                    </Button>
+                                </div>
+                            )}
+                            <div
+                                ref={(el) => {
+                                    (docxContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+                                    setContainerMounted(!!el);
+                                }}
+                                className="docx-container flex-1 overflow-auto p-6 min-h-0"
+                                style={{ background: '#fff' }}
                             />
                         </>
                     ) : (
