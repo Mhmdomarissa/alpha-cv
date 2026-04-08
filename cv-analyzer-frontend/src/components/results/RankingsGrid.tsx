@@ -112,6 +112,33 @@ export default function RankingsGrid() {
     if (score >= 0.6) return { label: 'Good', color: 'bg-amber-100 text-amber-800 border-amber-200' };
     return { label: 'Needs Review', color: 'bg-rose-100 text-rose-800 border-rose-200' };
   };
+
+  const clamp01 = (n: number) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
+
+  const getDisplayedBreakdown = (candidate: CandidateBreakdown) => {
+    const raw = {
+      skills: clamp01(candidate.skills_score || 0),
+      responsibilities: clamp01(candidate.responsibilities_score || 0),
+      title: clamp01(candidate.job_title_score || 0),
+      years: clamp01(candidate.years_score || 0),
+    };
+    const hasLLM = !!candidate.has_llm_analysis && typeof (candidate as any).semantic_score === 'number';
+    const semanticOverall = Number((candidate as any).semantic_score ?? 0);
+    const overall = Number(candidate.overall_score ?? 0);
+    if (hasLLM && semanticOverall > 0) {
+      const scale = overall / semanticOverall;
+      return {
+        sourceLabel: 'LLM-adjusted',
+        scores: {
+          skills: clamp01(raw.skills * scale),
+          responsibilities: clamp01(raw.responsibilities * scale),
+          title: clamp01(raw.title * scale),
+          years: clamp01(raw.years * scale),
+        },
+      };
+    }
+    return { sourceLabel: 'Similarity', scores: raw };
+  };
   
   return (
     <div className="space-y-8">
@@ -665,58 +692,76 @@ export default function RankingsGrid() {
                         
                         {/* Quick Score Breakdown */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                          <div className="text-center p-3 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-100 shadow-sm transition-all duration-300 hover:shadow-md">
-                            <div className="w-full bg-neutral-200 rounded-full h-2 mb-2">
-                              <div 
-                                className="h-2 rounded-full transition-all duration-1000 bg-gradient-to-r from-indigo-500 to-purple-500"
-                                style={{ 
-                                  width: `${(candidate.skills_score || 0) * 100}%`,
-                                }}
-                              />
-                            </div>
-                            <p className="text-sm font-medium text-indigo-800">
-                              Skills: {Math.round((candidate.skills_score || 0) * 100)}%
-                            </p>
-                          </div>
-                          <div className="text-center p-3 bg-gradient-to-br from-cyan-50 to-blue-50 rounded-xl border border-cyan-100 shadow-sm transition-all duration-300 hover:shadow-md">
-                            <div className="w-full bg-neutral-200 rounded-full h-2 mb-2">
-                              <div 
-                                className="h-2 rounded-full transition-all duration-1000 bg-gradient-to-r from-cyan-500 to-blue-500"
-                                style={{ 
-                                  width: `${(candidate.responsibilities_score || 0) * 100}%`,
-                                }}
-                              />
-                            </div>
-                            <p className="text-sm font-medium text-cyan-800">
-                              Experience: {Math.round((candidate.responsibilities_score || 0) * 100)}%
-                            </p>
-                          </div>
-                          <div className="text-center p-3 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl border border-emerald-100 shadow-sm transition-all duration-300 hover:shadow-md">
-                            <div className="w-full bg-neutral-200 rounded-full h-2 mb-2">
-                              <div 
-                                className="h-2 rounded-full transition-all duration-1000 bg-gradient-to-r from-emerald-500 to-teal-500"
-                                style={{ 
-                                  width: `${(candidate.job_title_score || 0) * 100}%`,
-                                }}
-                              />
-                            </div>
-                            <p className="text-sm font-medium text-emerald-800">
-                              Title: {Math.round((candidate.job_title_score || 0) * 100)}%
-                            </p>
-                          </div>
-                          <div className="text-center p-3 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100 shadow-sm transition-all duration-300 hover:shadow-md">
-                            <div className="w-full bg-neutral-200 rounded-full h-2 mb-2">
-                              <div 
-                                className="h-2 rounded-full transition-all duration-1000 bg-gradient-to-r from-amber-500 to-orange-500"
-                                style={{ 
-                                  width: `${(candidate.years_score || 0) * 100}%`,
-                                }}
-                              />
-                            </div>
-                            <p className="text-sm font-medium text-amber-800">
-                              Years: {Math.round((candidate.years_score || 0) * 100)}%
-                            </p>
-                          </div>
+                          {(() => {
+                            const b = getDisplayedBreakdown(candidate);
+                            const s = b.scores;
+                            return (
+                              <>
+                                <div className="col-span-2 md:col-span-4 -mt-2 mb-1">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase bg-white/70 text-neutral-700 border border-neutral-200">
+                                    Breakdown: {b.sourceLabel}
+                                  </span>
+                                  {candidate.has_llm_analysis && typeof (candidate as any).semantic_score === 'number' && (
+                                    <span className="ml-2 text-[11px] text-neutral-500">
+                                      Overall: {Math.round((candidate.overall_score || 0) * 100)}% • Similarity: {Math.round(((candidate as any).semantic_score || 0) * 100)}%
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-center p-3 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-100 shadow-sm transition-all duration-300 hover:shadow-md">
+                                  <div className="w-full bg-neutral-200 rounded-full h-2 mb-2">
+                                    <div
+                                      className="h-2 rounded-full transition-all duration-1000 bg-gradient-to-r from-indigo-500 to-purple-500"
+                                      style={{
+                                        width: `${s.skills * 100}%`,
+                                      }}
+                                    />
+                                  </div>
+                                  <p className="text-sm font-medium text-indigo-800">
+                                    Skills: {Math.round(s.skills * 100)}%
+                                  </p>
+                                </div>
+                                <div className="text-center p-3 bg-gradient-to-br from-cyan-50 to-blue-50 rounded-xl border border-cyan-100 shadow-sm transition-all duration-300 hover:shadow-md">
+                                  <div className="w-full bg-neutral-200 rounded-full h-2 mb-2">
+                                    <div
+                                      className="h-2 rounded-full transition-all duration-1000 bg-gradient-to-r from-cyan-500 to-blue-500"
+                                      style={{
+                                        width: `${s.responsibilities * 100}%`,
+                                      }}
+                                    />
+                                  </div>
+                                  <p className="text-sm font-medium text-cyan-800">
+                                    Responsibilities: {Math.round(s.responsibilities * 100)}%
+                                  </p>
+                                </div>
+                                <div className="text-center p-3 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl border border-emerald-100 shadow-sm transition-all duration-300 hover:shadow-md">
+                                  <div className="w-full bg-neutral-200 rounded-full h-2 mb-2">
+                                    <div
+                                      className="h-2 rounded-full transition-all duration-1000 bg-gradient-to-r from-emerald-500 to-teal-500"
+                                      style={{
+                                        width: `${s.title * 100}%`,
+                                      }}
+                                    />
+                                  </div>
+                                  <p className="text-sm font-medium text-emerald-800">
+                                    Title: {Math.round(s.title * 100)}%
+                                  </p>
+                                </div>
+                                <div className="text-center p-3 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100 shadow-sm transition-all duration-300 hover:shadow-md">
+                                  <div className="w-full bg-neutral-200 rounded-full h-2 mb-2">
+                                    <div
+                                      className="h-2 rounded-full transition-all duration-1000 bg-gradient-to-r from-amber-500 to-orange-500"
+                                      style={{
+                                        width: `${s.years * 100}%`,
+                                      }}
+                                    />
+                                  </div>
+                                  <p className="text-sm font-medium text-amber-800">
+                                    Years: {Math.round(s.years * 100)}%
+                                  </p>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                         
                         {/* Why This Match Works */}

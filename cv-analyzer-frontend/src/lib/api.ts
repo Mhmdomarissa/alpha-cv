@@ -554,6 +554,56 @@ class ApiClient {
     return response.data;
   }
 
+  /**
+   * Paginated job postings list.
+   *
+   * This is backwards compatible with the existing endpoint:
+   * - If the backend returns an array (legacy behaviour), we wrap it in { jobs, total }.
+   * - If the backend returns { jobs, total }, we use that directly.
+   */
+  async listJobPostingsPaged(params: {
+    includeInactive?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ jobs: JobPostingListItem[]; total: number }> {
+    const { includeInactive = false, limit, offset } = params;
+    const response = await this.client.get<any>(
+      '/api/careers/admin/jobs',
+      {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        },
+        params: {
+          include_inactive: includeInactive,
+          limit,
+          offset,
+          _t: Date.now()
+        }
+      }
+    );
+    const data = response.data;
+
+    // Legacy shape: bare array
+    if (Array.isArray(data)) {
+      return { jobs: data as JobPostingListItem[], total: data.length };
+    }
+
+    // New shape: { jobs, total, ... } (or similar)
+    const jobs: JobPostingListItem[] =
+      data.jobs ??
+      data.items ??
+      [];
+    const total: number =
+      typeof data.total === 'number'
+        ? data.total
+        : jobs.length;
+
+    return { jobs, total };
+  }
+
   // lib/api.ts
 
   async getPublicJob(token: string): Promise<PublicJobView> {
@@ -886,6 +936,8 @@ export const api = {
     RequestRetryHandler.withRetry(() => apiClient.createManualJobPosting(formData)),
   listJobPostings: (includeInactive: boolean = false) =>
     RequestRetryHandler.withRetry(() => apiClient.listJobPostings(includeInactive)),
+  listJobPostingsPaged: (params?: { includeInactive?: boolean; limit?: number; offset?: number }) =>
+    RequestRetryHandler.withRetry(() => apiClient.listJobPostingsPaged(params)),
   getPublicJob: (token: string) => RequestRetryHandler.withRetry(() => apiClient.getPublicJob(token)),
   getRecentJobPostings: (limit: number = 5) => RequestRetryHandler.withRetry(() => apiClient.getRecentJobPostings(limit)),
   submitJobApplication: (token: string, name: string, email: string, phone: string | undefined, expectedSalary: number, yearsOfExperience: number, cvFile: File) =>

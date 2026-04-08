@@ -77,7 +77,7 @@ export default function DatabasePageNew() {
     runMatch,
     deleteCV,
     deleteJD,
-    loadingStates,
+    loadingStates, databaseActiveTab,
   } = useAppStore();
   const { user } = useAuthStore();
 
@@ -87,12 +87,15 @@ export default function DatabasePageNew() {
   const [page, setPage] = useState(1);
   const [preview, setPreview] = useState<{ id: string; name: string; type: 'cv' | 'jd' } | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [previewLoadError, setPreviewLoadError] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [openMenuCVId, setOpenMenuCVId] = useState<string | null>(null);
   const [openMenuJDId, setOpenMenuJDId] = useState<string | null>(null);
-  const [view, setView] = useState<'candidates' | 'jobs'>('candidates');
+  const [view, setView] = useState<'candidates' | 'jobs'>(
+    databaseActiveTab === 'jds' ? 'jobs' : 'candidates'
+  );
   const [detailCVId, setDetailCVId] = useState<string | null>(null);
   const [notesSummary, setNotesSummary] = useState<Record<string, number>>({});
   const [detailCV, setDetailCV] = useState<any>(null);
@@ -107,29 +110,42 @@ export default function DatabasePageNew() {
   const [detailJDLoading, setDetailJDLoading] = useState(false);
   const [notesFilter, setNotesFilter] = useState<'all' | 'with_notes' | 'without_notes'>('all');
   const [showSelectedCVs, setShowSelectedCVs] = useState(false);
+  const [showSelectionPopup, setShowSelectionPopup] = useState(false);
 
-  // Load CV via download API for preview (works for both upload CVs and job-application CVs from Careers)
+  // Load CV or JD as blob for preview (blob URL for PDF/iframe; keep blob for DOCX to avoid refetch 0 B)
   useEffect(() => {
-    if (!preview || preview.type !== 'cv') {
+    if (!preview) {
       if (previewBlobUrl) {
         URL.revokeObjectURL(previewBlobUrl);
         setPreviewBlobUrl(null);
       }
+      setPreviewBlob(null);
       setPreviewLoadError(null);
       return;
     }
     let cancelled = false;
     setPreviewLoading(true);
     setPreviewLoadError(null);
+    setPreviewBlob(null);
     (async () => {
       try {
-        const { blob, filename: apiFilename } = await api.downloadCV(preview.id);
-        if (cancelled) return;
-        setPreviewBlobUrl(URL.createObjectURL(blob));
-
-        // Update filename from API if it has a better extension (e.g. .docx instead of .pdf)
-        if (apiFilename && apiFilename !== preview.name) {
-          setPreview(prev => prev ? { ...prev, name: apiFilename } : null);
+        if (preview.type === 'cv') {
+          const { blob, filename: apiFilename } = await api.downloadCV(preview.id);
+          if (cancelled) return;
+          setPreviewBlobUrl(URL.createObjectURL(blob));
+          setPreviewBlob(blob);
+          if (apiFilename && apiFilename !== preview.name) {
+            setPreview(prev => prev ? { ...prev, name: apiFilename } : null);
+          }
+        } else {
+          const url = `${getApiBaseUrl()}/api/storage/files/${preview.type}/${preview.id}`;
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(res.statusText || 'Failed to load document');
+          const blob = await res.blob();
+          if (cancelled) return;
+          if (blob.size === 0) throw new Error('Document is empty');
+          setPreviewBlobUrl(URL.createObjectURL(blob));
+          setPreviewBlob(blob);
         }
       } catch (e) {
         if (!cancelled) {
@@ -149,6 +165,7 @@ export default function DatabasePageNew() {
       URL.revokeObjectURL(previewBlobUrl);
       setPreviewBlobUrl(null);
     }
+    setPreviewBlob(null);
     setPreview(null);
     setPreviewLoadError(null);
     setPreviewLoading(false);
@@ -382,7 +399,7 @@ export default function DatabasePageNew() {
   }, [categories]);
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0 bg-gradient-to-b from-gray-50 to-[#eff6ff]/30">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
@@ -390,33 +407,63 @@ export default function DatabasePageNew() {
           <p className="text-gray-600 mt-0.5">
             Select a folder, choose candidates and a job description, then run matching.
           </p>
+          <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-500">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-gray-200">
+              <Users className="w-3.5 h-3.5" />
+              Loaded {cvs.length}{totalCVs != null ? ` of ${totalCVs}` : ''} candidates
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-gray-200">
+              <FileText className="w-3.5 h-3.5" />
+              Loaded {jds.length}{totalJDs != null ? ` of ${totalJDs}` : ''} JDs
+            </span>
+            {(selectedCVs.length > 0 || selectedJD) && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-gray-200">
+                <ListChecks className="w-3.5 h-3.5 text-[#00529b]" />
+                {selectedCVs.length} selected{selectedJD ? ' • 1 JD selected' : ''}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => { loadCVs(); loadJDs(); }}
-            className="inline-flex items-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </Button>
-          {canMatch && (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+          <div className="relative flex-1 min-w-[220px] sm:min-w-[260px] lg:min-w-[360px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder={view === 'candidates' ? 'Search candidates...' : 'Search job descriptions...'}
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              className="w-full min-w-0 pl-9 pr-4 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:ring-offset-0 focus:border-[#00529b]"
+            />
+          </div>
+          <div className="flex items-center gap-3 flex-wrap justify-end">
             <Button
-              variant="primary"
-              onClick={handleMatch}
-              className="inline-flex items-center gap-2 bg-[#00529b] hover:bg-[#003d73] !text-white border-0"
+              variant="outline"
+              size="sm"
+              onClick={() => { loadCVs(); loadJDs(); }}
+              className="inline-flex items-center gap-2"
             >
-              <Target className="w-4 h-4 !text-white" />
-              <span className="!text-white">Match {selectedCVs.length} with {selectedJDDisplay ? getJDDisplay(selectedJDDisplay).title : 'JD'}</span>
+              <RefreshCw className="w-4 h-4" />
+              Refresh
             </Button>
-          )}
+            {canMatch && (
+              <Button
+                variant="primary"
+                onClick={handleMatch}
+                className="inline-flex items-center gap-2 bg-[#00529b] hover:bg-[#003d73] !text-white border-0"
+              >
+                <Target className="w-4 h-4 !text-white" />
+                <span className="!text-white">
+                  Match {selectedCVs.length} with {selectedJDDisplay ? getJDDisplay(selectedJDDisplay).title : 'JD'}
+                </span>
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-4 lg:gap-6">
         {/* Sidebar: Folders + JDs - stacks on mobile */}
-        <aside className="w-full lg:w-64 shrink-0 flex flex-col gap-4 lg:gap-6 bg-white border border-gray-200 rounded-xl p-4 h-fit">
+        <aside className="w-full lg:w-72 shrink-0 flex flex-col gap-4 lg:gap-6 bg-white border border-gray-200 rounded-2xl p-4 h-fit lg:sticky lg:top-4">
           <div>
             <h2 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
               <FolderOpen className="w-4 h-4" />
@@ -457,7 +504,7 @@ export default function DatabasePageNew() {
               Job descriptions
             </h2>
             <p className="text-xs text-gray-500 mb-2">Select one to match with candidates.</p>
-            <div className="space-y-1 max-h-48 overflow-y-auto">
+            <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
               {jds.length === 0 ? (
                 <p className="text-xs text-gray-500 px-2">No JDs yet. Upload from Upload tab.</p>
               ) : (
@@ -487,10 +534,6 @@ export default function DatabasePageNew() {
                 {selectedCVs.length} candidate{selectedCVs.length !== 1 ? 's' : ''} selected
                 {selectedJD && ` • 1 JD selected`}
               </p>
-              <Button variant="outline" size="sm" onClick={() => setShowSelectedCVs(true)} className="w-full inline-flex items-center gap-2">
-                <ListChecks className="w-4 h-4" />
-                Selected CVs ({selectedCVs.length})
-              </Button>
             </div>
           )}
         </aside>
@@ -514,18 +557,8 @@ export default function DatabasePageNew() {
                 Job descriptions ({jds.length})
               </button>
             </div>
-            <div className="relative flex-1 min-w-0">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder={view === 'candidates' ? 'Search candidates...' : 'Search job descriptions...'}
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="w-full min-w-0 pl-9 pr-4 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:ring-offset-0 focus:border-[#00529b]"
-              />
-            </div>
             {view === 'candidates' && (
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap sm:ml-auto">
                 <select
                   value={notesFilter}
                   onChange={(e) => { setNotesFilter(e.target.value as 'all' | 'with_notes' | 'without_notes'); setPage(1); }}
@@ -551,7 +584,7 @@ export default function DatabasePageNew() {
               {activeFolder !== CATEGORY_ALL && ` in ${activeFolder}`}
             </p>
           )}
-          <div className="flex-1 overflow-auto rounded-xl border border-gray-200 bg-white">
+          <div className="flex-1 overflow-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
             {view === 'jobs' ? (
               filteredJDs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-gray-500">
@@ -1060,39 +1093,34 @@ export default function DatabasePageNew() {
         </ol>
       </div>
 
-      {/* Preview modal: CV uses download API (blob URL) so job-application CVs work; JD uses storage URL */}
-      {preview && (
-        preview.type === 'cv' && (previewLoading || previewLoadError || !previewBlobUrl) ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-white rounded-lg p-6 flex flex-col items-center gap-3">
-              {previewLoadError ? (
-                <>
-                  <p className="text-red-600">{previewLoadError}</p>
-                  <Button onClick={closePreview} variant="outline">Close</Button>
-                </>
-              ) : (
-                <>
-                  <Loader2 className="w-10 h-10 animate-spin text-[#00529b]" />
-                  <p className="text-gray-700">Loading PDF...</p>
-                </>
-              )}
-            </div>
+      {/* Preview modal: CV and JD both loaded as blob so PDF/DOCX display in iframe (same as CVs) */}
+      {preview && (previewLoading || previewLoadError || !previewBlobUrl) ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg p-6 flex flex-col items-center gap-3">
+            {previewLoadError ? (
+              <>
+                <p className="text-red-600">{previewLoadError}</p>
+                <Button onClick={closePreview} variant="outline">Close</Button>
+              </>
+            ) : (
+              <>
+                <Loader2 className="w-10 h-10 animate-spin text-[#00529b]" />
+                <p className="text-gray-700">Loading document…</p>
+              </>
+            )}
           </div>
-        ) : (preview.type === 'jd' || (preview.type === 'cv' && previewBlobUrl)) ? (
-          <FilePreviewModal
-            isOpen
-            onClose={closePreview}
-            fileUrl={
-              preview.type === 'cv' && previewBlobUrl
-                ? previewBlobUrl
-                : `${getApiBaseUrl()}/api/storage/files/${preview.type}/${preview.id}`
-            }
-            fileName={preview.name}
-            fileId={preview.id}
-            fileType="application/pdf"
-          />
-        ) : null
-      )}
+        </div>
+      ) : preview && previewBlobUrl ? (
+        <FilePreviewModal
+          isOpen
+          onClose={closePreview}
+          fileUrl={previewBlobUrl}
+          fileName={preview.name}
+          fileId={preview.id}
+          fileType="application/pdf"
+          blob={previewBlob}
+        />
+      ) : null}
 
       {/* Selected CVs modal */}
       <Dialog open={showSelectedCVs} onOpenChange={setShowSelectedCVs}>
@@ -1143,6 +1171,110 @@ export default function DatabasePageNew() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Floating selection popup (chat-like) */}
+      {(selectedCVs.length > 0 || selectedJD) && (
+        <div className="fixed bottom-4 right-4 z-50">
+          {showSelectionPopup && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowSelectionPopup(false)}
+                aria-hidden
+              />
+              <div className="relative z-50 w-[320px] sm:w-[360px] max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden">
+                <div className="flex items-start justify-between gap-3 p-4 border-b border-gray-200 bg-gray-50">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">Selection</p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      {selectedCVs.length} CV{selectedCVs.length !== 1 ? 's' : ''} selected
+                      {selectedJD ? ' • 1 JD selected' : ''}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="p-2 rounded-lg hover:bg-gray-200 text-gray-600"
+                    onClick={() => setShowSelectionPopup(false)}
+                    aria-label="Close selection"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="max-h-[50vh] overflow-auto p-3">
+                  {selectedCVList.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-6 text-center">No CVs selected.</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {selectedCVList.map((cv) => {
+                        const d = getCVDisplay(cv);
+                        return (
+                          <li
+                            key={cv.id}
+                            className="flex items-center justify-between gap-2 py-2 px-3 rounded-xl hover:bg-gray-50 border border-transparent hover:border-gray-200"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-gray-900 truncate">{d.name}</p>
+                              <p className="text-xs text-gray-500 truncate">{d.title}</p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deselectCV(cv.id)}
+                              className="shrink-0 text-gray-500 hover:text-red-600"
+                              aria-label={`Remove ${d.name} from selection`}
+                              title="Remove"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="p-3 border-t border-gray-200 bg-white flex items-center justify-between gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowSelectedCVs(true)}
+                    className="flex-1"
+                  >
+                    View all
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { deselectAllCVs(); }}
+                    disabled={selectedCVs.length === 0}
+                    className="flex-1"
+                  >
+                    Clear all
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowSelectionPopup((v) => !v)}
+            className="relative z-50 inline-flex items-center gap-2 px-4 py-3 rounded-full bg-[#00529b] hover:bg-[#003d73] !text-white shadow-lg shadow-blue-900/20 transition-colors"
+            aria-label="Open selection"
+          >
+            <ListChecks className="w-5 h-5 !text-white" />
+            <span className="text-sm font-semibold !text-white">
+              Selection ({selectedCVs.length})
+            </span>
+            {selectedJD && (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white/20 !text-white">
+                JD ✓
+              </span>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -6,7 +6,9 @@
 # Environment files with secrets
 .env
 .env.*
+*.env
 !.env.example
+!*.env.example
 azure_email_config.env
 
 # Python
@@ -63,6 +65,8 @@ logs/
 *.log.*
 
 # Cache & Temp
+nginx-ssl.conf
+nginx*.conf
 nginx-cache/
 tmp/
 temp/
@@ -94,7 +98,9 @@ Desktop.ini
 .bash_history
 .bash_logout
 .bashrc
+.lesshst
 .profile
+.gitconfig
 .sudo_as_admin_successful
 .wget-hsts
 
