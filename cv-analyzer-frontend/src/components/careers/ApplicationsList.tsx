@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import {
   User,
@@ -14,6 +14,9 @@ import {
   Save,
   Eye,
   DollarSign,
+  Search,
+  ArrowUpDown,
+  Filter,
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAppStore } from '@/stores/appStore';
@@ -32,6 +35,9 @@ export default function ApplicationsList() {
   const { setCurrentTab, setCareersMatchData } = useAppStore();
   const { user } = useAuthStore();
   const [downloadingCV, setDownloadingCV] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'email_application' | 'other'>('all');
+  const [sortBy, setSortBy] = useState<'recent' | 'salary_high' | 'salary_low'>('recent');
   
   // Note editing state
   const [editingNote, setEditingNote] = useState<string | null>(null);
@@ -248,7 +254,38 @@ export default function ApplicationsList() {
 
 
 
-  const sortedApplications = applications;
+  const filteredApplications = useMemo(() => {
+    let list = applications || [];
+    const q = query.trim().toLowerCase();
+    if (q) {
+      list = list.filter((a: any) => {
+        const name = String(a?.applicant_name || '').toLowerCase();
+        const email = String(a?.applicant_email || '').toLowerCase();
+        const phone = String(a?.applicant_phone || '').toLowerCase();
+        const file = String(a?.cv_filename || '').toLowerCase();
+        return name.includes(q) || email.includes(q) || phone.includes(q) || file.includes(q);
+      });
+    }
+    if (sourceFilter !== 'all') {
+      list = list.filter((a: any) => {
+        const src = a?.source;
+        if (sourceFilter === 'email_application') return src === 'email_application';
+        return src !== 'email_application';
+      });
+    }
+    const byDate = (s?: string) => {
+      const t = s ? Date.parse(s) : 0;
+      return Number.isFinite(t) ? t : 0;
+    };
+    const bySalary = (n: any) => (typeof n === 'number' && Number.isFinite(n) ? n : -1);
+    const sorted = [...list].sort((a: any, b: any) => {
+      if (sortBy === 'recent') return byDate(b?.application_date) - byDate(a?.application_date);
+      if (sortBy === 'salary_high') return bySalary(b?.expected_salary) - bySalary(a?.expected_salary);
+      if (sortBy === 'salary_low') return bySalary(a?.expected_salary) - bySalary(b?.expected_salary);
+      return 0;
+    });
+    return sorted;
+  }, [applications, query, sourceFilter, sortBy]);
 
   if (isLoading) {
     return (
@@ -270,21 +307,84 @@ export default function ApplicationsList() {
     );
   }
 
+  const totalCount = applications.length;
+  const visibleCount = filteredApplications.length;
+  const naukriCount = applications.filter((a: any) => a?.source === 'email_application').length;
+  const withSalaryCount = applications.filter((a: any) => typeof a?.expected_salary === 'number').length;
+
   return (
-    <div className="overflow-x-auto -mx-1 sm:mx-0">
-      <table className="w-full text-xs sm:text-sm border-collapse min-w-[640px]">
+    <div className="space-y-3">
+      {/* Controls */}
+      <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between px-3 sm:px-4 pt-3 sm:pt-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-gray-900">Applicants</span>
+            <span className="text-xs text-gray-500">
+              Showing {visibleCount} of {totalCount}
+              {naukriCount > 0 ? ` • Naukri: ${naukriCount}` : ''}
+              {withSalaryCount > 0 ? ` • Salary: ${withSalaryCount}` : ''}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Search, filter, and open a candidate to review details, notes, and PDF.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <div className="relative w-full sm:w-[320px]">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, email, phone, filename…"
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+            />
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <div className="inline-flex items-center gap-2">
+              <Filter className="w-4 h-4 text-gray-500" />
+              <select
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value as any)}
+                className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+                title="Filter by source"
+              >
+                <option value="all">All sources</option>
+                <option value="email_application">Naukri (email)</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div className="inline-flex items-center gap-2">
+              <ArrowUpDown className="w-4 h-4 text-gray-500" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+                title="Sort"
+              >
+                <option value="recent">Most recent</option>
+                <option value="salary_high">Salary (high → low)</option>
+                <option value="salary_low">Salary (low → high)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto -mx-1 sm:mx-0">
+        <table className="w-full text-xs sm:text-sm border-collapse min-w-[720px]">
         <thead>
           <tr className="border-b border-gray-200 bg-gray-50">
             <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Candidate</th>
             <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Email</th>
             <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Expected salary</th>
             <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Applied</th>
-            <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Notes</th>
             <th className="text-right py-2 sm:py-3 px-2 sm:px-4 font-semibold text-gray-700">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {sortedApplications.map((application) => (
+          {filteredApplications.map((application) => (
             <tr
               key={application.application_id}
               className="border-b border-gray-100 hover:bg-gray-50/80 align-top"
@@ -327,16 +427,6 @@ export default function ApplicationsList() {
               <td className="py-2 sm:py-3 px-2 sm:px-4 text-gray-600 whitespace-nowrap">
                 {formatDate(application.application_date)}
               </td>
-              <td className="py-2 sm:py-3 px-2 sm:px-4">
-                {application.has_notes ? (
-                  <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    {application.notes_count || 0}
-                  </span>
-                ) : (
-                  <span className="text-gray-400">—</span>
-                )}
-              </td>
               <td className="py-2 sm:py-3 px-2 sm:px-4 text-right">
                 <div className="flex items-center justify-end gap-1 flex-wrap">
                   <Button
@@ -368,7 +458,8 @@ export default function ApplicationsList() {
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
       
       {/* Right-side panel: Candidate details & notes */}
       {viewingCVData && (

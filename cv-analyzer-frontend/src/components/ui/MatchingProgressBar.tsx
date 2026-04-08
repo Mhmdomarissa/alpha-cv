@@ -10,6 +10,9 @@ interface MatchingProgressBarProps {
   currentStage: 'initializing' | 'processing' | 'analyzing' | 'scoring' | 'finalizing';
   estimatedTimeRemaining?: number;
   isVisible: boolean;
+  currentBatch?: number;
+  totalBatches?: number;
+  phase?: 'initializing' | 'batches' | 'llm_verification' | 'finalizing';
 }
 
 const stageInfo = {
@@ -56,6 +59,9 @@ export default function MatchingProgressBar({
   currentStage,
   estimatedTimeRemaining,
   isVisible,
+  currentBatch = 0,
+  totalBatches = 0,
+  phase = 'initializing',
 }: MatchingProgressBarProps) {
   if (!isVisible) return null;
 
@@ -63,12 +69,20 @@ export default function MatchingProgressBar({
   const stage = stageInfo[currentStage];
   const Icon = stage.icon;
 
-  const formatTime = (seconds: number) => {
-    if (seconds < 60) return `${Math.round(seconds)}s`;
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.round(seconds % 60);
-    return `${minutes}m ${remainingSeconds}s`;
-  };
+  const batchStatusMessage =
+    phase === 'batches' && totalBatches > 0 && currentBatch >= 1
+      ? (() => {
+          if (currentBatch <= 3) {
+            const completed = Array.from({ length: currentBatch }, (_, i) => `Batch ${i + 1} matched`).join(', ');
+            return currentBatch < totalBatches ? `${completed}…` : `${completed}.`;
+          }
+          return `Batch 1–${currentBatch} of ${totalBatches} matched${currentBatch < totalBatches ? '…' : '.'}`;
+        })()
+      : phase === 'llm_verification'
+        ? 'Second step: Running AI verification for accurate matching…'
+        : phase === 'finalizing'
+          ? 'Preparing your match results…'
+          : null;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[100] p-4 animate-fade-in">
@@ -118,6 +132,12 @@ export default function MatchingProgressBar({
           <p className="text-xs text-gray-500 mt-1.5 min-h-[1rem]">
             <Typewriter key={currentStage} text={stage.description} speed={30} delay={0} cursor={false} />
           </p>
+          {batchStatusMessage && (
+            <p className="text-xs font-medium text-[#00529b] mt-2 flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#00529b] animate-matching-dot" />
+              {batchStatusMessage}
+            </p>
+          )}
         </div>
 
         {/* Stage steps */}
@@ -142,14 +162,6 @@ export default function MatchingProgressBar({
             );
           })}
         </div>
-
-        {/* Time remaining */}
-        {estimatedTimeRemaining != null && estimatedTimeRemaining > 0 && (
-          <div className="flex items-center justify-center gap-2 text-sm text-gray-600 mb-4">
-            <Clock className="w-4 h-4 text-[#00529b]" />
-            <span>About {formatTime(estimatedTimeRemaining)} remaining</span>
-          </div>
-        )}
 
         {/* Compact stats */}
         <div className="flex justify-between text-xs text-gray-500 px-1">

@@ -79,6 +79,48 @@ function barColor(score: number) {
   return 'bg-rose-500';
 }
 
+function clamp01(n: number) {
+  if (Number.isNaN(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function getDisplayedBreakdown(candidate: any) {
+  const raw = {
+    skills: Number(candidate?.skills_score ?? 0),
+    responsibilities: Number(candidate?.responsibilities_score ?? 0),
+    title: Number(candidate?.job_title_score ?? 0),
+    years: Number(candidate?.years_score ?? 0),
+  };
+
+  // When LLM runs, backend overwrites overall_score with llm_score and stores the original similarity overall in semantic_score.
+  const hasLLM = !!candidate?.has_llm_analysis && typeof candidate?.semantic_score === 'number';
+  const semanticOverall = Number(candidate?.semantic_score ?? 0);
+  const overall = Number(candidate?.computed_overall ?? candidate?.overall_score ?? 0);
+
+  if (hasLLM && semanticOverall > 0) {
+    const scale = overall / semanticOverall;
+    return {
+      sourceLabel: 'LLM-adjusted',
+      scores: {
+        skills: clamp01(raw.skills * scale),
+        responsibilities: clamp01(raw.responsibilities * scale),
+        title: clamp01(raw.title * scale),
+        years: clamp01(raw.years * scale),
+      },
+    };
+  }
+
+  return {
+    sourceLabel: 'Similarity',
+    scores: {
+      skills: clamp01(raw.skills),
+      responsibilities: clamp01(raw.responsibilities),
+      title: clamp01(raw.title),
+      years: clamp01(raw.years),
+    },
+  };
+}
+
 // Try hard to get a human-friendly candidate name from the store or candidate object.
 function resolveCandidateName(candidate: any, cvIndex: Record<string, any>): string {
   const fromCandidate = candidate?.cv_name;
@@ -115,6 +157,17 @@ function resolveYears(candidate: any, cvIndex: Record<string, any>): string {
     (typeof cvMeta?.experience_years === 'number' ? cvMeta.experience_years : undefined) ??
     (typeof cvMeta?.years_of_experience === 'number' ? cvMeta.years_of_experience : undefined);
   return typeof yrs === 'number' ? `${yrs} years` : 'Experience n/a';
+}
+
+function resolveExpectedSalary(candidate: any, applications: any[]): number | null {
+  const fromCandidate = candidate?.expected_salary;
+  if (typeof fromCandidate === 'number' && fromCandidate > 0) return fromCandidate;
+  if (applications?.length) {
+    const app = applications.find((a: any) => a.application_id === candidate?.cv_id);
+    const salary = app?.expected_salary ?? (app as any)?.expected_salary;
+    if (typeof salary === 'number' && salary > 0) return salary;
+  }
+  return null;
 }
 
 // --- Component -----------------------------------------------------------
@@ -585,7 +638,7 @@ export default function MatchingPageNew() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 bg-gradient-to-b from-gray-50 to-[#eff6ff]/30 min-h-full p-1">
       {matchingQueue?.isQueued && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center justify-between shadow-sm">
           <div className="flex items-center space-x-3 flex-1">
@@ -635,11 +688,42 @@ export default function MatchingPageNew() {
         </div>
       )}
 
-      <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Match Results</h1>
-        <p className="text-sm sm:text-base text-gray-600 mt-0.5">
-          {totalMatches} candidate{totalMatches !== 1 ? 's' : ''} evaluated. Sort and filter below.
-        </p>
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Match Results</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-0.5">
+            {totalMatches} candidate{totalMatches !== 1 ? 's' : ''} evaluated. Sort, filter, and export.
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportResults}
+            disabled={isExporting}
+            className="border-gray-300 text-gray-700"
+          >
+            {isExporting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin mr-2" />
+                Exporting…
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
+              </>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-gray-300 text-gray-700"
+          >
+            <BarChart3 className="w-4 h-4 mr-2" />
+            Generate report
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
@@ -734,8 +818,9 @@ export default function MatchingPageNew() {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-center justify-between">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-center justify-between">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortKey)}
@@ -758,33 +843,15 @@ export default function MatchingPageNew() {
               <option value="all">Show All</option>
             </select>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleExportResults}
-            disabled={isExporting}
-            className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isExporting ? (
-              <>
-                <div className="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin mr-2" />
-                Exporting...
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4 mr-2" />
-                Export Results
-              </>
-            )}
-          </button>
-          <button className="inline-flex items-center px-3 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 transition-colors text-sm">
-            <BarChart3 className="w-4 h-4 mr-2" />
-            Generate Report
-          </button>
+          </div>
+          <div className="text-xs text-gray-500 flex items-center gap-2">
+            <Info className="w-4 h-4 text-gray-400" />
+            Tip: start with Top 3 and raise threshold for faster review.
+          </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200">
         <div className="p-4 sm:p-6">
           <div className="flex items-center gap-3 mb-4 sm:mb-6">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-emerald-50 shrink-0">
@@ -806,6 +873,7 @@ export default function MatchingPageNew() {
               const displayName = resolveCandidateName(candidate, cvIndex);
               const title = resolveTitle(candidate, cvIndex);
               const yearsText = resolveYears(candidate, cvIndex);
+              const expectedSalary = resolveExpectedSalary(candidate, applications ?? []);
               const cvMeta = cvIndex[candidate?.cv_id];
               const filename = cvMeta?.filename || `cv_${candidate.cv_id}.pdf`;
 
@@ -845,6 +913,9 @@ export default function MatchingPageNew() {
                             </div>
                             <p className="text-sm text-gray-600">
                               {title} • {yearsText}
+                              {expectedSalary != null && (
+                                <span className="text-gray-700 font-medium"> • Expected: AED {expectedSalary.toLocaleString()}</span>
+                              )}
                             </p>
                           </div>
                         </div>
@@ -912,69 +983,87 @@ export default function MatchingPageNew() {
 
                       {/* Quick breakdown */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5">
-                        {/* Skills */}
-                        <div className="p-3 rounded-lg border border-gray-200 bg-white">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-medium text-gray-600">Skills</span>
-                            <span className={`text-xs font-semibold ${scoreColor(candidate.skills_score ?? 0)}`}>
-                              {Math.round((candidate.skills_score ?? 0) * 100)}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                            <div
-                              className={`h-2 rounded-full transition-[width] duration-300 ${barColor(candidate.skills_score ?? 0)}`}
-                              style={{ width: `${Math.max(0, Math.min(100, (candidate.skills_score ?? 0) * 100))}%` }}
-                            />
-                          </div>
-                        </div>
+                        {(() => {
+                          const b = getDisplayedBreakdown(candidate);
+                          const scores = b.scores;
+                          return (
+                            <>
+                              <div className="col-span-2 md:col-span-4 -mt-1 mb-0.5">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase bg-gray-100 text-gray-700">
+                                  Breakdown: {b.sourceLabel}
+                                </span>
+                                {candidate?.has_llm_analysis && typeof candidate?.semantic_score === 'number' && (
+                                  <span className="ml-2 text-[11px] text-gray-500">
+                                    Overall: {Math.round((candidate?.computed_overall ?? candidate?.overall_score ?? 0) * 100)}% • Similarity: {Math.round((candidate.semantic_score ?? 0) * 100)}%
+                                  </span>
+                                )}
+                              </div>
+                              {/* Skills */}
+                              <div className="p-3 rounded-lg border border-gray-200 bg-white">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs font-medium text-gray-600">Skills</span>
+                                  <span className={`text-xs font-semibold ${scoreColor(scores.skills)}`}>
+                                    {Math.round(scores.skills * 100)}%
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className={`h-2 rounded-full transition-[width] duration-300 ${barColor(scores.skills)}`}
+                                    style={{ width: `${Math.max(0, Math.min(100, scores.skills * 100))}%` }}
+                                  />
+                                </div>
+                              </div>
 
-                        {/* Responsibilities */}
-                        <div className="p-3 rounded-lg border border-gray-200 bg-white">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-medium text-gray-600">Responsibilities</span>
-                            <span className={`text-xs font-semibold ${scoreColor(candidate.responsibilities_score ?? 0)}`}>
-                              {Math.round((candidate.responsibilities_score ?? 0) * 100)}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                            <div
-                              className={`h-2 rounded-full transition-[width] duration-300 ${barColor(candidate.responsibilities_score ?? 0)}`}
-                              style={{ width: `${Math.max(0, Math.min(100, (candidate.responsibilities_score ?? 0) * 100))}%` }}
-                            />
-                          </div>
-                        </div>
+                              {/* Responsibilities */}
+                              <div className="p-3 rounded-lg border border-gray-200 bg-white">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs font-medium text-gray-600">Responsibilities</span>
+                                  <span className={`text-xs font-semibold ${scoreColor(scores.responsibilities)}`}>
+                                    {Math.round(scores.responsibilities * 100)}%
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className={`h-2 rounded-full transition-[width] duration-300 ${barColor(scores.responsibilities)}`}
+                                    style={{ width: `${Math.max(0, Math.min(100, scores.responsibilities * 100))}%` }}
+                                  />
+                                </div>
+                              </div>
 
-                        {/* Title */}
-                        <div className="p-3 rounded-lg border border-gray-200 bg-white">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-medium text-gray-600">Title</span>
-                            <span className={`text-xs font-semibold ${scoreColor(candidate.job_title_score ?? 0)}`}>
-                              {Math.round((candidate.job_title_score ?? 0) * 100)}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                            <div
-                              className={`h-2 rounded-full transition-[width] duration-300 ${barColor(candidate.job_title_score ?? 0)}`}
-                              style={{ width: `${Math.max(0, Math.min(100, (candidate.job_title_score ?? 0) * 100))}%` }}
-                            />
-                          </div>
-                        </div>
+                              {/* Title */}
+                              <div className="p-3 rounded-lg border border-gray-200 bg-white">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs font-medium text-gray-600">Title</span>
+                                  <span className={`text-xs font-semibold ${scoreColor(scores.title)}`}>
+                                    {Math.round(scores.title * 100)}%
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className={`h-2 rounded-full transition-[width] duration-300 ${barColor(scores.title)}`}
+                                    style={{ width: `${Math.max(0, Math.min(100, scores.title * 100))}%` }}
+                                  />
+                                </div>
+                              </div>
 
-                        {/* Years */}
-                        <div className="p-3 rounded-lg border border-gray-200 bg-white">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-medium text-gray-600">Years</span>
-                            <span className={`text-xs font-semibold ${scoreColor(candidate.years_score ?? 0)}`}>
-                              {Math.round((candidate.years_score ?? 0) * 100)}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                            <div
-                              className={`h-2 rounded-full transition-[width] duration-300 ${barColor(candidate.years_score ?? 0)}`}
-                              style={{ width: `${Math.max(0, Math.min(100, (candidate.years_score ?? 0) * 100))}%` }}
-                            />
-                          </div>
-                        </div>
+                              {/* Years */}
+                              <div className="p-3 rounded-lg border border-gray-200 bg-white">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs font-medium text-gray-600">Years</span>
+                                  <span className={`text-xs font-semibold ${scoreColor(scores.years)}`}>
+                                    {Math.round(scores.years * 100)}%
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className={`h-2 rounded-full transition-[width] duration-300 ${barColor(scores.years)}`}
+                                    style={{ width: `${Math.max(0, Math.min(100, scores.years * 100))}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
 
                       {/* Action Buttons */}

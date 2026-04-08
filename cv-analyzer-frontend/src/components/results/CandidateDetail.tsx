@@ -21,6 +21,33 @@ interface CandidateDetailProps {
 
 export default function CandidateDetail({ candidate, onClose }: CandidateDetailProps) {
   const { matchResult } = useAppStore();
+
+  const clamp01 = (n: number) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
+  const getDisplayedBreakdown = () => {
+    const raw = {
+      skills: clamp01(candidate.skills_score || 0),
+      responsibilities: clamp01(candidate.responsibilities_score || 0),
+      title: clamp01(candidate.job_title_score || 0),
+      years: clamp01(candidate.years_score || 0),
+    };
+    const hasLLM = !!candidate.has_llm_analysis && typeof (candidate as any).semantic_score === 'number';
+    const semanticOverall = Number((candidate as any).semantic_score ?? 0);
+    const overall = Number(candidate.overall_score ?? 0);
+    if (hasLLM && semanticOverall > 0) {
+      const scale = overall / semanticOverall;
+      return {
+        sourceLabel: 'LLM-adjusted',
+        scores: {
+          skills: clamp01(raw.skills * scale),
+          responsibilities: clamp01(raw.responsibilities * scale),
+          title: clamp01(raw.title * scale),
+          years: clamp01(raw.years * scale),
+        },
+      };
+    }
+    return { sourceLabel: 'Similarity', scores: raw };
+  };
+  const displayed = getDisplayedBreakdown();
   
   const getScoreColor = (score: number) => {
     if (score >= 0.5) return 'text-green-600 bg-green-50 border-green-200';
@@ -227,14 +254,24 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                     <div className="text-3xl font-bold mb-2">
                       {formatPercentage(candidate.overall_score)}
                     </div>
-                    <p className="text-sm text-muted-foreground">Overall Score</p>
+                    <p className="text-sm text-muted-foreground">
+                      Overall Score
+                      <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-muted text-foreground/70">
+                        {displayed.sourceLabel}
+                      </span>
+                      {candidate.has_llm_analysis && typeof (candidate as any).semantic_score === 'number' && (
+                        <span className="block mt-1 text-[11px] text-muted-foreground">
+                          Similarity: {formatPercentage((candidate as any).semantic_score || 0)}
+                        </span>
+                      )}
+                    </p>
                   </CardContent>
                 </Card>
                 
                 <Card>
                   <CardContent className="p-4 text-center">
                     <div className="text-2xl font-bold mb-2">
-                      {formatPercentage(candidate.skills_score)}
+                      {formatPercentage(displayed.scores.skills)}
                     </div>
                     <p className="text-sm text-muted-foreground">Skills Match</p>
                   </CardContent>
@@ -243,7 +280,7 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                 <Card>
                   <CardContent className="p-4 text-center">
                     <div className="text-2xl font-bold mb-2">
-                      {formatPercentage(candidate.responsibilities_score)}
+                      {formatPercentage(displayed.scores.responsibilities)}
                     </div>
                     <p className="text-sm text-muted-foreground">Responsibilities</p>
                   </CardContent>
@@ -252,7 +289,7 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                 <Card>
                   <CardContent className="p-4 text-center">
                     <div className="text-2xl font-bold mb-2">
-                      {formatPercentage(candidate.job_title_score)}
+                      {formatPercentage(displayed.scores.title)}
                     </div>
                     <p className="text-sm text-muted-foreground">Title Similarity</p>
                   </CardContent>
@@ -362,7 +399,7 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
                               <span>Raw Score:</span>
-                              <span className="font-medium">{formatPercentage(candidate.skills_score)}</span>
+                              <span className="font-medium">{formatPercentage(displayed.scores.skills)}</span>
                             </div>
                             <div className="flex justify-between">
                               <span>Weight:</span>
@@ -370,7 +407,7 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                             </div>
                             <div className="border-t border-blue-300 pt-2 flex justify-between font-bold">
                               <span>Contribution:</span>
-                              <span>{formatPercentage(candidate.skills_score * normalizedWeights.skills)}</span>
+                              <span>{formatPercentage(displayed.scores.skills * normalizedWeights.skills)}</span>
                             </div>
                           </div>
                         </div>
@@ -391,7 +428,7 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
                               <span>Raw Score:</span>
-                              <span className="font-medium">{formatPercentage(candidate.responsibilities_score)}</span>
+                              <span className="font-medium">{formatPercentage(displayed.scores.responsibilities)}</span>
                             </div>
                             <div className="flex justify-between">
                               <span>Weight:</span>
@@ -399,7 +436,7 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                             </div>
                             <div className="border-t border-green-300 pt-2 flex justify-between font-bold">
                               <span>Contribution:</span>
-                              <span>{formatPercentage(candidate.responsibilities_score * normalizedWeights.responsibilities)}</span>
+                              <span>{formatPercentage(displayed.scores.responsibilities * normalizedWeights.responsibilities)}</span>
                             </div>
                           </div>
                         </div>
@@ -420,7 +457,7 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
                               <span>Raw Score:</span>
-                              <span className="font-medium">{formatPercentage(candidate.job_title_score)}</span>
+                              <span className="font-medium">{formatPercentage(displayed.scores.title)}</span>
                             </div>
                             <div className="flex justify-between">
                               <span>Weight:</span>
@@ -428,7 +465,7 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                             </div>
                             <div className="border-t border-purple-300 pt-2 flex justify-between font-bold">
                               <span>Contribution:</span>
-                              <span>{formatPercentage(candidate.job_title_score * normalizedWeights.job_title)}</span>
+                              <span>{formatPercentage(displayed.scores.title * normalizedWeights.job_title)}</span>
                             </div>
                           </div>
                         </div>
@@ -449,7 +486,7 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
                               <span>Raw Score:</span>
-                              <span className="font-medium">{formatPercentage(candidate.years_score)}</span>
+                              <span className="font-medium">{formatPercentage(displayed.scores.years)}</span>
                             </div>
                             <div className="flex justify-between">
                               <span>Weight:</span>
@@ -457,7 +494,7 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                             </div>
                             <div className="border-t border-amber-300 pt-2 flex justify-between font-bold">
                               <span>Contribution:</span>
-                              <span>{formatPercentage(candidate.years_score * normalizedWeights.experience)}</span>
+                              <span>{formatPercentage(displayed.scores.years * normalizedWeights.experience)}</span>
                             </div>
                           </div>
                         </div>
@@ -471,12 +508,12 @@ export default function CandidateDetail({ candidate, onClose }: CandidateDetailP
                           <h3 className="text-lg font-bold mb-4">Final Score Calculation</h3>
                           <div className="space-y-2 text-sm font-mono">
                             <div>
-                              {formatPercentage(candidate.skills_score)} × {formatPercentage(normalizedWeights.skills)} + 
-                              {formatPercentage(candidate.responsibilities_score)} × {formatPercentage(normalizedWeights.responsibilities)} +
+                              {formatPercentage(displayed.scores.skills)} × {formatPercentage(normalizedWeights.skills)} + 
+                              {formatPercentage(displayed.scores.responsibilities)} × {formatPercentage(normalizedWeights.responsibilities)} +
                             </div>
                             <div>
-                              {formatPercentage(candidate.job_title_score)} × {formatPercentage(normalizedWeights.job_title)} + 
-                              {formatPercentage(candidate.years_score)} × {formatPercentage(normalizedWeights.experience)}
+                              {formatPercentage(displayed.scores.title)} × {formatPercentage(normalizedWeights.job_title)} + 
+                              {formatPercentage(displayed.scores.years)} × {formatPercentage(normalizedWeights.experience)}
                             </div>
                             <div className="text-2xl font-bold text-blue-600 mt-4 pt-4 border-t border-blue-300">
                               = {formatPercentage(candidate.overall_score)}

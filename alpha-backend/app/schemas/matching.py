@@ -36,6 +36,7 @@ class CandidateBreakdown(BaseModel):
     cv_name: str
     cv_job_title: Optional[str] = None
     cv_years: int = 0
+    expected_salary: Optional[float] = Field(None, description="Expected salary in AED (from application or CV)")
     skills_score: float = 0.0
     responsibilities_score: float = 0.0
     job_title_score: float = 0.0

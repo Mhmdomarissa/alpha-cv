@@ -8,12 +8,14 @@ services:
       context: ./cv-analyzer-frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+        # Use localhost so browser connects via nginx (port 80) - avoids connection issues on Windows
+        NEXT_PUBLIC_API_URL: http://localhost
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+      # Use localhost so API calls go to http://localhost/api (nginx proxies to backend)
+      - NEXT_PUBLIC_API_URL=http://localhost
     depends_on:
       - backend-dev
     networks:

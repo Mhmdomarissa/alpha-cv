@@ -26,6 +26,12 @@ interface MatchingProgress {
   currentStage: 'initializing' | 'processing' | 'analyzing' | 'scoring' | 'finalizing';
   estimatedTimeRemaining?: number;
   isVisible: boolean;
+  /** Current batch completed (1-based). Backend processes in chunks of 50. */
+  currentBatch?: number;
+  /** Total batches (ceil(totalCVs/50)). */
+  totalBatches?: number;
+  /** Phase for status message: batches = "Batch N matched", llm_verification = "AI accurate matching". */
+  phase?: 'initializing' | 'batches' | 'llm_verification' | 'finalizing';
 }
 
 interface AppState {
@@ -151,6 +157,9 @@ export const useAppStore = create<AppState>()(
         processedCVs: 0,
         currentStage: 'initializing',
         isVisible: false,
+        currentBatch: 0,
+        totalBatches: 0,
+        phase: 'initializing',
       },
       // Queue state removed
       systemHealth: null,
@@ -467,52 +476,59 @@ export const useAppStore = create<AppState>()(
             ...request,
           };
           
-          // Initialize progress tracking
+          // Initialize progress tracking (time-based; backend uses chunks of 50 + LLM phase)
           const totalCVs = selectedCVs.length || 0;
+          const totalBatches = Math.max(1, Math.ceil(totalCVs / 50));
+          const estimatedTotalSeconds = Math.max(30, totalCVs * 5);
+          const startTime = Date.now();
           setMatchingProgress({
             totalCVs,
             processedCVs: 0,
             currentStage: 'initializing',
             isVisible: true,
-            estimatedTimeRemaining: totalCVs * 2, // Estimate 2 seconds per CV
+            estimatedTimeRemaining: estimatedTotalSeconds,
+            currentBatch: 0,
+            totalBatches,
+            phase: 'initializing',
           });
-          
-          logger.info('Starting candidate matching', matchRequest);
-          
-          // Simulate progress updates during matching
+
+          const progressStageFromPercent = (pct: number): 'initializing' | 'processing' | 'analyzing' | 'scoring' | 'finalizing' => {
+            if (pct < 20) return 'initializing';
+            if (pct < 40) return 'processing';
+            if (pct < 70) return 'analyzing';
+            if (pct < 90) return 'scoring';
+            return 'finalizing';
+          };
+
           const progressInterval = setInterval(() => {
-            const state = get();
-            const currentProgress = state.matchingProgress;
-            
-            if (currentProgress.processedCVs < totalCVs) {
-              const newProcessed = Math.min(
-                currentProgress.processedCVs + Math.ceil(totalCVs / 10),
-                totalCVs
-              );
-              
-              let newStage = currentProgress.currentStage;
-              const progressPercent = (newProcessed / totalCVs) * 100;
-              
-              if (progressPercent < 20) {
-                newStage = 'initializing';
-              } else if (progressPercent < 40) {
-                newStage = 'processing';
-              } else if (progressPercent < 70) {
-                newStage = 'analyzing';
-              } else if (progressPercent < 90) {
-                newStage = 'scoring';
-              } else {
-                newStage = 'finalizing';
-              }
-              
-              setMatchingProgress({
-                processedCVs: newProcessed,
-                currentStage: newStage,
-                estimatedTimeRemaining: Math.max(0, (totalCVs - newProcessed) * 2),
-              });
+            const elapsed = (Date.now() - startTime) / 1000;
+            const progressPercent = Math.min(95, (elapsed / estimatedTotalSeconds) * 100);
+            const processedCVs = Math.min(totalCVs, Math.floor((progressPercent / 100) * totalCVs));
+            const estimatedTimeRemaining = Math.max(0, Math.ceil(estimatedTotalSeconds - elapsed));
+            // Map to batch phase: 0–5% initializing, 5–75% batches, 75–92% LLM verification, 92–100% finalizing
+            let phase: MatchingProgress['phase'] = 'initializing';
+            let currentBatch = 0;
+            if (progressPercent >= 92) {
+              phase = 'finalizing';
+              currentBatch = totalBatches;
+            } else if (progressPercent >= 75) {
+              phase = 'llm_verification';
+              currentBatch = totalBatches;
+            } else if (progressPercent >= 5) {
+              phase = 'batches';
+              currentBatch = Math.min(totalBatches, Math.max(1, Math.floor(((progressPercent - 5) / 70) * totalBatches)));
             }
+            setMatchingProgress({
+              processedCVs,
+              currentStage: progressStageFromPercent(progressPercent),
+              estimatedTimeRemaining,
+              currentBatch,
+              phase,
+            });
           }, 500);
-          
+
+          logger.info('Starting candidate matching', matchRequest);
+
           const result = await api.matchCandidates(matchRequest);
           
           // Check if request was queued
@@ -573,11 +589,17 @@ export const useAppStore = create<AppState>()(
             return;
           }
           
-          // Clear progress interval and hide progress bar
           clearInterval(progressInterval);
+          setMatchingProgress({
+            processedCVs: totalCVs,
+            currentStage: 'finalizing',
+            estimatedTimeRemaining: 0,
+            currentBatch: totalBatches,
+            phase: 'finalizing',
+          });
           hideMatchingProgress();
-          
-          set({ 
+
+          set({
             matchResult: result,
             matchingQueue: null,
           });
