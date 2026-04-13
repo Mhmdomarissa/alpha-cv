@@ -56,7 +56,9 @@ if [ "$REBUILD" == "rebuild" ]; then
 fi
 
 echo -e "${YELLOW}[INFO] Starting services...${NC}"
-$COMPOSE_CMD up -d
+# Run 2 replicas of public CV worker for higher throughput on bursts.
+# Note: docker-compose.cpu.yml still defines a single service; scaling is applied at runtime.
+$COMPOSE_CMD up -d --scale public-cv-worker=2
 
 sleep 5
 echo ""
@@ -66,5 +68,6 @@ echo ""
 echo -e "${GREEN}CPU stack is up.${NC}"
 echo "  - Frontend:  http://localhost"
 echo "  - Backend:   http://localhost/api"
+echo "  - Workers:   public-cv-worker x2, email-scheduler x1"
 echo "  - Logs:      $COMPOSE_CMD logs -f"
 echo ""

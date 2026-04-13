@@ -71,9 +71,11 @@ class ApiClient {
       },
     });
 
-    // Request interceptor: use same origin when page is HTTPS (avoids mixed content)
+    // Request interceptor: always use same origin in the browser to avoid CORS
+    // mismatches when the app is served through nginx (e.g. port 80) while the
+    // env var might point to a different host/port.
     this.client.interceptors.request.use((requestConfig) => {
-      if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+      if (typeof window !== 'undefined') {
         requestConfig.baseURL = window.location.origin;
       }
       const requestId = uuidv4();
@@ -130,7 +132,7 @@ class ApiClient {
     return response.data;
   }
 
-  async listCVs(params?: { limit?: number; offset?: number }): Promise<CVListResponse> {
+  async listCVs(params?: { limit?: number; offset?: number; category?: string }): Promise<CVListResponse> {
     const response = await this.client.get<CVListResponse>('/api/cv/cvs', {
       params: params ?? {},
     });
@@ -877,7 +879,7 @@ export const api = {
 
   // CV operations
   uploadCV: (file: File, cvText?: string) => RequestRetryHandler.withRetry(() => apiClient.uploadCV(file, cvText)),
-  listCVs: (params?: { limit?: number; offset?: number }) =>
+  listCVs: (params?: { limit?: number; offset?: number; category?: string }) =>
     RequestRetryHandler.withRetry(() => apiClient.listCVs(params)),
   getCVDetails: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVDetails(cvId)),
   deleteCV: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.deleteCV(cvId)),

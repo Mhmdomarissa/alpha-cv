@@ -1,5 +1,13 @@
 import type { NextConfig } from "next";
 
+// Backend URL used by the Next.js server-side rewrite proxy.
+// Inside Docker the backend service is reachable at http://backend-dev:8000 (dev)
+// or http://backend:8000 (prod). The env var BACKEND_INTERNAL_URL lets you
+// override this (e.g. in docker-compose). Falls back to localhost:8000 for
+// running outside Docker.
+const backendUrl =
+  process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
+
 const nextConfig: NextConfig = {
   /* config options here */
   reactStrictMode: true,
@@ -15,6 +23,16 @@ const nextConfig: NextConfig = {
   },
   typescript: {
     ignoreBuildErrors: true,
+  },
+  // Proxy /api/* to the FastAPI backend so the app works whether accessed
+  // through nginx (port 80) or directly on the Next.js port (3000).
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${backendUrl}/api/:path*`,
+      },
+    ];
   },
 };
 

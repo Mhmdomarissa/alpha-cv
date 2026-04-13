@@ -319,6 +319,10 @@ async def reset_processed_emails(
         azure_service = get_azure_email_service()
         azure_service.processed_emails.clear()
         azure_service._save_processed_emails()
+
+        # Also clear the email processing tables so the system stops re-checking old state.
+        from app.services.email_database_service import email_db_service
+        email_db_service.reset_processed_emails()
         
         return JSONResponse({
             "success": True,

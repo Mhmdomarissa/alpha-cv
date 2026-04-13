@@ -127,6 +127,10 @@ class QdrantUtils:
             # Development: Use direct client (cached)
             if self._client is None:
                 self._client = self._get_fallback_client()
+                # Dev safety: ensure required collections exist before routes query them.
+                # Production uses a different connection strategy (pool) and remains unchanged.
+                if self.environment != "production":
+                    self._ensure_collections_exist()
             return self._client
     
     def _get_fallback_client(self) -> QdrantClient:

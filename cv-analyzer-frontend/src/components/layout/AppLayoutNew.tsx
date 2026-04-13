@@ -40,7 +40,7 @@ interface TabItem {
   badge?: string;
 }
 
-const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
+const getNavigationTabs = (userRole?: 'admin' | 'user' | 'recruiter' | 'manager'): TabItem[] => {
   const baseTabs: TabItem[] = [
     {
       id: 'dashboard',
@@ -78,12 +78,22 @@ const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
     });
   }
 
+  // Candidate Tracker entry (server-side feature flag still enforced by API).
+  if (userRole && ['admin', 'user', 'recruiter', 'manager'].includes(userRole)) {
+    baseTabs.push({
+      id: 'tracker',
+      label: 'Tracker',
+      icon: Users,
+      description: 'Candidate tracker',
+    });
+  }
+
   // Performance and Email are under "Advanced" dropdown (admin only) - not added to baseTabs here
   return baseTabs;
 };
 
 /** Tabs shown under Advanced dropdown (admin only) */
-const getAdvancedTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
+const getAdvancedTabs = (userRole?: 'admin' | 'user' | 'recruiter' | 'manager'): TabItem[] => {
   if (userRole !== 'admin') return [];
   return [
     { id: 'performance', label: 'Performance', icon: Activity, description: 'System monitoring & metrics' },
@@ -95,6 +105,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
   const router = useRouter();
   const { currentTab, setCurrentTab, systemHealth, cvs, jds, matchResult, matchingProgress } = useAppStore();
   const { user, logout } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedMobileOpen, setAdvancedMobileOpen] = useState(false);
@@ -130,6 +141,8 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         return 'System monitoring';
       case 'careers':
         return 'Job postings & applications';
+      case 'tracker':
+        return 'Candidate tracker';
       case 'email':
         return 'Process email CVs';
       default:
@@ -151,6 +164,8 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         return true; // Always available for monitoring
       case 'careers':
         return true; // Always available for admin users
+      case 'tracker':
+        return true;
       case 'email':
         return true; // Always available for admin users
       default:
@@ -184,7 +199,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
               </div>
             </div>
 
-            <nav className="hidden md:flex items-center space-x-1 bg-gray-100 rounded-lg p-1 border border-gray-200">
+            <nav className={`hidden md:flex items-center space-x-1 bg-gray-100 rounded-lg border border-gray-200 ${isAdmin ? 'p-0.5' : 'p-1'}`}>
               {navigationTabs.map((tab) => {
                 const isActive = currentTab === tab.id;
                 const isCompleted = getProgress(tab.id);
@@ -192,12 +207,18 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => setCurrentTab(tab.id as any)}
-                    className={`flex items-center space-x-2 px-4 py-2.5 rounded-md text-ui font-medium transition-colors ${
+                    onClick={() => {
+                      if (tab.id === 'tracker') {
+                        router.push('/tracker');
+                        return;
+                      }
+                      setCurrentTab(tab.id as any);
+                    }}
+                    className={`flex items-center space-x-2 rounded-md text-ui font-medium transition-colors ${
                       isActive
                         ? 'bg-[#00529b] text-white shadow-sm'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
-                    }`}
+                    } ${isAdmin ? 'px-3 py-2 text-sm' : 'px-4 py-2.5'}`}
                   >
                     <IconComponent className="w-4 h-4" />
                     <span>{tab.label}</span>
@@ -211,11 +232,11 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                 <div className="relative" ref={advancedRef}>
                   <button
                     onClick={() => setAdvancedOpen(!advancedOpen)}
-                    className={`flex items-center space-x-2 px-4 py-2.5 rounded-md text-ui font-medium transition-colors ${
+                    className={`flex items-center space-x-2 rounded-md text-ui font-medium transition-colors ${
                       currentTab === 'performance' || currentTab === 'email'
                         ? 'bg-[#00529b] text-white shadow-sm'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
-                    }`}
+                    } ${isAdmin ? 'px-3 py-2 text-sm' : 'px-4 py-2.5'}`}
                   >
                     <Settings className="w-4 h-4" />
                     <span>Advanced</span>
@@ -245,23 +266,32 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
               )}
             </nav>
 
-            <div className="flex items-center space-x-4">
+            <div className={`flex items-center ${isAdmin ? 'space-x-2' : 'space-x-4'}`}>
               {user && (
-                <div className="hidden sm:flex items-center space-x-3">
-                  <div className="flex items-center space-x-3 bg-gray-100 rounded-lg px-3 py-2 border border-gray-200">
-                    <div className="w-8 h-8 rounded-full bg-[#00529b] flex items-center justify-center">
+                <div className={`hidden sm:flex items-center ${isAdmin ? 'space-x-2' : 'space-x-3'}`}>
+                  <div className={`flex items-center bg-gray-100 rounded-lg border border-gray-200 ${isAdmin ? 'space-x-2 px-2 py-1.5' : 'space-x-3 px-3 py-2'}`}>
+                    <div className={`${isAdmin ? 'w-7 h-7' : 'w-8 h-8'} rounded-full bg-[#00529b] flex items-center justify-center`}>
                       <User className="w-4 h-4 text-white" />
                     </div>
-                    <div className="flex flex-col">
-                      <span className="text-ui font-medium text-gray-700">{user.username}</span>
-                      <span className={`text-caption px-2 py-0.5 rounded-full font-medium ${user.role === 'admin' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
-                        {user.role}
-                      </span>
-                    </div>
+                    {isAdmin ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-700">{user.username}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-700">
+                          admin
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col">
+                        <span className="text-ui font-medium text-gray-700">{user.username}</span>
+                        <span className={`text-caption px-2 py-0.5 rounded-full font-medium ${user.role === 'admin' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
+                          {user.role}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={handleLogout}
-                    className="flex items-center space-x-2 px-3 py-2 rounded-lg text-ui font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-colors"
+                    className={`flex items-center space-x-2 rounded-lg text-ui font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-colors ${isAdmin ? 'px-2.5 py-1.5 text-sm' : 'px-3 py-2'}`}
                   >
                     <LogOut className="w-4 h-4" />
                     <span>Logout</span>
@@ -312,7 +342,15 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => { setCurrentTab(tab.id as any); setMobileMenuOpen(false); }}
+                    onClick={() => {
+                      if (tab.id === 'tracker') {
+                        router.push('/tracker');
+                        setMobileMenuOpen(false);
+                        return;
+                      }
+                      setCurrentTab(tab.id as any);
+                      setMobileMenuOpen(false);
+                    }}
                     className={`w-full flex items-center justify-between p-4 rounded-lg text-left font-medium transition-colors ${
                       isActive ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'
                     }`}

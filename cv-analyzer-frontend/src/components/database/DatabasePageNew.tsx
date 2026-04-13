@@ -4,6 +4,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import {
   Users,
+  User as UserIcon,
+  MapPin,
+  Building2,
   FileText,
   RefreshCw,
   Search,
@@ -35,7 +38,7 @@ const FilePreviewModal = dynamic(
   { ssr: false }
 );
 
-const ITEMS_PER_PAGE = 24;
+const ITEMS_PER_PAGE = 50;
 const CATEGORY_ALL = '__all__';
 
 function getCVDisplay(cv: CVListItem) {
@@ -84,6 +87,8 @@ export default function DatabasePageNew() {
   const [search, setSearch] = useState('');
   const [activeFolder, setActiveFolder] = useState<string>(CATEGORY_ALL);
   const [categories, setCategories] = useState<Record<string, number>>({});
+  const [folderCVs, setFolderCVs] = useState<Record<string, { items: CVListItem[]; total: number | null }>>({});
+  const [loadingFolderCVs, setLoadingFolderCVs] = useState<Record<string, boolean>>({});
   const [page, setPage] = useState(1);
   const [preview, setPreview] = useState<{ id: string; name: string; type: 'cv' | 'jd' } | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
@@ -235,10 +240,38 @@ export default function DatabasePageNew() {
     return () => { cancelled = true; };
   }, [cvs.length]);
 
+  const loadFolderCVPage = async (category: string, offset: number) => {
+    setLoadingFolderCVs((s) => ({ ...s, [category]: true }));
+    try {
+      const res = await api.listCVs({ category, limit: ITEMS_PER_PAGE, offset });
+      setFolderCVs((s) => {
+        const prev = s[category]?.items ?? [];
+        const nextItems = offset === 0 ? res.cvs : [...prev, ...res.cvs];
+        const nextTotal = typeof res.total === 'number' ? res.total : (s[category]?.total ?? null);
+        return { ...s, [category]: { items: nextItems, total: nextTotal } };
+      });
+    } catch {
+      // swallow here; UI already handles "no candidates" states
+    } finally {
+      setLoadingFolderCVs((s) => ({ ...s, [category]: false }));
+    }
+  };
+
+  useEffect(() => {
+    if (activeFolder === CATEGORY_ALL) return;
+    if ((folderCVs[activeFolder]?.items?.length ?? 0) > 0) return;
+    loadFolderCVPage(activeFolder, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFolder]);
+
   const filteredCVs = useMemo(() => {
-    let list = cvs;
+    const source =
+      activeFolder === CATEGORY_ALL
+        ? cvs
+        : (folderCVs[activeFolder]?.items ?? []);
+    let list = source;
     if (activeFolder !== CATEGORY_ALL) {
-      list = list.filter((cv) => ((cv as CVListItem & { category?: string }).category ?? 'General') === activeFolder);
+      // When using server-side folder pagination, the list is already scoped by folder.
     }
     if (notesFilter === 'with_notes') {
       list = list.filter((cv) => (notesSummary[cv.id] ?? 0) > 0);
@@ -256,7 +289,7 @@ export default function DatabasePageNew() {
       );
     }
     return list;
-  }, [cvs, activeFolder, search, notesFilter, notesSummary]);
+  }, [cvs, activeFolder, folderCVs, search, notesFilter, notesSummary]);
 
   const filteredJDs = useMemo(() => {
     if (!search.trim()) return jds;
@@ -303,6 +336,21 @@ export default function DatabasePageNew() {
         if (!selectedCVs.includes(cv.id)) selectCV(cv.id);
       });
     }
+  };
+
+  const activeTotalCount =
+    activeFolder === CATEGORY_ALL
+      ? totalCVs
+      : (categories[activeFolder] ?? folderCVs[activeFolder]?.total ?? null);
+
+  const activeLoadedCount =
+    activeFolder === CATEGORY_ALL
+      ? cvs.length
+      : (folderCVs[activeFolder]?.items?.length ?? 0);
+
+  const loadMoreActiveFolder = async () => {
+    if (activeFolder === CATEGORY_ALL) return loadMoreCVs();
+    return loadFolderCVPage(activeFolder, activeLoadedCount);
   };
 
   const selectedCVList = useMemo(
@@ -463,7 +511,7 @@ export default function DatabasePageNew() {
 
       <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-4 lg:gap-6">
         {/* Sidebar: Folders + JDs - stacks on mobile */}
-        <aside className="w-full lg:w-72 shrink-0 flex flex-col gap-4 lg:gap-6 bg-white border border-gray-200 rounded-2xl p-4 h-fit lg:sticky lg:top-4">
+        <aside className="w-full lg:w-72 shrink-0 flex flex-col gap-4 lg:gap-6 bg-white border border-gray-200 rounded-2xl p-4 h-fit lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-auto">
           <div>
             <h2 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
               <FolderOpen className="w-4 h-4" />
@@ -476,7 +524,7 @@ export default function DatabasePageNew() {
                   }`}
               >
                 <span className={activeFolder === CATEGORY_ALL ? '!text-white' : ''}>All candidates</span>
-                <span className={activeFolder === CATEGORY_ALL ? '!text-white' : 'text-gray-500'}>{cvs.length}</span>
+                <span className={activeFolder === CATEGORY_ALL ? '!text-white' : 'text-gray-500'}>{totalCVs ?? cvs.length}</span>
               </button>
               {loadingCategories ? (
                 <div className="flex items-center gap-2 px-3 py-2 text-gray-500 text-sm">
@@ -578,8 +626,8 @@ export default function DatabasePageNew() {
 
           {view === 'candidates' && filteredCVs.length > 0 && (
             <p className="text-sm text-gray-500 mb-2">
-              {totalCVs != null && totalCVs > cvs.length
-                ? `${filteredCVs.length} of ${totalCVs} candidate${totalCVs !== 1 ? 's' : ''}`
+              {activeTotalCount != null && activeTotalCount > activeLoadedCount
+                ? `${filteredCVs.length} of ${activeTotalCount} candidate${activeTotalCount !== 1 ? 's' : ''}`
                 : `${filteredCVs.length} candidate${filteredCVs.length !== 1 ? 's' : ''}`}
               {activeFolder !== CATEGORY_ALL && ` in ${activeFolder}`}
             </p>
@@ -601,10 +649,10 @@ export default function DatabasePageNew() {
                       return (
                         <div
                           key={jd.id}
-                          className={`rounded-xl border-2 p-4 transition-colors ${isSelected ? 'border-[#00529b] bg-[#00529b]/5' : 'border-gray-200 hover:border-gray-300 bg-white'
+                          className={`rounded-2xl border p-5 transition-colors shadow-sm ${isSelected ? 'border-[#00529b] bg-[#00529b]/5' : 'border-gray-200 hover:border-gray-300 bg-white'
                             }`}
                         >
-                          <div className="flex items-start gap-3">
+                          <div className="flex items-start gap-4">
                             <button
                               type="button"
                               onClick={() => selectJD(isSelected ? null : jd.id)}
@@ -614,11 +662,38 @@ export default function DatabasePageNew() {
                             >
                               {isSelected ? <CheckSquare className="w-5 h-5 text-[#00529b]" /> : <Square className="w-5 h-5" />}
                             </button>
-                            <div className="min-w-0 flex-1">
-                              <h3 className="font-semibold text-gray-900 truncate">{d.title}</h3>
-                              <p className="text-xs text-gray-500 mt-0.5">{d.skillsCount} skills</p>
+                            <div
+                              className="min-w-0 flex-1 cursor-pointer"
+                              onClick={() => setDetailJDId(jd.id)}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => e.key === 'Enter' && setDetailJDId(jd.id)}
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                  <h3 className="text-base font-semibold text-gray-900 truncate">{d.title}</h3>
+                                  <p className="text-sm text-gray-700 mt-1 line-clamp-2">
+                                    {jd.filename || 'Job description'}
+                                  </p>
+                                  <div className="flex flex-wrap items-center gap-2 mt-3">
+                                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200">
+                                      {d.skillsCount} skills
+                                    </span>
+                                    {jd.upload_date && jd.upload_date !== 'Unknown' && (
+                                      <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200">
+                                        {new Date(jd.upload_date).toLocaleDateString()}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="shrink-0">
+                                  <div className="w-14 h-14 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center">
+                                    <FileText className="w-7 h-7 text-gray-500" />
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1 shrink-0">
+                            <div className="flex flex-col gap-1 shrink-0">
                               <button
                                 type="button"
                                 className="inline-flex items-center justify-center font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 rounded-lg text-neutral-700 hover:bg-neutral-100 focus:ring-neutral-500 active:bg-neutral-200 text-sm gap-2 h-8 w-8 p-0"
@@ -698,7 +773,7 @@ export default function DatabasePageNew() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+                <div className="grid grid-cols-1 gap-4 p-4">
                   {paginatedCVs.map((cv) => {
                     const d = getCVDisplay(cv);
                     const isSelected = selectedCVs.includes(cv.id);
@@ -706,10 +781,9 @@ export default function DatabasePageNew() {
                     return (
                       <div
                         key={cv.id}
-                        className={`rounded-xl border-2 p-4 transition-colors ${isSelected ? 'border-[#00529b] bg-[#00529b]/5' : 'border-gray-200 hover:border-gray-300 bg-white'
-                          }`}
+                        className={`rounded-2xl border p-5 transition-colors shadow-sm ${isSelected ? 'border-[#00529b] bg-[#00529b]/5' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
                       >
-                        <div className="flex items-start gap-3">
+                        <div className="flex items-start gap-4">
                           <button
                             type="button"
                             onClick={() => toggleCV(cv.id)}
@@ -725,18 +799,35 @@ export default function DatabasePageNew() {
                             tabIndex={0}
                             onKeyDown={(e) => e.key === 'Enter' && setDetailCVId(cv.id)}
                           >
-                            <h3 className="font-semibold text-gray-900 line-clamp-2">{d.name}</h3>
-                            <p className="text-sm text-gray-600 line-clamp-2 mt-0.5">{d.title}</p>
-                            <p className="text-xs text-gray-500 mt-1">{d.years} years • {d.skillsCount} skills</p>
-                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                              <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="text-base font-semibold text-gray-900 truncate">{d.name}</h3>
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200">
+                                    {d.years}y
+                                  </span>
+                                  {noteCount > 0 && (
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 inline-flex items-center gap-1">
+                                      <MessageSquare className="w-3 h-3" /> {noteCount}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-sm text-gray-700 mt-1 line-clamp-2">{d.title}</div>
+                              </div>
+                              <div className="shrink-0">
+                                <div className="w-14 h-14 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center">
+                                  <UserIcon className="w-7 h-7 text-gray-500" />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 mt-3">
+                              <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200">
                                 {d.category}
                               </span>
-                              {noteCount > 0 && (
-                                <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 flex items-center gap-1">
-                                  <MessageSquare className="w-3 h-3" /> {noteCount}
-                                </span>
-                              )}
+                              <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200">
+                                {d.skillsCount} skills
+                              </span>
                             </div>
                           </div>
                           <div className="flex flex-col gap-1 shrink-0">
@@ -790,11 +881,11 @@ export default function DatabasePageNew() {
                   })}
                 </div>
 
-                {(totalPages > 1 || (totalCVs != null && cvs.length < totalCVs)) && (
+                {(totalPages > 1 || (activeTotalCount != null && activeLoadedCount < activeTotalCount)) && (
                   <div className="flex flex-col gap-2 px-4 py-3 border-t border-gray-200">
                     <div className="flex items-center justify-between">
                       <p className="text-sm text-gray-600">
-                        Showing {(page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, filteredCVs.length)} of {totalCVs != null ? totalCVs : filteredCVs.length}
+                        Showing {(page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, filteredCVs.length)} of {activeTotalCount != null ? activeTotalCount : filteredCVs.length}
                       </p>
                       {totalPages > 1 && (
                         <div className="flex gap-2">
@@ -817,18 +908,18 @@ export default function DatabasePageNew() {
                         </div>
                       )}
                     </div>
-                    {totalCVs != null && cvs.length < totalCVs && (
+                    {activeTotalCount != null && activeLoadedCount < activeTotalCount && (
                       <Button
                         variant="outline"
                         size="sm"
                         className="w-full"
-                        onClick={() => loadMoreCVs()}
-                        disabled={loadingStates.cvs.isLoading}
+                        onClick={() => loadMoreActiveFolder()}
+                        disabled={loadingStates.cvs.isLoading || (activeFolder !== CATEGORY_ALL && loadingFolderCVs[activeFolder])}
                       >
-                        {loadingStates.cvs.isLoading ? (
+                        {(loadingStates.cvs.isLoading || (activeFolder !== CATEGORY_ALL && loadingFolderCVs[activeFolder])) ? (
                           <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
                         ) : null}
-                        Load more candidates ({cvs.length} of {totalCVs} loaded)
+                        Load more candidates ({activeLoadedCount} of {activeTotalCount} loaded)
                       </Button>
                     )}
                   </div>

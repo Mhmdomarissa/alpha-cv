@@ -67,9 +67,9 @@ export default function AdminUsersPage() {
     e.preventDefault();
     if (!token) return;
 
-    // Validate: email is required for non-admin users
-    if (createForm.role === 'user' && !createForm.email?.trim()) {
-      setCreateError('Email is required for regular users');
+    // Validate: email is required for non-admin users (user/manager)
+    if (createForm.role !== 'admin' && !createForm.email?.trim()) {
+      setCreateError('Email is required for non-admin users');
       return;
     }
 
@@ -428,9 +428,9 @@ export default function AdminUsersPage() {
 
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-gray-700 block">
-                      Email {createForm.role === 'user' && <span className="text-red-500">*</span>}
-                      {createForm.role === 'user' && (
-                        <span className="text-xs text-gray-500 ml-2">(Required for regular users)</span>
+                      Email {createForm.role !== 'admin' && <span className="text-red-500">*</span>}
+                      {createForm.role !== 'admin' && (
+                        <span className="text-xs text-gray-500 ml-2">(Required for recruiters/managers)</span>
                       )}
                       {createForm.role === 'admin' && (
                         <span className="text-xs text-gray-500 ml-2">(Optional for admin)</span>
@@ -444,10 +444,10 @@ export default function AdminUsersPage() {
                         setCreateError(null);
                       }}
                       placeholder="user@example.com"
-                      required={createForm.role === 'user'}
+                      required={createForm.role !== 'admin'}
                       className="w-full"
                     />
-                    {createForm.role === 'user' && (
+                    {createForm.role !== 'admin' && (
                       <p className="text-xs text-blue-600 mt-1">
                         ℹ️ Regular users need email for OTP authentication
                       </p>
@@ -461,13 +461,14 @@ export default function AdminUsersPage() {
                     <select
                       value={createForm.role}
                       onChange={(e) => {
-                        const newRole = e.target.value as 'admin' | 'user';
+                        const newRole = e.target.value as CreateUserRequest['role'];
                         setCreateForm({...createForm, role: newRole});
                         setCreateError(null);
                       }}
                       className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
-                      <option value="user">User (Regular User)</option>
+                      <option value="user">Recruiter (Read-only Tracker)</option>
+                      <option value="manager">Manager (Read/Write Tracker)</option>
                       <option value="admin">Admin (Administrator)</option>
                     </select>
                   </div>
@@ -514,9 +515,9 @@ export default function AdminUsersPage() {
                 <form onSubmit={handleEditUser} className="space-y-5">
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-gray-700 block">
-                      Email {(editForm.role || editUser.role) === 'user' && <span className="text-red-500">*</span>}
-                      {(editForm.role || editUser.role) === 'user' && (
-                        <span className="text-xs text-gray-500 ml-2">(Required for regular users)</span>
+                      Email {(editForm.role || editUser.role) !== 'admin' && <span className="text-red-500">*</span>}
+                      {(editForm.role || editUser.role) !== 'admin' && (
+                        <span className="text-xs text-gray-500 ml-2">(Required for recruiters/managers)</span>
                       )}
                     </label>
                     <Input
@@ -524,10 +525,10 @@ export default function AdminUsersPage() {
                       value={editForm.email !== undefined ? editForm.email : (editUser.email || '')}
                       onChange={(e) => setEditForm({...editForm, email: e.target.value})}
                       placeholder="user@example.com"
-                      required={(editForm.role || editUser.role) === 'user'}
+                      required={(editForm.role || editUser.role) !== 'admin'}
                       className="w-full"
                     />
-                    {(editForm.role || editUser.role) === 'user' && (
+                    {(editForm.role || editUser.role) !== 'admin' && (
                       <p className="text-xs text-blue-600 mt-1">
                         ℹ️ Regular users need email for OTP authentication
                       </p>
@@ -551,10 +552,11 @@ export default function AdminUsersPage() {
                     </label>
                     <select
                       value={editForm.role || editUser.role}
-                      onChange={(e) => setEditForm({...editForm, role: e.target.value as 'admin' | 'user'})}
+                      onChange={(e) => setEditForm({...editForm, role: e.target.value as UpdateUserRequest['role']})}
                       className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
-                      <option value="user">User (Regular User)</option>
+                      <option value="user">Recruiter (Read-only Tracker)</option>
+                      <option value="manager">Manager (Read/Write Tracker)</option>
                       <option value="admin">Admin (Administrator)</option>
                     </select>
                   </div>

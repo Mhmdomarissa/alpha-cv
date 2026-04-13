@@ -44,10 +44,14 @@ class UserCreate(BaseModel):
     username: str
     password: str
     email: Optional[EmailStr] = None  # Required for non-admin users
-    role: str = Field(default="user", pattern="^(user|admin)$")
+    # Roles:
+    # - admin: full access
+    # - manager: tracker read/write
+    # - user: recruiter (tracker read-only)
+    role: str = Field(default="user", pattern="^(user|manager|admin)$")
 
 class UserUpdate(BaseModel):
     password: Optional[str] = None
     email: Optional[EmailStr] = None
-    role: Optional[str] = Field(default=None, pattern="^(user|admin)$")
+    role: Optional[str] = Field(default=None, pattern="^(user|manager|admin)$")
     is_active: Optional[bool] = None

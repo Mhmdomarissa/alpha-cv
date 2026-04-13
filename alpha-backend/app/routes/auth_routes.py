@@ -10,6 +10,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
+from app.core.config import get_otp_fixed_code, is_otp_email_sending_disabled
 from app.db.auth_db import get_session
 from app.deps.auth import require_user
 from app.models.user import User
@@ -79,6 +80,20 @@ def verify_password_endpoint(data: VerifyPasswordRequest, session: Session = Dep
     logger = logging.getLogger(__name__)
     
     try:
+        # Local development authentication check (bypass DB for local dev admin)
+        if (
+            os.getenv("NODE_ENV") == "development"
+            or os.getenv("ENVIRONMENT") == "development"
+            or os.getenv("LOCAL_AUTH", "").lower() == "true"
+        ):
+            if data.username == "syed" and data.password == "Faizan123":
+                logger.info("✅ Local dev password verified for syed (OTP not required)")
+                return VerifyPasswordResponse(
+                    success=True,
+                    requires_otp=False,
+                    message="Password verified. Admin login successful.",
+                )
+
         logger.info(f"🔐 Password verification request for user: {data.username}")
         
         # Verify user exists and password is correct
@@ -180,9 +195,10 @@ async def send_otp(data: SendOTPRequest, session: Session = Depends(get_session)
             )
         
         otp_service = get_otp_service()
-        # Fixed OTP when email is disabled (env: OTP_DISABLE_EMAIL=1, OTP_FIXED_CODE=123456)
-        use_fixed_otp = os.getenv("OTP_DISABLE_EMAIL", "").strip().lower() in ("1", "true", "yes")
-        fixed_otp = os.getenv("OTP_FIXED_CODE", "123456").strip() or "123456"
+        # Real email OTP: OTP_DISABLE_EMAIL unset/false + Azure Graph credentials (see env.example).
+        # Dev-only: OTP_DISABLE_EMAIL=1 uses OTP_FIXED_CODE and skips sendMail.
+        use_fixed_otp = is_otp_email_sending_disabled()
+        fixed_otp = get_otp_fixed_code()
         if use_fixed_otp:
             otp = fixed_otp
             logger.info(f"📧 OTP email disabled: using fixed OTP for user {data.username}")

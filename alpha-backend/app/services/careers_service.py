@@ -10,8 +10,7 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import Dict, Any, Optional, List
-from pathlib import Path
+from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +37,12 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
         from app.services.parsing_service import get_parsing_service
         from app.services.llm_service import get_llm_service
         from app.services.embedding_service import get_embedding_service
-        from app.services.matching_service import MatchingService
         from app.utils.qdrant_utils import get_qdrant_utils
         
         # Initialize services
         parsing_service = get_parsing_service()
         llm_service = get_llm_service()
         embedding_service = get_embedding_service()
-        matching_service = MatchingService()
         qdrant = get_qdrant_utils()
         
         # Step 1: Get job posting details
@@ -135,8 +132,7 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
         # Step 3: Store CV in database
         logger.info(f"💾 Storing CV data in database")
         
-        # Generate CV ID
-        import uuid
+        # Generate CV ID for the stored CV document
         cv_id = str(uuid.uuid4())
         logger.info(f"📝 Generated CV ID: {cv_id} for application: {application_id}")
         
@@ -174,49 +170,14 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
             cv_id, "cv", cv_embeddings
         )
         
-        # Step 4: Perform matching analysis
-        logger.info(f"🎯 Performing CV-JD matching analysis")
-        
-        # Get original JD ID for matching (not the UI display job posting ID)
-        jd_id = job_posting.get("jd_id") or job_posting.get("id")
-        
-        if not jd_id:
-            logger.warning(f"⚠️ No JD ID found for matching, proceeding without match score")
-            # Create a mock MatchResult-like object for missing JD ID
-            class MockMatchResult:
-                def __init__(self):
-                    self.overall_score = 0
-                    self.explanation = "Matching analysis unavailable - JD ID not found"
-                    self.match_details = {}
-            
-            match_result = MockMatchResult()
-        else:
-            # Perform detailed matching
-            try:
-                match_result = await asyncio.to_thread(
-                    matching_service.match_cv_against_jd,
-                    cv_id,
-                    jd_id
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ Matching analysis failed: {str(e)}")
-                # Create a mock MatchResult-like object for error cases
-                class MockMatchResult:
-                    def __init__(self):
-                        self.overall_score = 0
-                        self.explanation = f"Matching analysis failed: {str(e)}"
-                        self.match_details = {}
-                
-                match_result = MockMatchResult()
-        
-        # Step 5: Store application record
+        # Step 4: Store application record (NO matching here).
+        # Matching should run only when the user clicks "Match" in the UI.
         logger.info(f"📝 Storing application record")
         
         # Store application in CV collection with job reference
         application_metadata = {
             "application_id": application_id,
             "job_posting_id": job_posting["id"],  # UI display job posting
-            "original_jd_id": jd_id,  # Original JD used for matching
             "job_token": public_token,
             "applicant_name": applicant_name,
             "applicant_email": applicant_email,
@@ -225,12 +186,6 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
             "expected_salary": application_data.get("expected_salary"),
             "years_of_experience": application_data.get("years_of_experience"),
             "experience_warning": application_data.get("experience_warning"),
-            "match_percentage": getattr(match_result, "overall_score", 0),
-            "match_analysis": {
-                "overall_score": getattr(match_result, "overall_score", 0),
-                "explanation": getattr(match_result, "explanation", "No analysis available"),
-                "match_details": getattr(match_result, "match_details", {})
-            },
             "application_status": "submitted",
             "submitted_at": time.time(),
             "document_type": "job_application"
@@ -243,17 +198,7 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
             cv_file_path, time.strftime("%Y-%m-%dT%H:%M:%S")
         )
         
-        # Step 6: Send confirmation email (async)
-        try:
-            await asyncio.to_thread(
-                send_application_confirmation_email,
-                applicant_email,
-                applicant_name,
-                job_posting["job_title"],
-                application_id
-            )
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to send confirmation email: {str(e)}")
+        # Step 6 (removed): Confirmation emails are disabled/removed.
         
         # Calculate processing time
         processing_time = time.time() - start_time
@@ -263,10 +208,9 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
             "success": True,
             "application_id": application_id,
             "cv_id": cv_id,
-            "match_percentage": getattr(match_result, "overall_score", 0),
             "processing_time": processing_time,
             "message": f"Thank you, {applicant_name}! Your application has been processed successfully.",
-            "next_steps": "We'll review your application and contact you if there's a match. Check your email for confirmation."
+            "next_steps": "We'll review your application and contact you if there's a match."
         }
         
         logger.info(f"✅ Application {application_id} processed successfully in {processing_time:.2f}s")
@@ -287,18 +231,6 @@ async def process_job_application_async(application_data: Dict[str, Any]) -> Dic
             "message": "We're sorry, but there was an issue processing your application. Please try again later.",
             "next_steps": "If the problem persists, please contact our support team."
         }
-
-def send_application_confirmation_email(email: str, name: str, job_title: str, application_id: str):
-    """
-    Send confirmation email to applicant
-    This is a placeholder - implement with your email service
-    """
-    logger.info(f"📧 Sending confirmation email to {email} for application {application_id}")
-    
-    # TODO: Implement actual email sending
-    # Example with SendGrid, AWS SES, or other email service
-    
-    return True
 
 async def get_application_processing_stats() -> Dict[str, Any]:
     """Get statistics about application processing"""

@@ -534,7 +534,8 @@ async def upload_cv(
 @router.get("/cvs")
 async def list_cvs(
     limit: Optional[int] = Query(None, description="Max items to return (enables pagination)"),
-    offset: int = Query(0, ge=0, description="Number of items to skip")
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    category: Optional[str] = Query(None, description="Filter by CV category (folder)")
 ) -> JSONResponse:
     """
     List processed CVs with metadata. Supports optional pagination for faster loads.
@@ -549,6 +550,8 @@ async def list_cvs(
         
         if cached_result is not None:
             enhanced = cached_result.get("cvs", [])
+            if category:
+                enhanced = [cv for cv in enhanced if (cv.get("category") or "General") == category]
             total = len(enhanced)
             if limit is not None:
                 page = enhanced[offset : offset + limit]
@@ -559,6 +562,7 @@ async def list_cvs(
                     "cvs": page,
                     "limit": limit,
                     "offset": offset,
+                    "category": category,
                 })
             return JSONResponse(cached_result)
         
@@ -625,6 +629,8 @@ async def list_cvs(
             })
 
         enhanced.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
+        if category:
+            enhanced = [cv for cv in enhanced if (cv.get("category") or "General") == category]
         total = len(enhanced)
 
         if limit is not None:
@@ -636,6 +642,7 @@ async def list_cvs(
                 "cvs": page,
                 "limit": limit,
                 "offset": offset,
+                "category": category,
             }
         else:
             result = {"status": "success", "count": total, "cvs": enhanced}

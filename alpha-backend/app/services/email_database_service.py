@@ -27,6 +27,7 @@ class EmailDatabaseService:
         }
         self.connection = None
         self._connect()
+        self._ensure_tables()
         
     def _connect(self):
         """Establish database connection"""
@@ -35,6 +36,65 @@ class EmailDatabaseService:
             logger.info("✅ Connected to PostgreSQL for email data")
         except Exception as e:
             logger.error(f"❌ Failed to connect to PostgreSQL: {e}")
+            raise
+
+    def _ensure_tables(self) -> None:
+        """Create email-processing tables if missing (safe/additive)."""
+        try:
+            with self._get_cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS processed_emails (
+                        id SERIAL PRIMARY KEY,
+                        email_id TEXT UNIQUE NOT NULL,
+                        subject TEXT,
+                        sender_email TEXT,
+                        processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS email_uploads (
+                        id SERIAL PRIMARY KEY,
+                        email_id TEXT NOT NULL,
+                        file_name TEXT,
+                        file_path TEXT,
+                        file_size BIGINT,
+                        upload_date TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS email_processing_stats (
+                        id INTEGER PRIMARY KEY,
+                        total_processed INTEGER NOT NULL DEFAULT 0,
+                        successful_today INTEGER NOT NULL DEFAULT 0,
+                        failed_today INTEGER NOT NULL DEFAULT 0,
+                        last_successful_run TIMESTAMPTZ NULL,
+                        last_error TEXT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                # Ensure singleton stats row exists (id=1)
+                cursor.execute(
+                    """
+                    INSERT INTO email_processing_stats (id)
+                    VALUES (1)
+                    ON CONFLICT (id) DO NOTHING;
+                    """
+                )
+                self.connection.commit()
+                logger.info("✅ Email processing tables ensured")
+        except Exception as e:
+            try:
+                if self.connection:
+                    self.connection.rollback()
+            except Exception:
+                pass
+            logger.error(f"❌ Failed to ensure email tables: {e}")
             raise
     
     def _get_cursor(self):
@@ -70,6 +130,11 @@ class EmailDatabaseService:
                 logger.info(f"✅ Marked email as processed: {email_id}")
                 return True
         except Exception as e:
+            try:
+                if self.connection:
+                    self.connection.rollback()
+            except Exception:
+                pass
             logger.error(f"❌ Failed to mark email as processed {email_id}: {e}")
             return False
     
@@ -129,6 +194,11 @@ class EmailDatabaseService:
                 logger.info("✅ Updated processing statistics")
                 return True
         except Exception as e:
+            try:
+                if self.connection:
+                    self.connection.rollback()
+            except Exception:
+                pass
             logger.error(f"❌ Failed to update processing stats: {e}")
             return False
     
@@ -145,6 +215,11 @@ class EmailDatabaseService:
                 logger.info(f"✅ Recorded email upload: {file_name}")
                 return True
         except Exception as e:
+            try:
+                if self.connection:
+                    self.connection.rollback()
+            except Exception:
+                pass
             logger.error(f"❌ Failed to record email upload: {e}")
             return False
     
@@ -177,6 +252,11 @@ class EmailDatabaseService:
                 logger.info("✅ Reset all email processing data")
                 return True
         except Exception as e:
+            try:
+                if self.connection:
+                    self.connection.rollback()
+            except Exception:
+                pass
             logger.error(f"❌ Failed to reset processed emails: {e}")
             return False
     

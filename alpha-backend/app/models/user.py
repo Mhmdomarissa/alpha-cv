@@ -8,6 +8,8 @@ class User(SQLModel, table=True):
     username: str = Field(index=True, unique=True)
     password_hash: str
     email: Optional[str] = Field(default=None, index=True)  # Email for OTP (required for non-admin users)
-    role: str = Field(default="user")  # "admin" or "user"
+    # Role is stored as plain text for flexibility (no DB migration needed to add roles).
+    # Supported: "admin" | "manager" | "user"
+    role: str = Field(default="user")
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)

@@ -8,6 +8,8 @@ import os
 import aiohttp
 from typing import Optional
 
+from app.core.config import get_otp_from_email, get_otp_from_name
+
 logger = logging.getLogger(__name__)
 
 class EmailOTPService:
@@ -19,9 +21,9 @@ class EmailOTPService:
         self.client_secret = os.getenv("AZURE_CLIENT_SECRET", "your-client-secret-here")
         self.tenant_id = os.getenv("AZURE_TENANT_ID", "your-tenant-id")
         
-        # Email settings (match dev: use defaults; do not set OTP_FROM_* in .env unless needed)
-        self.from_email = os.getenv("OTP_FROM_EMAIL", "cv@alphadatarecruitment.ae")
-        self.from_name = os.getenv("OTP_FROM_NAME", "Alpha CV System")
+        # Sender mailbox for Graph sendMail (same as OTP_FROM_* env vars).
+        self.from_email = get_otp_from_email()
+        self.from_name = get_otp_from_name()
         
         # Microsoft Graph API endpoints
         self.graph_base_url = "https://graph.microsoft.com/v1.0"

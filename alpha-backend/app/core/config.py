@@ -15,6 +15,15 @@ class Settings(BaseSettings):
     """Runtime settings loaded from `.env` and environment variables."""
     ENABLE_AUTH: bool = True
     AUTH_DB_URL: str = "sqlite:///./auth.db"
+
+    # --- Candidate Tracker (isolated relational store) ---
+    # IMPORTANT: This is intentionally separate from AUTH_DB_URL and any Qdrant data.
+    ENABLE_CANDIDATE_TRACKER: bool = False
+    TRACKER_DB_URL: str = ""
+    # Extra safety: in non-production, refuse to connect to a URL that "looks like" prod
+    # unless explicitly overridden.
+    ALLOW_PROD_DATA_ACCESS: bool = False
+    TRACKER_PROD_URL_HINTS: str = ""  # comma-separated substrings to treat as production (e.g. "rds.amazonaws.com,alphacv")
     
     # --- Auth / JWT ---
     # Accept both current and legacy env var names to reduce config drift.
@@ -65,4 +74,32 @@ class Settings(BaseSettings):
                 print(f"⚠️  WARNING: Using default SECRET_KEY in {env} environment")
                 print("Generate secure key: python -c 'import secrets; print(secrets.token_urlsafe(32))'")
 
+
 settings = Settings()
+
+
+def _env_truthy(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def is_otp_email_sending_disabled() -> bool:
+    """When True, login OTP is not emailed; a fixed code is used (dev only).
+
+    Read from ``OTP_DISABLE_EMAIL`` on each call so tests and runtime env changes apply
+    without relying on a cached ``Settings()`` instance.
+    """
+    return _env_truthy("OTP_DISABLE_EMAIL")
+
+
+def get_otp_fixed_code() -> str:
+    """Fixed OTP when email sending is disabled (``OTP_FIXED_CODE``, default ``123456``)."""
+    return os.getenv("OTP_FIXED_CODE", "123456").strip() or "123456"
+
+
+def get_otp_from_email() -> str:
+    """Mailbox used as Graph ``/users/{id}/sendMail`` sender (application permission)."""
+    return os.getenv("OTP_FROM_EMAIL", "cv@alphadatarecruitment.ae").strip() or "cv@alphadatarecruitment.ae"
+
+
+def get_otp_from_name() -> str:
+    return os.getenv("OTP_FROM_NAME", "Alpha CV System").strip() or "Alpha CV System"

@@ -10,6 +10,8 @@ dist
 # Environment files
 .env.local
 .env.*.local
+.env
+.env.*
 
 # IDE files
 .vscode
@@ -28,3 +30,6 @@ tsconfig.tsbuildinfo
 
 # Testing
 coverage
+
+# Git (not needed for build context)
+.git/

@@ -19,12 +19,15 @@ from app.routes.auth_routes import router as auth_router
 from app.routes.admin_routes import router as admin_router
 from app.routes.performance_routes import router as performance_router
 from app.routes.email_routes import router as email_router
+from app.routes.tracker_routes import router as tracker_router
+from app.routes.features_routes import router as features_router
 
 # Services init
 from app.utils.qdrant_utils import get_qdrant_utils
 from app.services.embedding_service import get_embedding_service
 from app.utils.cache import get_cache_service
 from app.db.auth_db import init_auth_db
+from app.db.tracker_db import init_tracker_db
 
 # --------------------
 # Logging
@@ -93,38 +96,69 @@ async def lifespan(app: FastAPI):
         init_auth_db()
         logger.info("✅ Auth database ready")
 
+        # Ensure email-processing tables exist (safe/additive).
+        # This prevents scheduler/pipeline from failing on first run when tables
+        # haven't been created yet.
+        try:
+            from app.services.email_database_service import email_db_service  # noqa: F401
+
+            logger.info("✅ Email processing database tables ensured")
+        except Exception as e:
+            # Don't fail startup if email DB can't be initialized; email features will degrade.
+            logger.warning(f"⚠️ Email processing DB init skipped: {e}")
+
+        # Candidate Tracker DB is isolated and only initialized when enabled
+        if os.getenv("ENABLE_CANDIDATE_TRACKER", "").lower() == "true":
+            logger.info("🧩 Initializing Candidate Tracker database...")
+            init_tracker_db()
+            logger.info("✅ Candidate Tracker database ready")
+        else:
+            logger.info("🧩 Candidate Tracker disabled (ENABLE_CANDIDATE_TRACKER=false)")
+
         logger.info("🔄 Starting enterprise job queue...")
         from app.services.enhanced_job_queue import get_enterprise_job_queue
         await get_enterprise_job_queue()  # This will start the workers
         logger.info("✅ Enterprise job queue ready")
 
-        # EMAIL SCHEDULER DISABLED - Commented out to prevent OpenAI calls from email CV processing
-        # Only start email scheduler on ONE worker (not all workers)
-        # Use a file lock to ensure only one scheduler runs across all workers
-        # import fcntl
+        # Email scheduler (optional)
+        # Only start on ONE worker (not all workers) using a file lock.
+        # Enable explicitly with ENABLE_EMAIL_SCHEDULER=true
         scheduler_task = None
         scheduler = None
         scheduler_lock_file = None
-        
-        # DISABLED: Email scheduler commented out to stop OpenAI calls
-        # try:
-        #     scheduler_lock_file = open("/tmp/email_scheduler.lock", "w")
-        #     fcntl.flock(scheduler_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        #     # We got the lock! This worker will run the scheduler
-        #     logger.info("📧 Starting email scheduler (acquired lock)...")
-        #     from app.services.email_scheduler import get_email_scheduler
-        #     import asyncio
-        #     scheduler = get_email_scheduler()
-        #     scheduler_task = asyncio.create_task(scheduler.start_scheduler())
-        #     logger.info("✅ Email scheduler started (checking every 5 minutes)")
-        # except BlockingIOError:
-        #     # Another worker already has the lock and is running the scheduler
-        #     logger.info("⏭️ Email scheduler already running on another worker")
-        #     if scheduler_lock_file:
-        #         scheduler_lock_file.close()
-        #     scheduler_lock_file = None
-        
-        logger.info("⏸️ Email scheduler is DISABLED (to prevent OpenAI calls)")
+
+        enable_email_scheduler = os.getenv("ENABLE_EMAIL_SCHEDULER", "").strip().lower() in ("1", "true", "yes")
+        if enable_email_scheduler:
+            try:
+                import fcntl  # type: ignore
+                import asyncio
+
+                scheduler_lock_file = open("/tmp/email_scheduler.lock", "w")
+                fcntl.flock(scheduler_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+                # We got the lock! This worker will run the scheduler
+                logger.info("📧 Starting email scheduler (acquired lock)...")
+                from app.services.email_scheduler import get_email_scheduler
+
+                scheduler = get_email_scheduler()
+                scheduler_task = asyncio.create_task(scheduler.start_scheduler())
+                logger.info("✅ Email scheduler started (checking every 5 minutes by default)")
+            except BlockingIOError:
+                # Another worker already has the lock and is running the scheduler
+                logger.info("⏭️ Email scheduler already running on another worker")
+                if scheduler_lock_file:
+                    scheduler_lock_file.close()
+                scheduler_lock_file = None
+            except Exception as e:
+                logger.error(f"❌ Failed to start email scheduler: {e}", exc_info=True)
+                if scheduler_lock_file:
+                    try:
+                        scheduler_lock_file.close()
+                    except Exception:
+                        pass
+                scheduler_lock_file = None
+        else:
+            logger.info("⏸️ Email scheduler is DISABLED (ENABLE_EMAIL_SCHEDULER!=true)")
 
         logger.info("🎉 Startup complete")
         yield
@@ -140,6 +174,9 @@ async def lifespan(app: FastAPI):
         # Release the lock file
         if scheduler_lock_file:
             try:
+                # fcntl is not available on Windows; this code path is only relevant when the
+                # email scheduler is enabled and a lock is acquired.
+                import fcntl  # type: ignore
                 fcntl.flock(scheduler_lock_file.fileno(), fcntl.LOCK_UN)
                 scheduler_lock_file.close()
                 os.remove("/tmp/email_scheduler.lock")
@@ -238,6 +275,8 @@ async def add_security_headers(request, call_next):
 # Auth routes
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(features_router)
+app.include_router(tracker_router)
 
 # Core routes
 app.include_router(cv_routes.router, prefix="/api/cv", tags=["CV Management"])

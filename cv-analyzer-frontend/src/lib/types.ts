@@ -183,6 +183,12 @@ export interface CandidateBreakdown {
   job_title_score: number;
   years_score: number;
   overall_score: number;
+  /** Added when LLM enhancement is enabled server-side */
+  has_llm_analysis?: boolean;
+  /** Stored semantic score before LLM adjustment (server may attach dynamically) */
+  semantic_score?: number;
+  /** Arbitrary LLM analysis payload */
+  llm_analysis?: any;
   skills_assignments: AssignmentItem[];
   responsibilities_assignments: AssignmentItem[];
   skills_alternatives: AlternativesItem[];
@@ -341,14 +347,14 @@ export interface OTPResponse {
 export interface UserProfile {
   id: string;
   username: string;
-  role: 'admin' | 'user';
+  role: 'admin' | 'user' | 'recruiter' | 'manager';
   is_active: boolean;
 }
 
 export interface AdminUser {
   id: string;
   username: string;
-  role: 'admin' | 'user';
+  role: 'admin' | 'user' | 'recruiter' | 'manager';
   is_active: boolean;
   email?: string;
 }
@@ -357,14 +363,75 @@ export interface CreateUserRequest {
   username: string;
   password: string;
   email?: string;  // Required for non-admin users
-  role: 'admin' | 'user';
+  role: 'admin' | 'user' | 'recruiter' | 'manager';
 }
 
 export interface UpdateUserRequest {
   password?: string;
   email?: string;
-  role?: 'admin' | 'user';
+  role?: 'admin' | 'user' | 'recruiter' | 'manager';
   is_active?: boolean;
+}
+
+// Candidate Tracker types
+export interface TrackerJobOpening {
+  id: string;
+  title: string;
+  department?: string | null;
+  location?: string | null;
+  status: string;
+  hiring_manager?: string | null;
+  req_date?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrackerCandidate {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  current_company?: string | null;
+  experience_years?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrackerApplication {
+  id: string;
+  candidate_id: string;
+  job_opening_id: string;
+  applied_date?: string | null;
+  position?: string | null;
+  client?: string | null;
+  status: string;
+  recruiter?: string | null;
+  account_manager?: string | null;
+  comment?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrackerSkill {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface TrackerDocument {
+  id: string;
+  candidate_id: string;
+  label: string;
+  url?: string | null;
+  storage_key?: string | null;
+  doc_type?: string | null;
+  created_at: string;
+}
+
+export interface FeaturesResponse {
+  enable_candidate_tracker: boolean;
+  allowed_roles: string[];
+  user_role?: string | null;
 }
 
 // Careers types

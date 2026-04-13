@@ -233,16 +233,7 @@ class EmailCVProcessor:
                     datetime.utcnow().isoformat()
                 )
                 
-                # Send confirmation email to applicant
-                try:
-                    await self.send_application_confirmation_email(
-                        processed_email.applicant_email,
-                        cv_standardized.get("name", "Applicant"),
-                        processed_email.job_title or "Position",
-                        application_id
-                    )
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to send confirmation email: {str(e)}")
+                # Confirmation emails removed.
                 
                 result = {
                     "success": True,
@@ -329,26 +320,6 @@ class EmailCVProcessor:
             logger.error(f"❌ Failed to process email CVs: {e}")
             return []
     
-    async def send_application_confirmation_email(self, email: str, name: str, job_title: str, application_id: str):
-        """Send confirmation email to applicant"""
-        try:
-            # This is a placeholder - implement with your email service
-            # You could use SendGrid, AWS SES, or Microsoft Graph API to send emails
-            
-            logger.info(f"📧 Sending confirmation email to {email} for application {application_id}")
-            
-            # TODO: Implement actual email sending
-            # Example implementation:
-            # - Use Microsoft Graph API to send email
-            # - Or integrate with SendGrid/AWS SES
-            # - Include application details and next steps
-            
-            return True
-        
-        except Exception as e:
-            logger.error(f"❌ Failed to send confirmation email: {e}")
-            raise
-
 # Singleton instance
 _email_cv_processor: Optional[EmailCVProcessor] = None
 

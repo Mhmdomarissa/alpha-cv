@@ -6,7 +6,7 @@ import { useAuthStore } from '@/stores/authStore';
 
 interface ProtectedProps {
   children: ReactNode;
-  requireRole?: 'admin' | 'user';
+  requireRole?: 'admin' | 'user' | 'recruiter' | 'manager';
   fallbackPath?: string;
 }
 

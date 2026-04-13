@@ -17,6 +17,9 @@ services:
     env_file:
       - ./.env
       - ./security_hardening.env
+    # OTP: real email is used when OTP_DISABLE_EMAIL is unset/false in .env and Azure Graph
+    # vars are set (AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, OTP_FROM_EMAIL).
+    # This does not migrate or modify application databases beyond normal auth/OTP Redis keys.
     environment:
       NODE_ENV: "production"
       ENVIRONMENT: "production"
@@ -77,6 +80,68 @@ services:
           memory: 4G
           cpus: '2.0'
 
+  # Dedicated email scheduler worker (keeps API responsive)
+  email-scheduler:
+    build:
+      context: ./alpha-backend
+      args:
+        TORCH_GPU: "0"
+    command: ["python", "-m", "app.worker.email_scheduler_worker"]
+    env_file:
+      - ./.env
+      - ./security_hardening.env
+    environment:
+      NODE_ENV: "production"
+      ENVIRONMENT: "production"
+      ENABLE_EMAIL_SCHEDULER: "true"
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_started
+    volumes:
+      - ./alpha-backend:/app
+    networks:
+      - cv-network
+    restart: unless-stopped
+
+  # Dedicated public CV processing worker (for /careers public apply)
+  public-cv-worker:
+    build:
+      context: ./alpha-backend
+      args:
+        TORCH_GPU: "0"
+    command: ["python", "-m", "app.worker.public_cv_worker"]
+    env_file:
+      - ./.env
+      - ./security_hardening.env
+    environment:
+      NODE_ENV: "production"
+      ENVIRONMENT: "production"
+      ENABLE_PUBLIC_CV_QUEUE: "true"
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_started
+    volumes:
+      - ./alpha-backend:/app
+    networks:
+      - cv-network
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./cv-analyzer-frontend
@@ -84,6 +149,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE}
+        BACKEND_INTERNAL_URL: "http://backend:8000"
     extra_hosts:
       - "89.144.31.18:127.0.0.1"
       - "176.117.107.158:127.0.0.1"
@@ -97,6 +163,7 @@ services:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE}
       BACKEND_URL: "http://backend:8000"
+      BACKEND_INTERNAL_URL: "http://backend:8000"
       NODE_ENV: "production"
     restart: unless-stopped
     depends_on:

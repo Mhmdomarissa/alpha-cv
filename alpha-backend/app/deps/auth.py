@@ -48,6 +48,8 @@ def get_current_user(
                     self.username = "syed"
                     self.role = "admin"
                     self.is_active = True
+                    # Keep parity with `User` model fields used by `/api/auth/me`
+                    self.email = None
 
             return MockUser()
 
@@ -70,3 +72,20 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
             status_code=status.HTTP_403_FORBIDDEN, detail="Admin only"
         )
     return user
+
+
+def require_roles(*roles: str):
+    """Return a dependency that requires the user to have one of `roles`."""
+    allowed = set(r for r in roles if r)
+    if not allowed:
+        raise ValueError("require_roles() called with no roles")
+
+    def _dep(user: User = Depends(get_current_user)) -> User:
+        if user.role not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+        return user
+
+    return _dep

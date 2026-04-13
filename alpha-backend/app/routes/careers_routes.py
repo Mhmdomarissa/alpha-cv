@@ -342,14 +342,7 @@ async def apply_to_job(
             except (ValueError, TypeError):
                 pass  # Skip validation if parsing fails
 
-        # DISABLED: Enterprise queue is not working properly - applications get queued but never processed
-        # This was causing applications to be lost. Using the working async path below instead.
         if background_processing:
-            # ENTERPRISE ASYNC PROCESSING: Queue for background processing with priority
-            from app.services.enhanced_job_queue import get_enterprise_job_queue, JobPriority
-            
-            job_queue = await get_enterprise_job_queue()
-            
             application_data = {
                 "application_id": application_id,
                 "applicant_name": applicant_name,
@@ -364,27 +357,23 @@ async def apply_to_job(
                 "content_type": cv_file.content_type,
                 "public_token": public_token
             }
-            
-            # Determine priority based on job type or application urgency
-            priority = JobPriority.NORMAL
-            if "urgent" in job_data.get("job_title", "").lower():
-                priority = JobPriority.HIGH
-            
+
+            # Preferred: Redis-backed queue handled by a dedicated worker container
             try:
-                job_id = await job_queue.submit_application(application_data, priority=priority)
-                
-                return JobApplicationResponse(
-                    success=True,
-                    application_id=application_id,
-                    message=f"Thank you, {applicant_name}! Your application is being processed in our enterprise queue.",
-                    next_steps=f"We're processing your CV with high-performance systems. You can check the status at /api/careers/applications/{job_id}/status or wait for an email confirmation within 5-10 minutes.",
-                    job_id=job_id
-                )
+                from app.services.public_cv_queue import enqueue_public_application, is_public_cv_queue_enabled
+
+                if is_public_cv_queue_enabled():
+                    job_id = enqueue_public_application(application_data)
+                    return JobApplicationResponse(
+                        success=True,
+                        application_id=application_id,
+                        message=f"Thank you, {applicant_name}! Your application has been received and queued for processing.",
+                        next_steps=f"Your CV is being processed in the background. Check status at /api/careers/applications/{application_id}/status",
+                        job_id=job_id,
+                    )
             except Exception as queue_error:
-                # Fallback to synchronous processing if queue is full/overloaded
-                logger.warning(f"⚠️ Queue submission failed, falling back to synchronous processing: {str(queue_error)}")
-                # Continue to the synchronous processing path below instead of returning early
-                background_processing = False
+                logger.warning(f"⚠️ Public CV queue enqueue failed, falling back to in-process background task: {queue_error}")
+                # Continue to in-process path below
         
         
         # OPTIMIZED ASYNC PROCESSING: Use the same optimized processing as regular CVs
@@ -479,7 +468,7 @@ async def apply_to_job(
             success=True,
             application_id=application_id,
             message=f"Thank you, {applicant_name}! Your application is being processed with our optimized systems.",
-            next_steps=f"Your CV is being processed in the background. You can check the status at /api/cv/cv-upload-progress/{application_id} or wait for an email confirmation within 2-5 minutes.",
+            next_steps=f"Your CV is being processed in the background. Check status at /api/careers/applications/{application_id}/status",
             job_id=application_id
         )
         
@@ -488,6 +477,37 @@ async def apply_to_job(
     except Exception as e:
         logger.error(f"❌ Failed to process application: {e}")
         raise HTTPException(status_code=500, detail="Failed to submit application. Please try again later.")
+
+
+@router.get("/applications/{application_id}/status")
+async def get_application_status(application_id: str) -> JSONResponse:
+    """Get background processing status for a public-link application.
+
+    Works for both:
+    - Redis queue worker mode (ENABLE_PUBLIC_CV_QUEUE=true)
+    - Legacy in-process background task mode (uses /api/cv/cv-upload-progress/{id})
+    """
+    # 1) Prefer Redis queue status (new worker path)
+    try:
+        from app.services.public_cv_queue import get_public_job_status
+
+        st = get_public_job_status(application_id)
+        if st:
+            return JSONResponse({"source": "redis_queue", **st})
+    except Exception:
+        pass
+
+    # 2) Fallback to in-process progress tracker (legacy path)
+    try:
+        from app.routes.cv_routes import _cv_upload_progress  # type: ignore
+
+        prog = _cv_upload_progress.get(application_id)
+        if prog:
+            return JSONResponse({"source": "in_process", **prog})
+    except Exception:
+        pass
+
+    return JSONResponse({"source": "none", "status": "not_found", "application_id": application_id}, status_code=404)
 
 
 # ==================== HR/ADMIN ENDPOINTS (May require authentication later) ====================
