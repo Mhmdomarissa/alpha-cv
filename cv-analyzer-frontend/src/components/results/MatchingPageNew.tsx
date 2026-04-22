@@ -62,21 +62,21 @@ function normalizeWeights(w: MatchWeights) {
 }
 
 function scoreBadge(score: number) {
-  if (score >= 0.8) return { label: 'Excellent', bg: 'bg-emerald-100', text: 'text-emerald-700' };
-  if (score >= 0.6) return { label: 'Good', bg: 'bg-amber-100', text: 'text-amber-700' };
-  return { label: 'Needs Review', bg: 'bg-rose-100', text: 'text-rose-700' };
+  if (score >= 0.8) return { label: 'Excellent', bg: 'bg-[#00529b]/10', text: 'text-[#00529b]' };
+  if (score >= 0.6) return { label: 'Good', bg: 'bg-slate-100', text: 'text-slate-700' };
+  return { label: 'Needs Review', bg: 'bg-gray-100', text: 'text-gray-700' };
 }
 
 function scoreColor(score: number) {
-  if (score >= 0.8) return 'text-emerald-600';
-  if (score >= 0.6) return 'text-amber-600';
-  return 'text-rose-600';
+  if (score >= 0.8) return 'text-[#00529b]';
+  if (score >= 0.6) return 'text-slate-700';
+  return 'text-gray-600';
 }
 
 function barColor(score: number) {
-  if (score >= 0.7) return 'bg-emerald-500';
-  if (score >= 0.5) return 'bg-amber-500';
-  return 'bg-rose-500';
+  if (score >= 0.7) return 'bg-[#00529b]';
+  if (score >= 0.5) return 'bg-slate-500';
+  return 'bg-gray-400';
 }
 
 function clamp01(n: number) {

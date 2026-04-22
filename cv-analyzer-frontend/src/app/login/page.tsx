@@ -1,49 +1,60 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore';
+import React, { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import LoginForm from '@/components/auth/LoginForm';
+import { useAuthStore } from '@/stores/authStore';
+import { safeRedirectPath } from '@/lib/safe-redirect';
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading } = useAuthStore();
   const [initTimeout, setInitTimeout] = useState(false);
 
   useEffect(() => {
-    // Show login form after 1.5s even if auth init is still loading (avoids stuck spinner)
     const t = setTimeout(() => setInitTimeout(true), 1500);
     return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {
-    // If user is already logged in, redirect to appropriate page
     if (user && !loading) {
-      if (user.role === 'admin') {
-        router.push('/admin/users'); // Admin users go to admin panel
-      } else {
-        router.push('/'); // HR/regular users go to main app (with careers tab)
-      }
+      const from = safeRedirectPath(searchParams.get('from'));
+      router.replace(from ?? '/');
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, searchParams]);
 
-  // Don't render login form if user is already authenticated
   if (user && !loading) {
     return null;
   }
 
-  // Show login form immediately or after timeout
   if (!loading || initTimeout) {
     return <LoginForm />;
   }
 
-  // Show minimal loading state
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
         <p className="mt-4 text-slate-600">Preparing your workspace...</p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-50">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
+            <p className="mt-4 text-slate-600">Loading…</p>
+          </div>
+        </div>
+      }
+    >
+      <LoginPageInner />
+    </Suspense>
   );
 }

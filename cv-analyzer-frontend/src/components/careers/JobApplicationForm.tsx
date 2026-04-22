@@ -66,8 +66,6 @@ export default function JobApplicationForm({
       errors.name = 'Name must be at least 2 characters long';
     } else if (!/^[a-zA-Z\s\-'\.]+$/.test(formData.name.trim())) {
       errors.name = 'Name can only contain letters, spaces, hyphens, apostrophes, and periods';
-    } else if (formData.name.trim().split(' ').length < 2) {
-      errors.name = 'Please enter your full name (first and last name)';
     }
     
     // Email validation
@@ -377,13 +375,13 @@ export default function JobApplicationForm({
           <div className="relative">
             <span className="absolute left-3 top-3 text-neutral-500 font-semibold">AED</span>
             <Input
-              type="number"
+              type="text"
+              inputMode="decimal"
+              pattern="[0-9]*\.?[0-9]*"
               placeholder="Expected Salary per month"
               value={formData.expectedSalary}
               onChange={(e) => handleInputChange('expectedSalary', e.target.value)}
               className={`pl-12 ${formErrors.expectedSalary ? 'border-red-500' : ''}`}
-              min="0"
-              step="0.01"
             />
           </div>
           {formErrors.expectedSalary && (
@@ -395,13 +393,13 @@ export default function JobApplicationForm({
           <div className="relative">
             <span className="absolute left-3 top-3 text-neutral-500 font-semibold">Yrs</span>
             <Input
-              type="number"
+              type="text"
+              inputMode="decimal"
+              pattern="[0-9]*\.?[0-9]*"
               placeholder="Years of Experience"
               value={formData.yearsOfExperience}
               onChange={(e) => handleInputChange('yearsOfExperience', e.target.value)}
               className={`pl-12 ${formErrors.yearsOfExperience ? 'border-red-500' : ''}`}
-              min="0"
-              step="0.1"
             />
           </div>
           {formErrors.yearsOfExperience && (

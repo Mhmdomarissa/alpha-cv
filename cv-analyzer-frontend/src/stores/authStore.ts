@@ -8,15 +8,17 @@ interface AuthState {
   token: string | null;
   user: UserProfile | null;
   loading: boolean;
+  /** False until the first `initFromStorage` (or public-route skip) finishes — avoids Protected redirect before hydration. */
+  authHydrated: boolean;
   error: string | null;
 }
 
 interface AuthActions {
   initFromStorage: () => Promise<void>;
-  login: (username: string, password: string) => Promise<{ success: boolean; role?: 'admin' | 'user'; error?: string }>;
+  login: (username: string, password: string) => Promise<{ success: boolean; role?: 'admin' | 'user' | 'recruiter' | 'manager'; error?: string }>;
   verifyPassword: (username: string, password: string) => Promise<{ success: boolean; requires_otp?: boolean; error?: string }>;
   sendOTP: (username: string, password: string) => Promise<{ success: boolean; masked_email?: string; error?: string }>;
-  verifyOTP: (username: string, otp: string) => Promise<{ success: boolean; role?: 'admin' | 'user'; error?: string }>;
+  verifyOTP: (username: string, otp: string) => Promise<{ success: boolean; role?: 'admin' | 'user' | 'recruiter' | 'manager'; error?: string }>;
   logout: () => void;
   clearError: () => void;
 }
@@ -28,14 +30,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   token: null,
   user: null,
   loading: false,
+  authHydrated: false,
   error: null,
 
   // Actions
   initFromStorage: async () => {
     set({ loading: true });
-    // Safety: never leave loading true forever (e.g. if API hangs or CORS blocks)
     const safetyTimer = setTimeout(() => {
-      set((s) => (s.loading ? { loading: false } : {}));
+      set({ loading: false, authHydrated: true });
     }, 6000);
     try {
       const token = getToken();
@@ -45,19 +47,19 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           setTimeout(() => reject(new Error('Auth check timeout')), 5000)
         );
         const user = await Promise.race([api.me(token), timeoutPromise]) as UserProfile;
-        clearTimeout(safetyTimer);
         set({ token, user, loading: false, error: null });
         logger.info('Auth session restored');
       } else {
-        clearTimeout(safetyTimer);
         set({ loading: false });
         logger.info('No token found in storage');
       }
     } catch (error) {
-      clearTimeout(safetyTimer);
       logger.error('Failed to restore auth session:', error);
       clearToken();
       set({ token: null, user: null, loading: false, error: null });
+    } finally {
+      clearTimeout(safetyTimer);
+      set({ authHydrated: true });
     }
   },
 
@@ -73,13 +75,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       // Get user profile
       const user = await api.me(response.access_token);
       
-      set({ 
-        token: response.access_token, 
-        user, 
-        loading: false, 
-        error: null 
+      set({
+        token: response.access_token,
+        user,
+        loading: false,
+        error: null,
+        authHydrated: true,
       });
-      
+
       logger.info('Login successful');
       return { success: true, role: user.role };
     } catch (error: any) {
@@ -144,13 +147,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       // Get user profile
       const user = await api.me(response.access_token);
       
-      set({ 
-        token: response.access_token, 
-        user, 
-        loading: false, 
-        error: null 
+      set({
+        token: response.access_token,
+        user,
+        loading: false,
+        error: null,
+        authHydrated: true,
       });
-      
+
       logger.info('OTP verification successful');
       return { success: true, role: user.role };
     } catch (error: any) {
@@ -164,7 +168,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   logout: () => {
     logger.info('Logging out user');
     clearToken();
-    set({ token: null, user: null, loading: false, error: null });
+    set({ token: null, user: null, loading: false, error: null, authHydrated: true });
   },
 
   clearError: () => {

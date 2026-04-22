@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 
 interface RoleBasedAccessProps {
   children: ReactNode;
-  allowedRoles: ('admin' | 'user')[];
+  allowedRoles: ('admin' | 'user' | 'recruiter' | 'manager')[];
   fallback?: ReactNode;
   hideWhenUnauthorized?: boolean;
 }
@@ -22,7 +22,7 @@ export default function RoleBasedAccess({
     return hideWhenUnauthorized ? null : fallback;
   }
 
-  const hasAccess = allowedRoles.includes(user.role as 'admin' | 'user');
+  const hasAccess = allowedRoles.includes(user.role as any);
 
   if (hasAccess) {
     return <>{children}</>;

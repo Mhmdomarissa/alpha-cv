@@ -8,14 +8,18 @@ services:
       context: ./cv-analyzer-frontend
       dockerfile: Dockerfile
       args:
-        # Use localhost so browser connects via nginx (port 80) - avoids connection issues on Windows
+        # NEXT_PUBLIC_API_URL is used by the browser (client-side); window.location.origin
+        # is used at runtime so this value only matters for SSR fallback.
         NEXT_PUBLIC_API_URL: http://localhost
+        BACKEND_INTERNAL_URL: http://backend-dev:8000
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      # Use localhost so API calls go to http://localhost/api (nginx proxies to backend)
       - NEXT_PUBLIC_API_URL=http://localhost
+      # Server-side rewrite proxy: Next.js forwards /api/* to this URL.
+      # backend-dev:8000 is reachable inside the Docker network.
+      - BACKEND_INTERNAL_URL=http://backend-dev:8000
     depends_on:
       - backend-dev
     networks:
@@ -33,8 +37,7 @@ services:
       - "8000:8000"  # Standard port
     env_file:
       - .env.dev
-    environment:
-      - UVICORN_WORKERS=1  # Single worker for development
+    # Use .env.dev to control UVICORN_WORKERS (dev default: 2)
     volumes:
       - ./alpha-backend:/app
     networks:
@@ -43,6 +46,52 @@ services:
       - postgres-dev
       - qdrant-dev
       - redis-dev
+    restart: unless-stopped
+
+  # Dedicated email scheduler worker (keeps API responsive)
+  email-scheduler-dev:
+    build:
+      context: ./alpha-backend
+      dockerfile: Dockerfile
+      args:
+        TORCH_GPU: "0"
+    command: ["python", "-m", "app.worker.email_scheduler_worker"]
+    env_file:
+      - .env.dev
+    environment:
+      - ENABLE_EMAIL_SCHEDULER=true
+    depends_on:
+      - backend-dev
+      - postgres-dev
+      - qdrant-dev
+      - redis-dev
+    volumes:
+      - ./alpha-backend:/app
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  # Dedicated public CV processing worker (for /careers public apply)
+  public-cv-worker-dev:
+    build:
+      context: ./alpha-backend
+      dockerfile: Dockerfile
+      args:
+        TORCH_GPU: "0"
+    command: ["python", "-m", "app.worker.public_cv_worker"]
+    env_file:
+      - .env.dev
+    environment:
+      - ENABLE_PUBLIC_CV_QUEUE=true
+    depends_on:
+      - backend-dev
+      - postgres-dev
+      - qdrant-dev
+      - redis-dev
+    volumes:
+      - ./alpha-backend:/app
+    networks:
+      - dev-network
     restart: unless-stopped
 
   # Development PostgreSQL (runs on port 5434)

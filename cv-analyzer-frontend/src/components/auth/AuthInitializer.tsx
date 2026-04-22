@@ -18,7 +18,11 @@ export default function AuthInitializer() {
 
   useEffect(() => {
     if (pathname == null) return;
-    if (isPublicRoute(pathname)) return;
+    if (isPublicRoute(pathname)) {
+      // Skip /api/auth/me on public pages, but mark session resolution so hooks don't wait forever.
+      useAuthStore.setState({ authHydrated: true, loading: false });
+      return;
+    }
     if (!hasInitialized.current) {
       hasInitialized.current = true;
       initFromStorage();

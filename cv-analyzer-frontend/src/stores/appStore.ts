@@ -128,6 +128,34 @@ interface AppState {
   clearError: (operation: keyof AppState['loadingStates']) => void;
 }
 
+const APP_CURRENT_TAB_KEY = 'alpha_cv_current_tab';
+
+function isPersistableMainTab(v: string): v is AppState['currentTab'] {
+  return (
+    v === 'dashboard' ||
+    v === 'upload' ||
+    v === 'database' ||
+    v === 'match' ||
+    v === 'careers' ||
+    v === 'email' ||
+    v === 'reports' ||
+    v === 'system' ||
+    v === 'performance'
+  );
+}
+
+/** Read last main-app tab from localStorage (client only). */
+export function readPersistedMainTab(): AppState['currentTab'] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(APP_CURRENT_TAB_KEY);
+    if (raw && isPersistableMainTab(raw)) return raw;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 /** Page size for CV/JD list API calls to keep responses small and fast */
 const LIST_PAGE_SIZE = 200;
 
@@ -181,7 +209,14 @@ export const useAppStore = create<AppState>()(
       // Actions
       setCurrentTab: (tab) => {
         set({ currentTab: tab });
-        
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(APP_CURRENT_TAB_KEY, tab);
+          } catch {
+            /* ignore */
+          }
+        }
+
         // Auto-load data when switching to relevant tabs
         const state = get();
         if (tab === 'database' && state.cvs.length === 0) {
@@ -450,7 +485,7 @@ export const useAppStore = create<AppState>()(
         }));
       },
       
-      runMatch: async (request = {}) => {
+      runMatch: async (request: Partial<MatchRequest> = {}) => {
         const { 
           setLoading, 
           selectedJD, 
@@ -462,6 +497,9 @@ export const useAppStore = create<AppState>()(
         
         setLoading('matching', true);
         
+        const MAX_CV_LIMIT = 300;
+        let progressInterval: ReturnType<typeof setInterval> | null = null;
+
         try {
           if (!selectedJD && !request.jd_text) {
             throw new Error('Please select a job description first');
@@ -478,6 +516,12 @@ export const useAppStore = create<AppState>()(
           
           // Initialize progress tracking (time-based; backend uses chunks of 50 + LLM phase)
           const totalCVs = selectedCVs.length || 0;
+          if (totalCVs > MAX_CV_LIMIT) {
+            const msg = `Currently, our system supports matching up to ${MAX_CV_LIMIT} CVs at a time. You selected ${totalCVs} CVs. Please reduce your selection to ${MAX_CV_LIMIT} CVs or fewer and try again.`;
+            setLoading('matching', false, msg);
+            hideMatchingProgress();
+            return;
+          }
           const totalBatches = Math.max(1, Math.ceil(totalCVs / 50));
           const estimatedTotalSeconds = Math.max(30, totalCVs * 5);
           const startTime = Date.now();
@@ -500,7 +544,7 @@ export const useAppStore = create<AppState>()(
             return 'finalizing';
           };
 
-          const progressInterval = setInterval(() => {
+          progressInterval = setInterval(() => {
             const elapsed = (Date.now() - startTime) / 1000;
             const progressPercent = Math.min(95, (elapsed / estimatedTotalSeconds) * 100);
             const processedCVs = Math.min(totalCVs, Math.floor((progressPercent / 100) * totalCVs));
@@ -534,7 +578,8 @@ export const useAppStore = create<AppState>()(
           // Check if request was queued
           if (result.is_queued) {
             // Clear progress interval
-            clearInterval(progressInterval);
+            if (progressInterval) clearInterval(progressInterval);
+            progressInterval = null;
             
             // Set queue state
             set({
@@ -554,7 +599,8 @@ export const useAppStore = create<AppState>()(
                 if (!pollResult.is_queued && pollResult.candidates.length > 0) {
                   // Match completed!
                   clearInterval(pollInterval);
-                  clearInterval(progressInterval);
+                  if (progressInterval) clearInterval(progressInterval);
+                  progressInterval = null;
                   hideMatchingProgress();
                   
                   set({
@@ -589,7 +635,8 @@ export const useAppStore = create<AppState>()(
             return;
           }
           
-          clearInterval(progressInterval);
+          if (progressInterval) clearInterval(progressInterval);
+          progressInterval = null;
           setMatchingProgress({
             processedCVs: totalCVs,
             currentStage: 'finalizing',
@@ -607,7 +654,11 @@ export const useAppStore = create<AppState>()(
           logger.info(`Matching completed: ${result.candidates.length} candidates processed`);
         } catch (error: any) {
           logger.error('Failed to run matching', error);
+          if (progressInterval) clearInterval(progressInterval);
+          progressInterval = null;
+          // Ensure any in-flight progress overlay is closed immediately.
           hideMatchingProgress();
+          setMatchingProgress({ isVisible: false });
           // Extract error message from detail (backend) or message (network)
           const errorMessage = error?.detail || error?.response?.data?.detail || error?.message || 'Failed to run matching';
           setLoading('matching', false, errorMessage);

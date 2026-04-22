@@ -31,7 +31,7 @@ export class ApiErrorHandler {
     switch (status) {
       case 400:
         message = 'Invalid request';
-        detail = data?.detail || 'Please check your input and try again.';
+        detail = data?.detail || data?.error || 'Please check your input and try again.';
         break;
       case 401:
         message = 'Authentication required';
@@ -63,7 +63,7 @@ export class ApiErrorHandler {
         break;
       default:
         message = `HTTP ${status} Error`;
-        detail = data?.detail || error.message;
+        detail = data?.detail || data?.error || error.message;
     }
 
     logger.error(`API Error: ${status}`, { message, detail, data }, id);

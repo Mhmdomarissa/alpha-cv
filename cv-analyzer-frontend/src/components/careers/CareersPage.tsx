@@ -19,7 +19,10 @@ import {
   Target,
   Filter,
   Search,
-  SlidersHorizontal
+  SlidersHorizontal,
+  ChevronLeft,
+  ChevronRight,
+  Download
 } from 'lucide-react';
 import { useCareersStore } from '@/stores/careersStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -34,6 +37,59 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingCard } from '@/components/ui/loading';
 import { AdminOnly } from '@/components/auth/RoleBasedAccess';
 import JobPostingForm from './JobPostingForm';
+
+const JOBS_PAGE_SIZE = 20;
+
+function toYmd(d: Date) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function downloadWordHtml(filename: string, html: string) {
+  const blob = new Blob(
+    [
+      `<!doctype html><html><head><meta charset="utf-8"></head><body>${html}</body></html>`,
+    ],
+    { type: 'application/msword;charset=utf-8' }
+  );
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function filterJobPostings(
+  list: JobPostingListItem[],
+  opts: {
+    jobFilter: 'all' | 'yours' | 'others';
+    statusFilter: 'all' | 'active' | 'inactive';
+    query: string;
+    username?: string;
+  }
+): JobPostingListItem[] {
+  let result = list;
+  if (opts.jobFilter === 'yours') result = result.filter((job) => job.posted_by_user === opts.username);
+  else if (opts.jobFilter === 'others') result = result.filter((job) => job.posted_by_user !== opts.username);
+  if (opts.statusFilter === 'active') result = result.filter((job) => !!job.is_active);
+  else if (opts.statusFilter === 'inactive') result = result.filter((job) => !job.is_active);
+  const q = opts.query.trim().toLowerCase();
+  if (q) {
+    result = result.filter((job) => {
+      const title = String(job.job_title || '').toLowerCase();
+      const poster = String(job.posted_by_user || '').toLowerCase();
+      const subject = String((job as any).email_subject_template || '').toLowerCase();
+      const id = String(job.job_id || '').toLowerCase();
+      return title.includes(q) || poster.includes(q) || subject.includes(q) || id.includes(q);
+    });
+  }
+  return result;
+}
 
 export default function CareersPage() {
   const router = useRouter();
@@ -72,14 +128,22 @@ export default function CareersPage() {
   const [isDeletingJob, setIsDeletingJob] = useState<string | null>(null);
   const [showJobDeleteConfirm, setShowJobDeleteConfirm] = useState<JobPostingListItem | null>(null);
   const [jobFilter, setJobFilter] = useState<'all' | 'yours' | 'others'>('all');
-  const [visibleCount, setVisibleCount] = useState(5);
+  const [listPageIndex, setListPageIndex] = useState(0);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [reportFrom, setReportFrom] = useState(() => {
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(end.getDate() - 6);
+    return toYmd(start);
+  });
+  const [reportTo, setReportTo] = useState(() => toYmd(new Date()));
+  const [downloadingReport, setDownloadingReport] = useState(false);
 
-  // Always reset to showing top 5 whenever filter changes or a fresh load happens
+  // Reset to first page when filters change (do not reset when loading more rows — that would jump the user back)
   useEffect(() => {
-    setVisibleCount(5);
-  }, [jobFilter, jobPostings.length]);
+    setListPageIndex(0);
+  }, [jobFilter, statusFilter, query]);
 
   useEffect(() => {
     queueRequest('load-job-postings', async () => {
@@ -143,6 +207,7 @@ export default function CareersPage() {
     setIsRefreshing(true);
     try {
       await loadJobPostings();
+      setListPageIndex(0);
     } catch (error) {
       console.error('Failed to refresh job postings:', error);
     } finally {
@@ -203,26 +268,70 @@ export default function CareersPage() {
     return new Date(dateString).toLocaleDateString();
   };
 
-  const filteredJobs = useMemo(() => {
-    let list = jobPostings;
-    if (jobFilter === 'yours') list = list.filter(job => job.posted_by_user === user?.username);
-    else if (jobFilter === 'others') list = list.filter(job => job.posted_by_user !== user?.username);
-    if (statusFilter === 'active') list = list.filter(job => !!job.is_active);
-    else if (statusFilter === 'inactive') list = list.filter(job => !job.is_active);
-    const q = query.trim().toLowerCase();
-    if (q) {
-      list = list.filter((job) => {
-        const title = String(job.job_title || '').toLowerCase();
-        const poster = String(job.posted_by_user || '').toLowerCase();
-        const subject = String((job as any).email_subject_template || '').toLowerCase();
-        const id = String(job.job_id || '').toLowerCase();
-        return title.includes(q) || poster.includes(q) || subject.includes(q) || id.includes(q);
-      });
-    }
-    return list;
-  }, [jobPostings, jobFilter, statusFilter, query, user?.username]);
+  const filteredJobs = useMemo(
+    () =>
+      filterJobPostings(jobPostings, {
+        jobFilter,
+        statusFilter,
+        query,
+        username: user?.username,
+      }),
+    [jobPostings, jobFilter, statusFilter, query, user?.username]
+  );
 
-  const visibleJobs = filteredJobs.slice(0, visibleCount);
+  const maxPageIndex = Math.max(0, Math.ceil(filteredJobs.length / JOBS_PAGE_SIZE) - 1);
+
+  useEffect(() => {
+    setListPageIndex((p) => Math.min(p, maxPageIndex));
+  }, [maxPageIndex]);
+
+  const visibleJobs = useMemo(
+    () =>
+      filteredJobs.slice(
+        listPageIndex * JOBS_PAGE_SIZE,
+        listPageIndex * JOBS_PAGE_SIZE + JOBS_PAGE_SIZE
+      ),
+    [filteredJobs, listPageIndex]
+  );
+
+  const filterOpts = { jobFilter, statusFilter, query, username: user?.username };
+
+  const handlePrevPage = () => {
+    setListPageIndex((p) => Math.max(0, p - 1));
+  };
+
+  const handleNextPage = async () => {
+    const nextPage = listPageIndex + 1;
+    const nextStart = nextPage * JOBS_PAGE_SIZE;
+
+    if (nextStart < filteredJobs.length) {
+      setListPageIndex(nextPage);
+      return;
+    }
+
+    for (let attempts = 0; attempts < 25; attempts++) {
+      const { jobPostings: jp, totalJobPostings: total } = useCareersStore.getState();
+      const filtered = filterJobPostings(jp, filterOpts);
+      if (nextStart < filtered.length) {
+        setListPageIndex(nextPage);
+        return;
+      }
+      const totalCount = total ?? jp.length;
+      if (jp.length >= totalCount) return;
+
+      const lenBefore = jp.length;
+      await loadMoreJobPostings();
+      const lenAfter = useCareersStore.getState().jobPostings.length;
+      if (lenAfter === lenBefore) return;
+    }
+  };
+
+  const rangeStart = filteredJobs.length === 0 ? 0 : listPageIndex * JOBS_PAGE_SIZE + 1;
+  const rangeEnd = Math.min((listPageIndex + 1) * JOBS_PAGE_SIZE, filteredJobs.length);
+  const hasNextPageInMemory = (listPageIndex + 1) * JOBS_PAGE_SIZE < filteredJobs.length;
+  const mayHaveMoreOnServer =
+    totalJobPostings != null && jobPostings.length < totalJobPostings;
+  const canGoNext = hasNextPageInMemory || mayHaveMoreOnServer;
 
   if (!user) {
     return (
@@ -237,7 +346,8 @@ export default function CareersPage() {
     );
   }
 
-  if (isLoading || loadingStates.careers) {
+  // Full-page spinner only for the initial careers load, not for "load next page" (that would hide the list).
+  if ((isLoading && jobPostings.length === 0) || loadingStates.careers) {
     return (
       <div className="p-6">
         <LoadingCard />
@@ -332,6 +442,108 @@ export default function CareersPage() {
           </div>
         </div>
       )}
+
+      {/* Weekly analysis report (admin only) */}
+      <AdminOnly>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 sm:p-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-gray-900">Weekly Analysis Report</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                Select date range and download a Word report. Uses aggregated stats (no heavy payloads).
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-600">From</label>
+                <input
+                  type="date"
+                  value={reportFrom}
+                  onChange={(e) => setReportFrom(e.target.value)}
+                  className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-600">To</label>
+                <input
+                  type="date"
+                  value={reportTo}
+                  onChange={(e) => setReportTo(e.target.value)}
+                  className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+                />
+              </div>
+              <Button
+                disabled={!reportFrom || !reportTo || downloadingReport}
+                className="bg-[#00529b] hover:bg-[#003d73] !text-white border-0"
+                onClick={async () => {
+                  if (downloadingReport) return;
+                  setDownloadingReport(true);
+                  try {
+                    const r = await api.getWeeklyAnalysisReport({ startDate: reportFrom, endDate: reportTo });
+                    const title = `Alpha CV – weekly Analysis Report`;
+                    const dateLine = `(Date: ${r.range.start_date} – ${r.range.end_date})`;
+
+                    const recruiters = r.recruiters_posted
+                      .map((x, i) => `${i + 1}. ${x.recruiter} – ${x.jobs_posted}`)
+                      .join('<br/>');
+
+                    const appsByRecruiter = Object.entries(r.applications_by_recruiter)
+                      .sort((a, b) => a[0].localeCompare(b[0]))
+                      .map(([recruiter, jobs], idx) => {
+                        const jobsHtml = jobs
+                          .map((j, jIdx) => `${String.fromCharCode(97 + (jIdx % 26))}. ${j.job_title} – ${j.applications}`)
+                          .join('<br/>');
+                        return `${idx + 1}. <b>${recruiter}</b><br/>${jobsHtml}`;
+                      })
+                      .join('<br/><br/>');
+
+                    const html = `
+                      <div style="font-family:Calibri, Arial, sans-serif; font-size:11pt;">
+                        <div style="font-weight:700; font-size:16pt;">${title}</div>
+                        <div style="margin-top:4px; font-size:11pt;">${dateLine}</div>
+                        <div style="margin-top:16px;">
+                          <div><b>1. How many total jobs posted?</b></div>
+                          <div>Total jobs posted – ${r.total_jobs_posted}</div>
+                        </div>
+                        <div style="margin-top:14px;">
+                          <div><b>2. Which Recruiters Posted?</b></div>
+                          <div style="margin-top:6px;">${recruiters || '—'}</div>
+                        </div>
+                        <div style="margin-top:14px;">
+                          <div><b>3. How many applications got for each job?</b></div>
+                          <div style="margin-top:6px;">${appsByRecruiter || '—'}</div>
+                        </div>
+                        <div style="margin-top:14px;">
+                          <div><b>4. Any selections?</b></div>
+                          <div style="margin-top:6px;">—</div>
+                        </div>
+                      </div>
+                    `;
+
+                    downloadWordHtml(`weekly_analysis_report_${r.range.start_date}_to_${r.range.end_date}.doc`, html);
+                  } catch (e: any) {
+                    alert(e?.message || 'Failed to generate report');
+                  } finally {
+                    setDownloadingReport(false);
+                  }
+                }}
+              >
+                {downloadingReport ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    Preparing…
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2 !text-white" />
+                    <span className="!text-white">Download Word Report</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </AdminOnly>
       
       {/* Filter */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 sm:p-4">
@@ -634,22 +846,33 @@ export default function CareersPage() {
 
             </div>
             ))}
-            {visibleJobs.length < filteredJobs.length && (
-              <div className="flex justify-center mt-2">
-                <Button
-                  variant="outline"
-                  onClick={async () => {
-                    // Fetch next page from backend (no-op if already fully loaded),
-                    // then increase how many we show from the loaded list.
-                    await loadMoreJobPostings();
-                    setVisibleCount((prev) => prev + 5);
-                  }}
-                  className="border-gray-300 text-gray-700"
-                >
-                  Load more jobs ({visibleJobs.length} of {filteredJobs.length})
-                </Button>
-              </div>
-            )}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-4 pt-2 border-t border-gray-200">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handlePrevPage}
+                disabled={listPageIndex === 0 || isLoading}
+                className="border-gray-300 text-gray-700 w-full sm:w-auto"
+              >
+                <ChevronLeft className="w-4 h-4 mr-1 shrink-0" />
+                Previous
+              </Button>
+              <p className="text-sm text-gray-600 text-center order-first sm:order-none">
+                {filteredJobs.length === 0
+                  ? 'No matching jobs'
+                  : `Showing ${rangeStart}–${rangeEnd} of ${filteredJobs.length}`}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleNextPage()}
+                disabled={!canGoNext || isLoading}
+                className="border-gray-300 text-gray-700 w-full sm:w-auto"
+              >
+                Next
+                <ChevronRight className="w-4 h-4 ml-1 shrink-0" />
+              </Button>
+            </div>
           </>
         )}
       </div>

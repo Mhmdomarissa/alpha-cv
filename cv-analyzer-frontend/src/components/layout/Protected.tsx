@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useEffect, ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 
 interface ProtectedProps {
   children: ReactNode;
-  requireRole?: 'admin' | 'user';
+  requireRole?: 'admin' | 'user' | 'recruiter' | 'manager' | 'evp';
   fallbackPath?: string;
 }
 
@@ -16,30 +16,25 @@ export default function Protected({
   fallbackPath = '/login' 
 }: ProtectedProps) {
   const router = useRouter();
-  const { user, loading } = useAuthStore();
+  const pathname = usePathname();
+  const { user, loading, authHydrated } = useAuthStore();
 
   useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        // No user, redirect to login
-        router.push(fallbackPath);
-        return;
-      }
+    if (!authHydrated || loading) return;
 
-      if (requireRole && user.role !== requireRole) {
-        // User doesn't have required role
-        if (user.role === 'admin') {
-          router.push('/admin/users');
-        } else {
-          router.push('/'); // Redirect to main app
-        }
-        return;
-      }
+    if (!user) {
+      const here = pathname && pathname !== '/login' ? `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}` : '';
+      const q = here ? `?from=${encodeURIComponent(here)}` : '';
+      router.push(`${fallbackPath}${q}`);
+      return;
     }
-  }, [user, loading, requireRole, router, fallbackPath]);
 
-  // Show loading spinner while checking auth
-  if (loading) {
+    if (requireRole && user.role !== requireRole) {
+      router.push('/');
+    }
+  }, [user, loading, authHydrated, requireRole, router, fallbackPath, pathname]);
+
+  if (!authHydrated || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center space-y-4">
@@ -50,7 +45,6 @@ export default function Protected({
     );
   }
 
-  // Don't render children if user is not authenticated or doesn't have required role
   if (!user || (requireRole && user.role !== requireRole)) {
     return null;
   }

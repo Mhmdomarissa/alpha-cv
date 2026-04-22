@@ -20,6 +20,7 @@ scipy>=1.11.0,<1.14.0
 sqlmodel==0.0.14
 psycopg2-binary==2.9.9
 SQLAlchemy>=2.0.0
+openpyxl==3.1.5
 passlib[argon2,bcrypt]==1.7.4
 PyJWT==2.9.0
 psutil==5.9.5

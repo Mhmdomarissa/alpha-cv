@@ -27,7 +27,7 @@ def init_auth_db() -> None:
     
     SQLModel.metadata.create_all(engine)
     
-    # Migration: Add email column if it doesn't exist (for existing databases)
+    # Migration: Add email/otp_mode columns if they don't exist (for existing databases)
     try:
         with Session(engine) as session:
             if settings.AUTH_DB_URL.startswith("sqlite"):
@@ -48,9 +48,25 @@ def init_auth_db() -> None:
                         logger.info("✅ Email column added successfully")
                     else:
                         logger.info("✅ Email column already exists in user table")
+
+                    if 'otp_mode' not in columns:
+                        logger.info("🔄 Adding otp_mode column to user table...")
+                        session.exec(text("ALTER TABLE user ADD COLUMN otp_mode TEXT DEFAULT 'real'"))
+                        session.commit()
+                        logger.info("✅ otp_mode column added successfully")
+                    else:
+                        logger.info("✅ otp_mode column already exists in user table")
+
+                    if 'team_location' not in columns:
+                        logger.info("🔄 Adding team_location column to user table...")
+                        session.exec(text("ALTER TABLE user ADD COLUMN team_location TEXT"))
+                        session.commit()
+                        logger.info("✅ team_location column added successfully")
+                    else:
+                        logger.info("✅ team_location column already exists in user table")
                 except Exception as e:
-                    logger.error(f"❌ Error checking/adding email column: {e}")
-                    # Try to add column anyway (might fail if it exists, but that's okay)
+                    logger.error(f"❌ Error checking/adding columns: {e}")
+                    # Try to add columns anyway (might fail if they exist, but that's okay)
                     try:
                         session.exec(text("ALTER TABLE user ADD COLUMN email TEXT"))
                         session.commit()
@@ -60,6 +76,24 @@ def init_auth_db() -> None:
                             logger.info("✅ Email column already exists (verified by add attempt)")
                         else:
                             logger.warning(f"⚠️ Could not add email column: {add_error}")
+                    try:
+                        session.exec(text("ALTER TABLE user ADD COLUMN otp_mode TEXT DEFAULT 'real'"))
+                        session.commit()
+                        logger.info("✅ otp_mode column added (attempted)")
+                    except Exception as add_error:
+                        if "duplicate column" in str(add_error).lower() or "already exists" in str(add_error).lower():
+                            logger.info("✅ otp_mode column already exists (verified by add attempt)")
+                        else:
+                            logger.warning(f"⚠️ Could not add otp_mode column: {add_error}")
+                    try:
+                        session.exec(text("ALTER TABLE user ADD COLUMN team_location TEXT"))
+                        session.commit()
+                        logger.info("✅ team_location column added (attempted)")
+                    except Exception as add_error:
+                        if "duplicate column" in str(add_error).lower() or "already exists" in str(add_error).lower():
+                            logger.info("✅ team_location column already exists (verified by add attempt)")
+                        else:
+                            logger.warning(f"⚠️ Could not add team_location column: {add_error}")
             else:
                 # PostgreSQL/other: Check and add column if not exists
                 try:
@@ -77,9 +111,39 @@ def init_auth_db() -> None:
                         logger.info("✅ Email column already exists in user table")
                 except Exception as e:
                     logger.warning(f"⚠️ Could not check/add email column: {e}")
+                try:
+                    result = session.exec(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='user' AND column_name='otp_mode'
+                    """))
+                    if not result.first():
+                        logger.info("🔄 Adding otp_mode column to user table...")
+                        session.exec(text('ALTER TABLE "user" ADD COLUMN otp_mode TEXT DEFAULT \'real\''))
+                        session.commit()
+                        logger.info("✅ otp_mode column added successfully")
+                    else:
+                        logger.info("✅ otp_mode column already exists in user table")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not check/add otp_mode column: {e}")
+                try:
+                    result = session.exec(text("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_name='user' AND column_name='team_location'
+                    """))
+                    if not result.first():
+                        logger.info("🔄 Adding team_location column to user table...")
+                        session.exec(text('ALTER TABLE "user" ADD COLUMN team_location TEXT'))
+                        session.commit()
+                        logger.info("✅ team_location column added successfully")
+                    else:
+                        logger.info("✅ team_location column already exists in user table")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not check/add team_location column: {e}")
     except Exception as e:
         # If migration fails, log and continue (might be a new database)
-        logger.warning(f"⚠️ Email column migration: {e}")
+        logger.warning(f"⚠️ User table column migration: {e}")
     
     with Session(engine) as session:
         admin = session.exec(select(User).where(User.username == settings.ADMIN_USERNAME)).first()

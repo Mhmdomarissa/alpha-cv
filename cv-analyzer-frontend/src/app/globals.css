@@ -12,6 +12,32 @@
   --primary-500: #00529b;
   --primary-600: #003d73;
   --primary-700: #002952;
+
+  /* Shadcn/Tailwind token bridge (HSL values) */
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+
+  --primary: 208 100% 30%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 208 100% 30%;
+
+  /* Used by tailwind borderRadius extension */
+  --radius: 0.75rem;
   
   --gray-50: #f9fafb;
   --gray-100: #f3f4f6;

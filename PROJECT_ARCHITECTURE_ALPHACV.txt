@@ -1,0 +1,418 @@
+================================================================================
+Project Architecture Response (Alpha CV - CV Analyzer & Job Matching)
+================================================================================
+
+This document provides an end-to-end architecture flow/schematic for the
+"Alpha CV" (CV Analyzer) project contained in this repository, including
+system components, integrations, data flows, network boundaries, and
+currently implemented security controls.
+
+Workstreams / Deployment Modes covered:
+  A) Local / Development deployment (docker-compose.dev.yml + nginx-dev.conf)
+  B) Production deployment – GPU (docker-compose.yml + nginx.conf / nginx-ssl.conf)
+  C) Production deployment – CPU-only (docker-compose.cpu.yml)
+
+AWS Hosting (Actual Environment in Scope):
+  - AWS Region: Stockholm (eu-north-1)
+  - Compute: Single EC2 instance "alphacv" (g4dn.xlarge)
+  - Security Group inbound ports: 22 (SSH), 80 (HTTP), 443 (HTTPS)
+  - Note: No ALB/ELB/CloudFront/WAF is used in this deployment; traffic
+    terminates on the EC2 instance at NGINX. SSL/TLS is provided via
+    Let's Encrypt (certbot) when cert volumes are mounted.
+
+
+--------------------------------------------------------------------------------
+A) Local / Development Architecture (docker-compose.dev.yml + nginx-dev.conf)
+--------------------------------------------------------------------------------
+
+High-level schematic (local dev):
+
+  [User Browser]
+        |
+        | HTTP :80 (or direct :3000 / :8000)
+        v
+  [NGINX Container (nginx-dev)]  Port 80
+        |
+        | /api -> backend-dev:8000   |  / -> frontend-dev:3000
+        v                            v
+  [Backend Container (backend-dev)]   [Frontend Container (frontend-dev)]
+  FastAPI (Uvicorn) :8000             Next.js :3000
+        |
+        | Async DB + Qdrant + Redis
+        v
+  [PostgreSQL (postgres-dev :5432)]   [Qdrant (qdrant-dev :6333)]   [Redis (redis-dev :6379)]
+
+Notes:
+  - Development compose exposes: frontend 3000, backend 8000, postgres 5434,
+    qdrant 6335, redis 6380, nginx 80.
+  - Backend uses CPU-only PyTorch (no CUDA). Auth DB can use SQLite or
+    PostgreSQL via AUTH_DB_URL in .env.dev.
+  - CORS allows localhost/127.0.0.1 and dev origins. No IP/UA blocking
+    in nginx-dev so tools (curl, Postman) work.
+
+
+--------------------------------------------------------------------------------
+B) Production Architecture – GPU (docker-compose.yml + nginx)
+--------------------------------------------------------------------------------
+
+High-level schematic (production):
+
+                           Internet / Corporate Network
+                                      |
+                               (HTTP/HTTPS 80/443)
+                                      |
+                                      v
+                        +-----------------------------+
+                        |  NGINX Reverse Proxy         |
+                        |  (nginx) Ports: 80, 443     |
+                        +-------------+---------------+
+                                      |
+                +---------------------+----------------------+
+                |                                            |
+                | / (SPA / Next.js)                            | /api (REST)
+                v                                            v
+  +-----------------------------+               +-----------------------------+
+  | Frontend Container          |               | Backend Container          |
+  | (frontend)                  |               | (backend)                   |
+  | Next.js standalone :8000*   |               | FastAPI (Uvicorn) :8000     |
+  +--------------+--------------+               | GPU (NVIDIA) optional       |
+                 |                              +--------------+--------------+
+                 |                                             |
+                 |                                             | Async SQLModel
+                 |                                             | Qdrant client/pool
+                 |                                             | Redis cache
+                 |                                             v
+                 |                               +-----------------------------+
+                 |                               | PostgreSQL (postgres)        |
+                 |                               | DBs: cv_database, auth_db    |
+                 |                               +-----------------------------+
+                 |                               | Qdrant (qdrant) :6333/:6334  |
+                 |                               +-----------------------------+
+                 |                               | Redis (redis) :6379          |
+                 |                               +-----------------------------+
+                 |
+                 | Optional / monitoring:
+                 +--> Prometheus (prometheus) :9090  [metrics]
+                 +--> Redis Exporter (redis-exporter) :9121
+
+  * Nginx upstream is frontend:8000; Next.js Dockerfile defaults to PORT=3000.
+    Production may set PORT=8000 for frontend container or use frontend:3000
+    in nginx if not overridden.
+
+Network boundary:
+  - All services use Docker bridge network "cv-network" (172.25.0.0/16).
+  - Only NGINX exposes ports 80 (and 443 when SSL is used). Backend, frontend,
+    PostgreSQL, Qdrant, Redis are not exposed to the host.
+  - AWS: Internet -> EC2 Security Group (22/80/443) -> NGINX container
+    -> internal docker network.
+
+
+--------------------------------------------------------------------------------
+C) Production Architecture – CPU-only (docker-compose.cpu.yml)
+--------------------------------------------------------------------------------
+
+Same topology as B) except:
+  - Backend built with TORCH_GPU=0 (CPU-only PyTorch). No NVIDIA runtime.
+  - No Prometheus in default stack (commented). Redis-exporter present but
+    port 9121 not published (metrics only inside Docker network).
+  - SSL: certbot volumes (./certbot/www, ./certbot/conf) mounted for
+    Let's Encrypt when using nginx with HTTPS.
+  - Suited for instances such as m6i.2xlarge / t3.2xlarge (~20 users).
+
+
+--------------------------------------------------------------------------------
+System Components (What runs where)
+--------------------------------------------------------------------------------
+
+1) Frontend (Next.js + TypeScript)
+  - Location: cv-analyzer-frontend/
+  - Built as standalone (Dockerfile multi-stage). Served by Node (server.js)
+    inside container. Default PORT=3000; nginx upstream may use 8000 if
+    overridden in deployment.
+  - API access: Uses NEXT_PUBLIC_API_URL / NEXT_PUBLIC_API_BASE (e.g.
+    https://alphacv.alphadatarecruitment.ae). All API calls go to /api/*,
+    which NGINX proxies to backend.
+  - Security: read_only filesystem, tmpfs for /tmp and /var/cache/nginx;
+    extra_hosts to block specific IPs (89.144.31.18, 176.117.107.158).
+
+2) Reverse proxy (Production)
+  - Location: nginx.conf, nginx-ssl.conf (same content in repo)
+  - Responsibilities:
+    - Routes /api/ to backend upstream (backend:8000).
+    - Routes / to frontend upstream (frontend:8000 or frontend:3000).
+    - Rate limiting: limit_req zones (general 30r/s, api 20r/s), limit_conn 20.
+    - Security headers: X-Content-Type-Options, X-Frame-Options,
+      X-XSS-Protection, Referrer-Policy, Permissions-Policy, Content-Security-Policy.
+    - IP/URI/query/body/referer blocking for known bad IPs and patterns
+      (e.g. busybox, exploit, shell, chmod 777, specific IPs).
+    - User-Agent blocking for wget, curl, scanner, bot, nikto, sqlmap, nmap, etc.
+      (with exceptions for 172.16–31.x and 127.0.0.1).
+    - HTTP -> HTTPS redirect when SSL is used; ACME challenge at
+      /.well-known/acme-challenge/ for cert renewal.
+    - TLS 1.2/1.3 with specified ciphers when certs are present.
+  - client_max_body_size 25m for uploads. Long timeouts for API (1800s)
+    and frontend (1200s).
+
+3) Backend API (FastAPI + Uvicorn)
+  - Location: alpha-backend/app/
+  - Port: 8000 inside container (not exposed to host in production).
+  - Major API groups (prefix /api):
+    - /api/auth     : login, verify-password, send-otp, verify-otp, me (JWT + OTP).
+    - /api/admin    : users CRUD (admin only).
+    - /api/cv       : upload-cv, cvs, categories, get/delete/reprocess/embeddings,
+                      standardize-cv, notes, download.
+    - /api/jd       : upload-jd, jds, get/delete/reprocess/embeddings, standardize-jd.
+    - /api          : match, match-text, matching-progress, metrics, health,
+                      clear-database, system-stats, database/status, database/view,
+                      match/category-based.
+    - /api/performance : system, gpu, docker, summary, health.
+    - /api/careers  : jobs/recent, jobs/{public_token}, jobs/{token}/apply;
+                      admin: post, post-manual, list, match-data, edit-data,
+                      status, applications, extract-ui-data, unified-update, delete.
+    - /api/email    : process-emails, status, health, webhook, admin reset/counts.
+    - /api/storage  : files/{doc_type}/{doc_id}.
+  - Database:
+    - Auth: SQLModel + engine from AUTH_DB_URL (SQLite in dev; PostgreSQL
+      auth_db in production when AUTH_DB_URL points to postgres).
+    - CV/JD/application data: Stored in Qdrant (vector store) and optionally
+      file storage (local or S3). No separate “application” PostgreSQL DB for
+      CV/JD; PostgreSQL in production holds cv_database and auth_db.
+  - Embeddings: sentence-transformers (all-mpnet-base-v2, 768d). GPU when
+    available (CUDA), else CPU. Production uses connection pool to Qdrant.
+  - File storage: Local or S3 (e.g. alpha-backend/app/services/s3_storage.py)
+    when configured.
+  - Startup: Qdrant collections init, embedding service warmup, cache/Redis
+    init, auth DB init, enterprise job queue. Email scheduler disabled to
+    avoid unintended OpenAI calls.
+
+4) PostgreSQL
+  - Image: postgres:15.
+  - Production: Databases cv_database and auth_db (POSTGRES_MULTIPLE_DATABASES).
+    Persistent volume postgres_data. Tuned via postgres-optimized.conf and
+    command-line params (shared_buffers, effective_cache_size, etc.). Not
+    exposed to host in main production compose.
+
+5) Qdrant (vector database)
+  - Image: qdrant/qdrant:latest.
+  - Ports 6333 (HTTP), 6334 (gRPC) internal only.
+  - Collections (per qdrant_utils): cv_documents, cv_structured, cv_embeddings;
+    jd_documents, jd_structured, jd_embeddings; job_postings_* and applications_*
+    (documents, structured, embeddings). Embeddings: 32 vectors per doc
+    (20 skills, 10 responsibility, 1 title, 1 experience). Config:
+    qdrant-optimized.yaml.
+
+6) Redis
+  - Image: redis:7-alpine. Port 6379 internal only.
+  - Used for caching (embeddings, matches), rate limiting state, and
+    application cache. Persistence: appendonly. maxmemory and policy
+    (e.g. allkeys-lru) set via command/env.
+
+7) Prometheus (GPU compose only)
+  - Scrapes backend /api/metrics, frontend, postgres, qdrant, redis-exporter.
+  - Port 9090 exposed. 48h retention, 512MB size limit.
+
+8) Redis Exporter
+  - Exposes Redis metrics for Prometheus (redis:6379). Port 9121 (exposed
+    in GPU compose; not in CPU compose).
+
+
+--------------------------------------------------------------------------------
+Primary Data Flows (End-to-end)
+--------------------------------------------------------------------------------
+
+Flow 1: Authentication (JWT + OTP)
+  1. Browser -> Frontend.
+  2. Optional: POST /api/auth/verify-password -> backend validates user/password,
+     returns whether OTP is required (admins may skip OTP).
+  3. If OTP required: POST /api/auth/send-otp -> backend sends OTP (e.g. email).
+  4. POST /api/auth/verify-otp (or POST /api/auth/login for admin) -> backend
+     issues JWT (create_access_token). Token returned to client.
+  5. Frontend stores token and sends Authorization: Bearer <token> on API requests.
+  6. Protected routes use require_user (deps/auth) and validate JWT.
+
+Flow 2: CV upload and processing
+  1. Browser -> Frontend (file pick). Frontend -> POST /api/cv/upload-cv
+     (multipart). Backend receives file, parses (PDF/DOCX/OCR), extracts text.
+  2. Backend standardizes/structures CV (LLM if configured), generates embeddings
+     (EmbeddingService), stores in Qdrant (cv_documents, cv_structured,
+     cv_embeddings) and optional file storage.
+  3. Frontend can GET /api/cv/cvs, GET /api/cv/{cv_id}, GET /api/cv/{cv_id}/embeddings,
+     POST /api/cv/standardize-cv, etc.
+
+Flow 3: JD upload and processing
+  1. Similar to CV: POST /api/jd/upload-jd. Backend parses, standardizes,
+     embeds, stores in jd_* collections and optional storage.
+  2. Frontend: GET /api/jd/jds, GET /api/jd/jd/{jd_id}, etc.
+
+Flow 4: Matching (deterministic, explainable)
+  1. Frontend -> POST /api/match with jd_id (and optional cv_ids or “all”).
+  2. Backend loads JD from Qdrant (or standardizes free text via LLM if jd_text).
+  3. Backend loads CV embeddings from Qdrant, runs sentence-level similarity
+     and Hungarian assignment (MatchingService). Returns ranked candidates with
+     scores and explanations. Max 300 CVs per request; max 2 concurrent
+     matches (queue beyond that).
+  4. GET /api/matching-progress/{job_id} for progress when applicable.
+  5. POST /api/match-text for text-only match. POST /api/match/category-based
+     for category-based matching.
+
+Flow 5: Careers (public job postings and applications)
+  1. Public: GET /api/careers/jobs/recent, GET /api/careers/jobs/{public_token},
+     POST /api/careers/jobs/{public_token}/apply (anonymous applications).
+  2. Admin: POST /api/careers/admin/jobs/post (or post-manual), GET/PATCH/DELETE
+     jobs, GET applications, match-data, edit-data, unified-update, etc.
+  3. Application documents/embeddings stored in job_postings_* / applications_*
+     Qdrant collections.
+
+Flow 6: Email processing (optional, Azure integration)
+  1. POST /api/email/process-emails (or process-emails/background). Backend
+     can pull/process emails and extract CVs (OpenAI used when configured).
+  2. Email scheduler is disabled in code to prevent unintended OpenAI usage.
+  3. Webhook: POST /api/email/webhook/email-received. Admin: reset processed
+     counts, GET processed-emails-count.
+
+Flow 7: Admin and system
+  - GET /api/admin/users, POST/PATCH/DELETE users.
+  - GET /api/health, /api/system-stats, /api/database/status, /api/database/view.
+  - POST /api/clear-database (destructive, guarded).
+  - GET /api/performance/system, gpu, docker, summary, health.
+  - GET /api/storage/files/{doc_type}/{doc_id} for stored files.
+
+
+--------------------------------------------------------------------------------
+Network Boundaries & Ports
+--------------------------------------------------------------------------------
+
+Development (docker-compose.dev.yml):
+  - Host -> nginx-dev: 80. Host -> frontend-dev: 3000, backend-dev: 8000,
+    postgres-dev: 5434, qdrant-dev: 6335, redis-dev: 6380.
+  - Backend connects to postgres-dev, qdrant-dev, redis-dev on docker network.
+
+Production (docker-compose.yml):
+  - Public edge: EC2 Security Group allows 22, 80, 443. Only NGINX container
+    maps 80 (and 443 when SSL is enabled and certs mounted).
+  - Internal: backend:8000, frontend:8000 or :3000, postgres:5432, qdrant:6333/6334,
+    redis:6379 on bridge network cv-network. Prometheus 9090, redis-exporter 9121
+    exposed in GPU compose.
+  - Administrative access: SSH (22) to EC2.
+
+Production CPU (docker-compose.cpu.yml):
+  - Same as above; 80 and 443 mapped for nginx. Certbot volumes for SSL.
+  - Redis-exporter and Prometheus not exposed (metrics internal).
+
+
+--------------------------------------------------------------------------------
+Security Controls Currently Implemented (in code/config)
+--------------------------------------------------------------------------------
+
+1) Authentication & Authorization
+  - JWT bearer tokens (create_access_token, verify in deps/auth). Optional OTP
+    for non-admin users (verify-password -> send-otp -> verify-otp).
+  - Admin-only routes (e.g. /api/admin/*, careers admin) protected by
+    require_user and role checks.
+  - Production: SECRET_KEY and ADMIN_USERNAME/ADMIN_PASSWORD must be set
+    (non-default); app exits on startup if not. Development: local bypass
+    (e.g. user "syed") and warnings for default SECRET_KEY.
+
+2) CORS
+  - CORSMiddleware: production allows FRONTEND_ORIGIN or
+    https://alphacv.alphadatarecruitment.ae; development allows dev + prod
+    origins. Credentials and standard methods/headers allowed.
+
+3) Rate limiting
+  - Application: ProductionRateLimiter (middleware) with sliding window,
+    circuit breaker, IP reputation, endpoint-specific limits (from
+    config/rate_limiter.py).
+  - NGINX: limit_req (general, api) and limit_conn per client.
+
+4) Reverse proxy security (NGINX)
+  - Headers: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection,
+    Referrer-Policy, Permissions-Policy, Content-Security-Policy.
+  - Blocking of known bad IPs (extra_hosts and server-level if), request
+    URI/query/body/referer patterns, and suspicious User-Agents (with
+    local/internal IP exceptions).
+  - client_max_body_size 25m. Long timeouts for API/frontend.
+
+5) TLS/HTTPS (Production with certs)
+  - nginx.conf/nginx-ssl.conf: TLS 1.2/1.3, server ciphers, Let's Encrypt
+    paths. Certbot volumes in docker-compose.cpu.yml; main compose can
+    add same mounts for SSL.
+
+6) Container hardening
+  - Frontend: read_only filesystem, non-root user (nextjs), tmpfs for
+    writable dirs. Backend Dockerfile can run as non-root (check Dockerfile).
+  - Backend env from .env and security_hardening.env.
+
+7) Request handling
+  - Trust proxy middleware for X-Forwarded-Proto (HTTPS detection behind proxy).
+  - Security headers middleware adds HSTS and other headers for HTTPS in
+    non-development.
+  - Global and HTTP exception handlers return consistent JSON error payloads.
+
+8) Operational limits
+  - Matching: max 300 CVs per request, max 2 concurrent matching operations
+    (queue with estimated wait). Matching timeout 15 minutes.
+  - Health checks: backend, frontend, postgres, nginx (and optional
+    Prometheus) with docker healthchecks where defined.
+
+9) Backups
+  - Scripts under scripts/backup/ (e.g. backup_uncompressed.sh) for
+    configs and data. No in-repo automated backup job; deployer can add
+    cron or similar.
+
+10) External secrets and config
+  - No secrets in repo. SECRET_KEY, POSTGRES_PASSWORD, AUTH_DB_URL,
+    OPENAI_API_KEY (optional), etc. from environment / .env. Production
+    fails fast on default secrets.
+
+
+--------------------------------------------------------------------------------
+External Integrations
+--------------------------------------------------------------------------------
+
+- OpenAI (optional): Used for LLM standardization of CV/JD and email CV
+  processing when OPENAI_API_KEY is set. Email scheduler disabled in code.
+- Azure: Email integration (e.g. azure_email_service, email_cv_processor)
+  for fetching/processing emails.
+- AWS S3 (optional): File storage when configured (e.g. s3_storage.py).
+- Let's Encrypt: ACME for TLS certificates when certbot volumes are used
+  with nginx.
+
+
+--------------------------------------------------------------------------------
+Where to find the implementation in this repo
+--------------------------------------------------------------------------------
+
+Compose / deployment:
+  - docker-compose.yml (production GPU)
+  - docker-compose.dev.yml (development)
+  - docker-compose.cpu.yml (production CPU)
+  - nginx.conf, nginx-ssl.conf (production reverse proxy)
+  - nginx-dev.conf (development reverse proxy)
+  - postgres-optimized.conf, qdrant-optimized.yaml
+  - maintenance.html (maintenance page for nginx)
+  - prometheus.yml (Prometheus scrape config)
+
+Backend:
+  - alpha-backend/app/main.py (FastAPI app, lifespan, CORS, middleware, routes)
+  - alpha-backend/app/routes/*.py (auth, admin, cv, jd, special_routes,
+    careers, email, storage, performance)
+  - alpha-backend/app/services/* (embedding, matching, llm, parsing, email,
+    careers, s3_storage, job queue, etc.)
+  - alpha-backend/app/utils/qdrant_utils.py, qdrant_pool.py, redis_cache.py,
+    cache.py, security.py
+  - alpha-backend/app/db/auth_db.py (auth DB init and session)
+  - alpha-backend/app/core/config.py (auth and app settings)
+  - alpha-backend/app/middleware/rate_limiter.py
+  - alpha-backend/app/deps/auth.py (JWT dependency)
+  - alpha-backend/ARCHITECTURE.md, STRUCTURE.md (high-level backend layout)
+
+Frontend:
+  - cv-analyzer-frontend/src/lib/api.ts (API client and /api/* calls)
+  - cv-analyzer-frontend/src/lib/auth.ts, config.ts (auth and API base URL)
+  - cv-analyzer-frontend/src/components/* (UI for CV/JD, matching, careers,
+    auth, email, etc.)
+  - cv-analyzer-frontend/Dockerfile (multi-stage Next.js standalone build)
+
+Scripts / docs:
+  - scripts/backup/ (backup scripts)
+  - docs/deployment/ (e.g. backup_and_restore_guide.md)

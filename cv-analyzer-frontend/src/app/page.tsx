@@ -1,7 +1,7 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { useAppStore } from '@/stores/appStore';
+import { useAppStore, readPersistedMainTab } from '@/stores/appStore';
 import AppLayoutNew from '@/components/layout/AppLayoutNew';
 import ErrorBanner from '@/components/common/ErrorBanner';
 import { LoadingPage } from '@/components/ui/loading';
@@ -18,7 +18,12 @@ const PerformancePage = dynamic(() => import('@/components/performance/Performan
 const EmailPage = dynamic(() => import('@/components/email/EmailPage'), { loading: () => <LoadingPage title="Loading..." subtitle="Email" /> });
 
 export default function HomePage() {
-  const { currentTab, systemHealth, loadSystemHealth, loadingStates } = useAppStore();
+  const { currentTab, systemHealth, loadSystemHealth, loadingStates, setCurrentTab } = useAppStore();
+
+  useLayoutEffect(() => {
+    const tab = readPersistedMainTab();
+    if (tab) setCurrentTab(tab);
+  }, [setCurrentTab]);
 
   useEffect(() => {
     // Load system health on app startup

@@ -25,7 +25,10 @@ class EmailScheduler:
     """Scheduled email processing service"""
     
     def __init__(self):
-        self.email_processor = get_email_cv_processor()
+        # Lazily initialize heavy services.
+        # NOTE: EmailCVProcessor initializes LLM + embeddings; we only want that when
+        # there are actually emails to process (avoids unnecessary OpenAI calls when inbox is empty).
+        self.email_processor = None
         self.azure_service = get_azure_email_service()
         
         # Configuration
@@ -108,9 +111,31 @@ class EmailScheduler:
         try:
             logger.info("📧 Starting scheduled email processing batch")
             self.last_check_time = datetime.utcnow()
-            
-            # Process emails
-            results = await self.email_processor.process_all_email_cvs()
+
+            # First, poll mailbox and pre-process metadata (no LLM).
+            processed_emails = await self.azure_service.process_all_unread_emails()
+            if not processed_emails:
+                logger.info("📧 No emails to process")
+                self._save_stats()
+                return
+
+            ready_emails = [e for e in processed_emails if getattr(e, "processing_status", None) == "ready_for_cv_processing"]
+            if not ready_emails:
+                logger.info("📧 No emails ready for CV processing")
+                self._save_stats()
+                return
+
+            # Only now initialize the heavy processor (LLM + embeddings) and process each email.
+            if self.email_processor is None:
+                self.email_processor = get_email_cv_processor()
+
+            results = []
+            for pe in ready_emails:
+                try:
+                    results.append(await self.email_processor.process_cv_from_email(pe))
+                except Exception as e:
+                    logger.error(f"❌ Failed to process email {getattr(pe, 'email_id', 'unknown')}: {e}")
+                    results.append({"success": False, "email_id": getattr(pe, "email_id", None), "error": str(e)})
             
             # Update statistics
             successful_count = sum(1 for r in results if r.get("success", False))

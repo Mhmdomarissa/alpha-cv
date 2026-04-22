@@ -4,3 +4,4 @@ export { default as ApplicationsList } from './ApplicationsList';
 export { default as ProfessionalJobPage } from './ProfessionalJobPage';
 export { default as JobApplicationForm } from './JobApplicationForm';
 export { default as MoreOpenings } from './MoreOpenings';
+export { default as PublicJobOpeningsPage } from './PublicJobOpeningsPage';

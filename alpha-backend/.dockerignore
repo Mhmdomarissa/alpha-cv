@@ -1,0 +1,46 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtualenvs
+.venv/
+venv/
+ENV/
+
+# Test / tooling artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage/
+
+# Git / IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Local environment files (do not send to Docker build context)
+.env
+.env.*
+
+# Local storage / runtime artifacts (large, not needed for image build)
+storage/
+uploads/
+upload/
+media/
+data/
+backups/
+tmp/
+*.sqlite
+*.db
+
+# OS files
+.DS_Store
+Thumbs.db
+

@@ -23,6 +23,7 @@ import {
   Activity,
   Mail,
   Settings,
+  Shield,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -40,7 +41,15 @@ interface TabItem {
   badge?: string;
 }
 
-const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
+function roleBadgeClasses(role?: string) {
+  if (role === 'admin') return 'bg-red-50 text-red-700';
+  if (role === 'manager') return 'bg-violet-50 text-violet-700';
+  if (role === 'evp') return 'bg-violet-50 text-violet-700';
+  if (role === 'recruiter') return 'bg-teal-50 text-teal-700';
+  return 'bg-blue-50 text-blue-700';
+}
+
+const getNavigationTabs = (userRole?: 'admin' | 'user' | 'recruiter' | 'manager' | 'evp'): TabItem[] => {
   const baseTabs: TabItem[] = [
     {
       id: 'dashboard',
@@ -78,23 +87,42 @@ const getNavigationTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
     });
   }
 
+  // Candidate Tracker entry (server-side feature flag still enforced by API).
+  if (userRole && ['admin', 'user', 'recruiter', 'manager', 'evp'].includes(userRole)) {
+    baseTabs.push({
+      id: 'tracker',
+      label: 'Tracker',
+      icon: Users,
+      description: 'Candidate tracker',
+    });
+  }
+
   // Performance and Email are under "Advanced" dropdown (admin only) - not added to baseTabs here
   return baseTabs;
 };
 
-/** Tabs shown under Advanced dropdown (admin only) */
-const getAdvancedTabs = (userRole?: 'admin' | 'user'): TabItem[] => {
-  if (userRole !== 'admin') return [];
-  return [
-    { id: 'performance', label: 'Performance', icon: Activity, description: 'System monitoring & metrics' },
-    { id: 'email', label: 'Email', icon: Mail, description: 'Email CV processing' },
-  ];
+/** Tabs under Advanced: admin-only */
+const getAdvancedTabs = (userRole?: 'admin' | 'user' | 'recruiter' | 'manager' | 'evp'): TabItem[] => {
+  if (userRole === 'admin') {
+    return [
+      { id: 'admin', label: 'Admin', icon: Shield, description: 'User management & database tools' },
+      { id: 'performance', label: 'Performance', icon: Activity, description: 'System monitoring & metrics' },
+      { id: 'email', label: 'Email', icon: Mail, description: 'Email CV processing' },
+    ];
+  }
+  return [];
 };
 
 export default function AppLayoutNew({ children }: AppLayoutProps) {
   const router = useRouter();
   const { currentTab, setCurrentTab, systemHealth, cvs, jds, matchResult, matchingProgress } = useAppStore();
   const { user, logout } = useAuthStore();
+  const navInactiveClass = 'text-gray-700 hover:text-gray-900 hover:bg-gray-200/90';
+  const navActiveClass = 'bg-[#00529b] text-white shadow-sm';
+  const trackerInactiveClass =
+    'text-[#0f766e] hover:text-[#115e59] hover:bg-[#ccfbf1] border border-[#99f6e4] bg-[#f0fdfa]';
+  const trackerActiveClass =
+    'bg-[#0f766e] text-white shadow-sm border border-[#0f766e]';
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedMobileOpen, setAdvancedMobileOpen] = useState(false);
@@ -130,6 +158,8 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         return 'System monitoring';
       case 'careers':
         return 'Job postings & applications';
+      case 'tracker':
+        return 'Candidate tracker';
       case 'email':
         return 'Process email CVs';
       default:
@@ -151,6 +181,8 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         return true; // Always available for monitoring
       case 'careers':
         return true; // Always available for admin users
+      case 'tracker':
+        return true;
       case 'email':
         return true; // Always available for admin users
       default:
@@ -184,23 +216,37 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
               </div>
             </div>
 
-            <nav className="hidden md:flex items-center space-x-1 bg-gray-100 rounded-lg p-1 border border-gray-200">
+            <nav className="hidden md:flex items-center space-x-1 bg-gray-100 rounded-lg border border-gray-200 p-0.5">
               {navigationTabs.map((tab) => {
                 const isActive = currentTab === tab.id;
                 const isCompleted = getProgress(tab.id);
                 const IconComponent = tab.icon;
+                const isTracker = tab.id === 'tracker';
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => setCurrentTab(tab.id as any)}
-                    className={`flex items-center space-x-2 px-4 py-2.5 rounded-md text-ui font-medium transition-colors ${
-                      isActive
-                        ? 'bg-[#00529b] text-white shadow-sm'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+                    onClick={() => {
+                      if (tab.id === 'tracker') {
+                        router.push('/tracker');
+                        return;
+                      }
+                      setCurrentTab(tab.id as any);
+                    }}
+                    className={`flex items-center space-x-2 rounded-md text-sm font-medium transition-colors px-3 py-2 ${
+                      isTracker
+                        ? (isActive ? trackerActiveClass : trackerInactiveClass)
+                        : (isActive ? navActiveClass : navInactiveClass)
                     }`}
                   >
                     <IconComponent className="w-4 h-4" />
                     <span>{tab.label}</span>
+                    {isTracker ? (
+                      <span className={`ml-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide ${
+                        isActive ? 'bg-white/20 text-white' : 'bg-[#99f6e4] text-[#115e59]'
+                      }`}>
+                        TRACKER
+                      </span>
+                    ) : null}
                     {isCompleted && (
                       <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/80' : 'bg-green-500'}`} />
                     )}
@@ -211,10 +257,10 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                 <div className="relative" ref={advancedRef}>
                   <button
                     onClick={() => setAdvancedOpen(!advancedOpen)}
-                    className={`flex items-center space-x-2 px-4 py-2.5 rounded-md text-ui font-medium transition-colors ${
+                    className={`flex items-center space-x-2 rounded-md text-sm font-medium transition-colors px-3 py-2 ${
                       currentTab === 'performance' || currentTab === 'email'
-                        ? 'bg-[#00529b] text-white shadow-sm'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+                        ? navActiveClass
+                        : navInactiveClass
                     }`}
                   >
                     <Settings className="w-4 h-4" />
@@ -229,7 +275,15 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                         return (
                           <button
                             key={tab.id}
-                            onClick={() => { setCurrentTab(tab.id as any); setAdvancedOpen(false); }}
+                            onClick={() => {
+                              if (tab.id === 'admin') {
+                                router.push('/admin/users');
+                                setAdvancedOpen(false);
+                                return;
+                              }
+                              setCurrentTab(tab.id as any);
+                              setAdvancedOpen(false);
+                            }}
                             className={`w-full flex items-center space-x-2 px-4 py-2.5 text-left text-ui font-medium ${
                               isActive ? 'bg-[#00529b]/10 text-[#00529b]' : 'text-gray-700 hover:bg-gray-100'
                             }`}
@@ -245,23 +299,23 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
               )}
             </nav>
 
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
               {user && (
-                <div className="hidden sm:flex items-center space-x-3">
-                  <div className="flex items-center space-x-3 bg-gray-100 rounded-lg px-3 py-2 border border-gray-200">
-                    <div className="w-8 h-8 rounded-full bg-[#00529b] flex items-center justify-center">
+                <div className="hidden sm:flex items-center space-x-2">
+                  <div className="flex items-center bg-gray-100 rounded-lg border border-gray-200 space-x-2 px-2 py-1.5">
+                    <div className="w-7 h-7 rounded-full bg-[#00529b] flex items-center justify-center">
                       <User className="w-4 h-4 text-white" />
                     </div>
-                    <div className="flex flex-col">
-                      <span className="text-ui font-medium text-gray-700">{user.username}</span>
-                      <span className={`text-caption px-2 py-0.5 rounded-full font-medium ${user.role === 'admin' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700">{user.username}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${roleBadgeClasses(user.role)}`}>
                         {user.role}
                       </span>
                     </div>
                   </div>
                   <button
                     onClick={handleLogout}
-                    className="flex items-center space-x-2 px-3 py-2 rounded-lg text-ui font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-colors"
+                    className="flex items-center space-x-2 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-colors px-2.5 py-1.5"
                   >
                     <LogOut className="w-4 h-4" />
                     <span>Logout</span>
@@ -312,7 +366,15 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => { setCurrentTab(tab.id as any); setMobileMenuOpen(false); }}
+                    onClick={() => {
+                      if (tab.id === 'tracker') {
+                        router.push('/tracker');
+                        setMobileMenuOpen(false);
+                        return;
+                      }
+                      setCurrentTab(tab.id as any);
+                      setMobileMenuOpen(false);
+                    }}
                     className={`w-full flex items-center justify-between p-4 rounded-lg text-left font-medium transition-colors ${
                       isActive ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'
                     }`}
@@ -358,7 +420,17 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                         return (
                           <button
                             key={tab.id}
-                            onClick={() => { setCurrentTab(tab.id as any); setMobileMenuOpen(false); setAdvancedMobileOpen(false); }}
+                            onClick={() => {
+                              if (tab.id === 'admin') {
+                                router.push('/admin/users');
+                                setMobileMenuOpen(false);
+                                setAdvancedMobileOpen(false);
+                                return;
+                              }
+                              setCurrentTab(tab.id as any);
+                              setMobileMenuOpen(false);
+                              setAdvancedMobileOpen(false);
+                            }}
                             className={`w-full flex items-center justify-between p-3 rounded-lg text-left font-medium transition-colors ${
                               isActive ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'
                             }`}

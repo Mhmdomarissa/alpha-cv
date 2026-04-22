@@ -6,7 +6,15 @@ import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-const Dialog = DialogPrimitive.Root;
+/**
+ * Radix modal dialogs set `disableOutsidePointerEvents` on the content layer, which blocks
+ * clicks to portaled UI (ManagedSelect menus, Select content, etc.). We default to
+ * `modal={false}` and render our own backdrop so overlays still look modal while portaled
+ * layers remain interactive. See radix-ui/primitives#3119.
+ */
+function Dialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
+  return <DialogPrimitive.Root {...props} modal={false} />;
+}
 
 const DialogTrigger = DialogPrimitive.Trigger;
 
@@ -29,16 +37,59 @@ const DialogOverlay = React.forwardRef<
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
+function isOutsideClickFromPortaledOverlay(target: EventTarget | null) {
+  if (!target || !(target instanceof Element)) return false;
+  return !!(
+    target.closest("[data-managed-select-panel]") ||
+    target.closest("[data-radix-select-content]") ||
+    target.closest("[data-radix-popover-content]") ||
+    target.closest("[data-radix-dropdown-menu-content]")
+  );
+}
+
+/** Backdrop when `modal={false}`: Radix does not render `DialogOverlay` in that mode. */
+function DialogBackdrop() {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/80 animate-in fade-in-0"
+      aria-hidden
+    />
+  );
+}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, onPointerDownOutside, onFocusOutside, onInteractOutside, ...props }, ref) => (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogBackdrop />
     <DialogPrimitive.Content
       ref={ref}
+      onPointerDownOutside={(e) => {
+        if (isOutsideClickFromPortaledOverlay(e.target)) {
+          e.preventDefault();
+        }
+        onPointerDownOutside?.(e);
+      }}
+      onInteractOutside={(e) => {
+        if (isOutsideClickFromPortaledOverlay(e.target)) {
+          e.preventDefault();
+        }
+        onInteractOutside?.(e);
+      }}
+      onFocusOutside={(e) => {
+        const rel = (e as unknown as CustomEvent<{ originalEvent: FocusEvent }>).detail
+          ?.originalEvent?.relatedTarget;
+        if (
+          isOutsideClickFromPortaledOverlay(e.target) ||
+          (rel instanceof Element && isOutsideClickFromPortaledOverlay(rel))
+        ) {
+          e.preventDefault();
+        }
+        onFocusOutside?.(e);
+      }}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg md:w-full",
+        "fixed left-[50%] top-[50%] z-[51] grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg md:w-full",
         className
       )}
       {...props}

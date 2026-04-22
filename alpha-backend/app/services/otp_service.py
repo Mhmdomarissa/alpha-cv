@@ -20,7 +20,9 @@ class OTPService:
         self.redis_cache = get_redis_cache()
         self.otp_length = 6
         self.otp_ttl = int(os.getenv("OTP_TTL_SECONDS", "300"))  # 5 minutes default
-        self.max_attempts = 3
+        # Allow a few retries without immediately invalidating a still-valid OTP.
+        # Kept as an env var so you can tune security/UX per environment.
+        self.max_attempts = int(os.getenv("OTP_MAX_ATTEMPTS", "10"))
         
     def generate_otp(self) -> str:
         """Generate a random 6-digit OTP."""

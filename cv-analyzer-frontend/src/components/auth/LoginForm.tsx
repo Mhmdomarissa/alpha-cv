@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
+import { safeRedirectPath } from '@/lib/safe-redirect';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -13,11 +14,20 @@ import { Typewriter } from '@/components/ui/Typewriter';
 
 export default function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { verifyPassword, sendOTP, verifyOTP, login, loading, error, clearError, user } = useAuthStore();
+
+  const continueAfterAuth = () => {
+    const from = safeRedirectPath(searchParams.get('from'));
+    router.push(from ?? '/');
+  };
   
   const [step, setStep] = useState<'password' | 'otp'>('password');
   const [otpSent, setOtpSent] = useState(false);
+  const [otpIssuedForKey, setOtpIssuedForKey] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>(''); // Store email for display
+  const [submittingPassword, setSubmittingPassword] = useState(false);
+  const [submittingOtp, setSubmittingOtp] = useState(false);
   
   const [formData, setFormData] = useState({
     username: '',
@@ -27,6 +37,18 @@ export default function LoginForm() {
 
   const [formError, setFormError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+
+  // If username/password changes, invalidate the "OTP already issued" marker
+  useEffect(() => {
+    const key = `${formData.username}::${formData.password}`;
+    if (otpIssuedForKey && otpIssuedForKey !== key) {
+      setOtpIssuedForKey(null);
+      setOtpSent(false);
+      setUserEmail('');
+      setFormData(prev => ({ ...prev, otp: '' }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.username, formData.password]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -38,6 +60,7 @@ export default function LoginForm() {
 
   const handlePasswordVerify = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingPassword) return;
     
     // Basic validation
     if (!formData.username.trim()) {
@@ -49,46 +72,57 @@ export default function LoginForm() {
       return;
     }
 
-    // Verify password
-    const result = await verifyPassword(formData.username, formData.password);
-    
-    if (result && result.success) {
-      // Check if OTP is required
-      // Admin users: requires_otp === false -> login directly
-      // Regular users: requires_otp === true -> send OTP automatically
-      if (result.requires_otp === false) {
-        // Admin user - login directly (no OTP needed)
-        setFormError(null);
-        const loginResult = await login(formData.username, formData.password);
-        if (loginResult && loginResult.success) {
-          // Redirect based on role
-          if (loginResult.role === 'admin') {
-            router.push('/admin/users');
-          } else {
-            router.push('/');
+    try {
+      setSubmittingPassword(true);
+      // Verify password
+      const result = await verifyPassword(formData.username, formData.password);
+      
+      if (result && result.success) {
+        // Check if OTP is required
+        // Admin users: requires_otp === false -> login directly
+        // Regular users: requires_otp === true -> send OTP automatically
+        if (result.requires_otp === false) {
+          // Admin user - login directly (no OTP needed)
+          setFormError(null);
+          const loginResult = await login(formData.username, formData.password);
+          if (loginResult && loginResult.success) {
+            continueAfterAuth();
+          }
+          // Don't proceed to OTP step for admin
+          return;
+        } else {
+          // Regular user (requires_otp === true or undefined) - send OTP automatically
+          // No need to manually enter email - it's stored in the database
+          setFormError(null);
+          const key = `${formData.username}::${formData.password}`;
+
+          // IMPORTANT: Do NOT generate a new OTP if one was already issued for the same credentials.
+          // Only generate a new OTP when the user explicitly clicks "Resend OTP".
+          if (otpIssuedForKey === key && otpSent) {
+            setStep('otp');
+            return;
+          }
+
+          const otpResult = await sendOTP(formData.username, formData.password);
+          if (otpResult && otpResult.success) {
+            setOtpSent(true);
+            setOtpIssuedForKey(key);
+            setStep('otp');
+            // Use masked email from response if available
+            setUserEmail(otpResult.masked_email || 'your registered email');
           }
         }
-        // Don't proceed to OTP step for admin
-        return;
-      } else {
-        // Regular user (requires_otp === true or undefined) - send OTP automatically
-        // No need to manually enter email - it's stored in the database
-        setFormError(null);
-        const otpResult = await sendOTP(formData.username, formData.password);
-        if (otpResult && otpResult.success) {
-          setOtpSent(true);
-          setStep('otp');
-          // Use masked email from response if available
-          setUserEmail(otpResult.masked_email || 'your registered email');
-        }
       }
+      // Error handling is done by the store
+    } finally {
+      setSubmittingPassword(false);
     }
-    // Error handling is done by the store
   };
 
 
   const handleVerifyOTP = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingOtp) return;
     
     // Basic validation
     if (!formData.otp.trim()) {
@@ -100,17 +134,17 @@ export default function LoginForm() {
       return;
     }
 
-    const result = await verifyOTP(formData.username, formData.otp);
-    
-    if (result && result.success) {
-      // Redirect immediately based on role
-      if (result.role === 'admin') {
-        router.push('/admin/users'); // Admin users go to admin panel
-      } else {
-        router.push('/'); // HR/regular users go to main app (with careers tab)
+    try {
+      setSubmittingOtp(true);
+      const result = await verifyOTP(formData.username, formData.otp);
+      
+      if (result && result.success) {
+        continueAfterAuth();
       }
+      // Error handling is done by the store
+    } finally {
+      setSubmittingOtp(false);
     }
-    // Error handling is done by the store
   };
 
 
@@ -122,6 +156,7 @@ export default function LoginForm() {
     
     if (result && result.success) {
       setOtpSent(true);
+      setOtpIssuedForKey(`${formData.username}::${formData.password}`);
       setFormError(null);
     }
   };
@@ -247,7 +282,7 @@ export default function LoginForm() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || submittingPassword}
               className="w-full py-4 px-6 rounded-xl text-white font-semibold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-lg"
               style={{ background: 'linear-gradient(135deg, rgba(0, 82, 155, 0.7) 0%, rgba(0, 61, 115, 0.7) 100%)' }}
             >
@@ -273,11 +308,14 @@ export default function LoginForm() {
                     <p className="text-sm font-medium text-green-800">
                       OTP sent to {userEmail || 'your registered email'}
                     </p>
+                    <p className="text-xs text-green-700/90 mt-1">
+                      OTP is valid for 5 minutes. If you request a new OTP, the old one becomes invalid.
+                    </p>
                     <button
                       type="button"
                       onClick={handleResendOTP}
-                      className="text-xs text-green-600 hover:text-green-800 underline mt-1"
-                      disabled={loading}
+                      className="text-xs font-semibold text-green-700 hover:text-green-900 underline mt-2"
+                      disabled={loading || submittingOtp}
                     >
                       Resend OTP
                     </button>
@@ -302,6 +340,7 @@ export default function LoginForm() {
                     onChange={(e) => {
                       const value = e.target.value.replace(/\D/g, '').slice(0, 6);
                       setFormData(prev => ({ ...prev, otp: value }));
+                      if (error) clearError();
                       if (formError) setFormError(null);
                     }}
                     placeholder="Enter 6-digit OTP"
@@ -320,7 +359,7 @@ export default function LoginForm() {
               {/* Verify OTP Button */}
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || submittingOtp}
                 className="w-full py-4 px-6 rounded-xl text-white font-semibold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-lg"
                 style={{ background: 'linear-gradient(135deg, rgba(0, 82, 155, 0.7) 0%, rgba(0, 61, 115, 0.7) 100%)' }}
               >
@@ -340,7 +379,6 @@ export default function LoginForm() {
                 onClick={() => {
                   setStep('password');
                   setFormData(prev => ({ ...prev, otp: '' }));
-                  setOtpSent(false);
                   setFormError(null);
                 }}
                 className="w-full py-2 text-sm text-slate-600 hover:text-slate-800 transition-colors duration-200"
