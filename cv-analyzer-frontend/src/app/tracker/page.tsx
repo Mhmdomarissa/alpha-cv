@@ -7,7 +7,7 @@ import { TrackerPage } from '@/components/tracker';
 export default function TrackerRoutePage() {
   return (
     <Protected>
-      <RoleBasedAccess allowedRoles={['admin', 'user', 'recruiter', 'manager']} hideWhenUnauthorized={false} fallback={
+      <RoleBasedAccess allowedRoles={['admin', 'user', 'recruiter', 'manager', 'evp']} hideWhenUnauthorized={false} fallback={
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
           <div className="bg-white border border-gray-200 rounded-xl p-6 w-full max-w-lg">
             <div className="text-lg font-semibold text-gray-900">Access denied</div>

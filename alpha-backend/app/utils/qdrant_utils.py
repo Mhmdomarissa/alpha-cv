@@ -8,6 +8,7 @@ import gzip
 import base64
 import asyncio
 import threading
+import time
 
 import numpy as np
 from qdrant_client import QdrantClient
@@ -23,6 +24,50 @@ from qdrant_client.http.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_CAREERS_LIST_CACHE: dict[str, tuple[float, tuple[list[dict[str, Any]], int]]] = {}
+_CAREERS_LIST_CACHE_LOCK = threading.Lock()
+
+
+def _careers_cache_get(key: str, ttl_seconds: float) -> Optional[tuple[list[dict[str, Any]], int]]:
+    now = time.time()
+    with _CAREERS_LIST_CACHE_LOCK:
+        item = _CAREERS_LIST_CACHE.get(key)
+        if not item:
+            return None
+        expires_at, value = item
+        if now > expires_at:
+            _CAREERS_LIST_CACHE.pop(key, None)
+            return None
+        return value
+
+
+def _careers_cache_set(key: str, ttl_seconds: float, value: tuple[list[dict[str, Any]], int]) -> None:
+    with _CAREERS_LIST_CACHE_LOCK:
+        _CAREERS_LIST_CACHE[key] = (time.time() + ttl_seconds, value)
+
+
+def _invalidate_careers_job_list_cache() -> None:
+    """Invalidate cached careers job listing snapshots (safe/no data loss)."""
+    with _CAREERS_LIST_CACHE_LOCK:
+        keys = [k for k in list(_CAREERS_LIST_CACHE.keys()) if str(k).startswith("careers_jobs_light:")]
+        for k in keys:
+            _CAREERS_LIST_CACHE.pop(k, None)
+
+
+def _preview_text(value: Any, max_chars: int = 320) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        # Join list-ish values into a short preview
+        parts = [str(x).strip() for x in value if str(x).strip()]
+        text = " ".join(parts)
+    else:
+        text = str(value)
+    text = " ".join(text.split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "…"
 
 def compress_content(content: str) -> str:
     """Compress content using gzip and encode as base64."""
@@ -520,18 +565,26 @@ class QdrantUtils:
         """
         try:
             # Get structured CVs filtered by category
-            pts, _ = self.client.scroll(
-                collection_name="cv_structured",
-                scroll_filter=Filter(
-                    must=[FieldCondition(key="structured_info.category", match=MatchValue(value=category))]
-                ),
-                limit=1000,
-                with_payload=True,
-                with_vectors=False,
-            )
+            pts_all = []
+            scroll_offset = None
+            while True:
+                pts, next_offset = self.client.scroll(
+                    collection_name="cv_structured",
+                    scroll_filter=Filter(
+                        must=[FieldCondition(key="structured_info.category", match=MatchValue(value=category))]
+                    ),
+                    limit=1000,
+                    offset=scroll_offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                pts_all.extend(pts or [])
+                if not next_offset:
+                    break
+                scroll_offset = next_offset
             
             # Get document metadata for all CVs
-            doc_ids = [str(p.id) for p in pts]
+            doc_ids = [str(p.id) for p in pts_all]
             docs_map = {}
             if doc_ids:
                 docs_pts, _ = self.client.scroll(
@@ -547,9 +600,9 @@ class QdrantUtils:
             
             # Build enhanced CV list with full details
             enhanced = []
-            for p in pts:
+            for p in pts_all:
                 doc_id = str(p.id)
-                payload = p.payload
+                payload = p.payload or {}
                 structured = payload.get("structured_info", {})
                 doc_meta = docs_map.get(doc_id, {})
 
@@ -586,17 +639,23 @@ class QdrantUtils:
         Get all categories with their CV counts.
         """
         try:
-            pts, _ = self.client.scroll(
-                collection_name="cv_structured",
-                limit=1000,
-                with_payload=True,
-                with_vectors=False,
-            )
             categories = {}
-            for p in pts:
-                si = p.payload.get("structured_info", {})
-                category = si.get("category", "General")
-                categories[category] = categories.get(category, 0) + 1
+            scroll_offset = None
+            while True:
+                pts, next_offset = self.client.scroll(
+                    collection_name="cv_structured",
+                    limit=1000,
+                    offset=scroll_offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for p in pts or []:
+                    si = (p.payload or {}).get("structured_info", {}) or {}
+                    category = si.get("category", "General")
+                    categories[category] = categories.get(category, 0) + 1
+                if not next_offset:
+                    break
+                scroll_offset = next_offset
             return categories
         except Exception as e:
             logger.error(f"❌ get_categories_with_counts failed: {e}")
@@ -797,6 +856,7 @@ class QdrantUtils:
             point = PointStruct(id=job_id, vector=dummy_vector, payload=payload)
             self.client.upsert(collection_name=collection_name, points=[point])
             logger.info(f"✅ Stored job posting metadata: {job_id} with token: {public_token[:8]}...")
+            _invalidate_careers_job_list_cache()
             return True
             
         except Exception as e:
@@ -856,6 +916,7 @@ class QdrantUtils:
             )
             
             logger.info(f"✅ UI data stored for job {job_id}")
+            _invalidate_careers_job_list_cache()
             return True
             
         except Exception as e:
@@ -1079,6 +1140,7 @@ class QdrantUtils:
             self.client.upsert(collection_name=collection_name, points=[point])
             
             logger.info(f"✅ Updated public_token for job {job_id}: {public_token[:8]}...")
+            _invalidate_careers_job_list_cache()
             return True
             
         except Exception as e:
@@ -1119,6 +1181,7 @@ class QdrantUtils:
             self.client.upsert(collection_name=collection_name, points=[updated_point])
             
             logger.info(f"✅ Updated job posting {job_id} status to: {is_active}")
+            _invalidate_careers_job_list_cache()
             return True
             
         except Exception as e:
@@ -1166,6 +1229,7 @@ class QdrantUtils:
             self.client.upsert(collection_name=collection_name, points=[updated_point])
             
             logger.info(f"✅ Updated job posting {job_id}")
+            _invalidate_careers_job_list_cache()
             return True
             
         except Exception as e:
@@ -1208,6 +1272,7 @@ class QdrantUtils:
             self.client.upsert(collection_name=collection_name, points=[updated_point])
             
             logger.info(f"✅ Updated job posting structured data {job_id}")
+            _invalidate_careers_job_list_cache()
             return True
             
         except Exception as e:
@@ -1286,6 +1351,7 @@ class QdrantUtils:
                 self.client.upsert(collection_name=collection_name, points=[updated_point])
                 
                 logger.info(f"✅ Linked application {application_id} to job {job_id} (attempt {attempt + 1})")
+                _invalidate_careers_job_list_cache()
 
                 # Auto-deactivate job when application count reaches 250
                 try:
@@ -1313,19 +1379,34 @@ class QdrantUtils:
         """
         try:
             collection_name = "cv_structured"
-            results = self.client.scroll(
-                collection_name=collection_name,
-                scroll_filter=Filter(
-                    must=[
-                        FieldCondition(key="job_id", match=MatchValue(value=job_id)),
-                        FieldCondition(key="is_job_application", match=MatchValue(value=True))
-                    ]
-                ),
-                limit=500,
-                with_payload=False,
-                with_vectors=False
-            )
-            return len(results[0]) if results and results[0] else 0
+            # Prefer Qdrant count API (accurate, avoids scroll limits)
+            try:
+                return int(
+                    self.client.count(
+                        collection_name=collection_name,
+                        count_filter=Filter(
+                            must=[
+                                FieldCondition(key="job_id", match=MatchValue(value=job_id)),
+                                FieldCondition(key="is_job_application", match=MatchValue(value=True)),
+                            ]
+                        ),
+                        exact=True,
+                    ).count
+                )
+            except Exception:
+                results = self.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(key="job_id", match=MatchValue(value=job_id)),
+                            FieldCondition(key="is_job_application", match=MatchValue(value=True))
+                        ]
+                    ),
+                    limit=500,
+                    with_payload=False,
+                    with_vectors=False
+                )
+                return len(results[0]) if results and results[0] else 0
         except Exception as e:
             logger.warning(f"⚠️ Failed to count applications for job {job_id}: {e}")
             return 0
@@ -1428,17 +1509,27 @@ class QdrantUtils:
                 must_not=filter_conditions_not
             )
             
-            results = self.client.scroll(
-                collection_name=collection_name,
-                scroll_filter=filter_obj,
-                limit=1000,  # Reasonable limit
-                with_payload=True,
-                with_vectors=False
-            )
+            # Scroll through all pages (Qdrant scroll is paginated; a single call can truncate results)
+            points: list[Any] = []
+            next_offset = None
+            while True:
+                batch = self.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=filter_obj,
+                    limit=256,
+                    offset=next_offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                chunk = batch[0] or []
+                points.extend(chunk)
+                next_offset = batch[1]
+                if not next_offset:
+                    break
             
             jobs = []
-            if results[0]:
-                for point in results[0]:
+            if points:
+                for point in points:
                     job_metadata = point.payload
                     job_id = job_metadata["id"]
                     
@@ -1481,6 +1572,98 @@ class QdrantUtils:
         except Exception as e:
             logger.error(f"❌ Failed to get job postings: {e}")
             return []
+
+    def list_job_postings_lightweight_page(
+        self,
+        *,
+        include_inactive: bool,
+        limit: int,
+        offset: int,
+        cache_ttl_seconds: float = 2.0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """
+        Fast careers listing:
+        - Reads only `job_postings_structured` payloads (no JD merge / no jd_structured reads)
+        - Computes application_count via Qdrant count (exact) for jobs on the returned page only
+        - Returns (page_rows, total_matching_jobs)
+
+        Note: This is optimized for the HR dashboard list view. Full job text is still served by
+        the public job + edit-data endpoints, so we don't duplicate large JD payloads here.
+        """
+        limit = max(1, min(int(limit or 25), 200))
+        offset = max(0, int(offset or 0))
+
+        cache_key = f"careers_jobs_light:{include_inactive}"
+        cached = _careers_cache_get(cache_key, cache_ttl_seconds) if cache_ttl_seconds > 0 else None
+        if cached is None:
+            collection_name = "job_postings_structured"
+
+            filter_conditions: list[FieldCondition] = []
+            if not include_inactive:
+                filter_conditions.append(FieldCondition(key="is_active", match=MatchValue(value=True)))
+
+            filter_obj = Filter(
+                must=filter_conditions if filter_conditions else None,
+                must_not=[FieldCondition(key="is_deleted", match=MatchValue(value=True))],
+            )
+
+            rows: list[dict[str, Any]] = []
+            next_offset = None
+            while True:
+                batch = self.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=filter_obj,
+                    limit=256,
+                    offset=next_offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                chunk = batch[0] or []
+                for point in chunk:
+                    payload = point.payload or {}
+                    job_id = payload.get("id")
+                    if not job_id:
+                        continue
+
+                    structured = payload.get("structured_info") or {}
+                    upload_date = str(
+                        payload.get("upload_date")
+                        or payload.get("created_date")
+                        or payload.get("stored_at")
+                        or datetime.utcnow().isoformat()
+                    )
+
+                    rows.append(
+                        {
+                            "id": str(job_id),
+                            "public_token": payload.get("public_token") or "unknown",
+                            "company_name": payload.get("company_name"),
+                            "posted_by_user": payload.get("posted_by_user"),
+                            "posted_by_role": payload.get("posted_by_role"),
+                            "is_active": bool(payload.get("is_active", True)),
+                            "filename": payload.get("filename", "job_description.pdf"),
+                            "email_subject_id": payload.get("email_subject_id"),
+                            "email_subject_template": payload.get("email_subject_template"),
+                            "upload_date": upload_date,
+                            "structured_info": structured,
+                        }
+                    )
+
+                next_offset = batch[1]
+                if not next_offset:
+                    break
+
+            rows.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
+            total = len(rows)
+            if cache_ttl_seconds > 0:
+                _careers_cache_set(cache_key, cache_ttl_seconds, (rows, total))
+        else:
+            rows, total = cached
+
+        page = rows[offset : offset + limit]
+        for r in page:
+            r["application_count"] = self.get_application_count_for_job(r["id"])
+        return page, total
 
     def get_careers_stats(self) -> Dict[str, Any]:
         """

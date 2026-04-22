@@ -199,7 +199,17 @@ async def send_otp(data: SendOTPRequest, session: Session = Depends(get_session)
         # Dev-only: OTP_DISABLE_EMAIL=1 uses OTP_FIXED_CODE and skips sendMail.
         use_fixed_otp = is_otp_email_sending_disabled()
         fixed_otp = get_otp_fixed_code()
-        if use_fixed_otp:
+
+        otp_mode = (getattr(user, "otp_mode", None) or "real").strip().lower()
+        if otp_mode not in ("real", "fixed"):
+            otp_mode = "real"
+
+        if otp_mode == "fixed":
+            otp = fixed_otp
+            logger.info(
+                f"🔐 OTP mode is fixed for user {data.username}; using OTP_FIXED_CODE and skipping email send"
+            )
+        elif use_fixed_otp:
             otp = fixed_otp
             logger.info(f"📧 OTP email disabled: using fixed OTP for user {data.username}")
         else:
@@ -208,7 +218,7 @@ async def send_otp(data: SendOTPRequest, session: Session = Depends(get_session)
         # Store OTP with username (using stored email)
         otp_service.store_otp(email=user.email, otp=otp, username=data.username)
         
-        if use_fixed_otp:
+        if otp_mode == "fixed" or use_fixed_otp:
             email_sent = True  # Skip sending email
         else:
             email_otp_service = get_email_otp_service()

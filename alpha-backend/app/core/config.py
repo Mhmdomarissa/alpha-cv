@@ -103,3 +103,8 @@ def get_otp_from_email() -> str:
 
 def get_otp_from_name() -> str:
     return os.getenv("OTP_FROM_NAME", "Alpha CV System").strip() or "Alpha CV System"
+
+
+def is_followup_email_reminder_enabled() -> bool:
+    """Master flag for follow-up reminder emails."""
+    return _env_truthy("SEND_EMAIL_REMINDER_FOLLOWUP")

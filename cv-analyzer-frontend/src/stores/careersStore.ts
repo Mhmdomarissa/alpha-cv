@@ -175,10 +175,11 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       logger.info('Loading job postings (paginated)');
+      const JOBS_PAGE_SIZE = 20;
       // Load only the first page to reduce backend and frontend load
       const { jobs, total } = await api.listJobPostingsPaged({
         includeInactive: true,
-        limit: 5,
+        limit: JOBS_PAGE_SIZE,
         offset: 0,
       });
       
@@ -207,9 +208,10 @@ export const useCareersStore = create<CareersStore>((set, get) => ({
 
     set({ isLoading: true, error: null });
     try {
+      const JOBS_PAGE_SIZE = 20;
       const { jobs, total } = await api.listJobPostingsPaged({
         includeInactive: true,
-        limit: 5,
+        limit: JOBS_PAGE_SIZE,
         offset: jobPostings.length,
       });
 

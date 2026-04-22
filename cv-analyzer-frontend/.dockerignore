@@ -1,35 +1,53 @@
+############################
+# Frontend (Next.js) build context ignores
+# Safe for production too: reduces context, avoids leaking secrets/data
+############################
+
 # Dependencies
-node_modules
+node_modules/
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Build artifacts
-.next
-out
-dist
-
-# Environment files
-.env.local
-.env.*.local
-.env
-.env.*
-
-# IDE files
-.vscode
-.idea
-
-# OS files
-.DS_Store
-Thumbs.db
+.next/
+out/
+dist/
 
 # Logs
 *.log
 
-# Cache
+# Cache / tooling
 .eslintcache
 tsconfig.tsbuildinfo
 
 # Testing
-coverage
+coverage/
 
-# Git (not needed for build context)
+# Local environment files (do not send to Docker build context)
+.env
+.env.*
+.env.local
+.env.*.local
+
+# Local storage / runtime artifacts (large, not needed for image build)
+storage/
+uploads/
+upload/
+media/
+data/
+backups/
+tmp/
+*.sqlite
+*.db
+
+# Git / IDE
 .git/
+.gitignore
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

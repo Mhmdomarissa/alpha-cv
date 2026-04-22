@@ -116,6 +116,11 @@ export default function DatabasePageNew() {
   const [notesFilter, setNotesFilter] = useState<'all' | 'with_notes' | 'without_notes'>('all');
   const [showSelectedCVs, setShowSelectedCVs] = useState(false);
   const [showSelectionPopup, setShowSelectionPopup] = useState(false);
+  const [serverSearchCVs, setServerSearchCVs] = useState<{ items: CVListItem[]; total: number | null }>({
+    items: [],
+    total: null,
+  });
+  const [serverSearching, setServerSearching] = useState(false);
 
   // Load CV or JD as blob for preview (blob URL for PDF/iframe; keep blob for DOCX to avoid refetch 0 B)
   useEffect(() => {
@@ -264,11 +269,50 @@ export default function DatabasePageNew() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFolder]);
 
+  const isServerSearchMode = !!search.trim();
+
+  // Server-side search across ALL CVs (avoids missing results due to local 200/50-item pagination)
+  useEffect(() => {
+    if (!isServerSearchMode) {
+      setServerSearchCVs({ items: [], total: null });
+      setServerSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setServerSearching(true);
+    const t = setTimeout(() => {
+      const offset = (page - 1) * ITEMS_PER_PAGE;
+      const category = activeFolder === CATEGORY_ALL ? undefined : activeFolder;
+      api
+        .listCVs({ q: search.trim(), category, limit: ITEMS_PER_PAGE, offset })
+        .then((res) => {
+          if (cancelled) return;
+          setServerSearchCVs({ items: res.cvs ?? [], total: typeof res.total === 'number' ? res.total : null });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setServerSearchCVs({ items: [], total: 0 });
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setServerSearching(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [search, activeFolder, page, isServerSearchMode]);
+
   const filteredCVs = useMemo(() => {
-    const source =
-      activeFolder === CATEGORY_ALL
-        ? cvs
-        : (folderCVs[activeFolder]?.items ?? []);
+    if (isServerSearchMode) {
+      // In server-search mode, `serverSearchCVs.items` is already the authoritative page list.
+      return serverSearchCVs.items;
+    }
+
+    const source = activeFolder === CATEGORY_ALL ? cvs : (folderCVs[activeFolder]?.items ?? []);
     let list = source;
     if (activeFolder !== CATEGORY_ALL) {
       // When using server-side folder pagination, the list is already scoped by folder.
@@ -278,18 +322,8 @@ export default function DatabasePageNew() {
     } else if (notesFilter === 'without_notes') {
       list = list.filter((cv) => (notesSummary[cv.id] ?? 0) === 0);
     }
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (cv) =>
-          cv.full_name?.toLowerCase().includes(q) ||
-          cv.job_title?.toLowerCase().includes(q) ||
-          cv.filename?.toLowerCase().includes(q) ||
-          cv.id.toLowerCase().includes(q)
-      );
-    }
     return list;
-  }, [cvs, activeFolder, folderCVs, search, notesFilter, notesSummary]);
+  }, [cvs, activeFolder, folderCVs, isServerSearchMode, serverSearchCVs.items, notesFilter, notesSummary]);
 
   const filteredJDs = useMemo(() => {
     if (!search.trim()) return jds;
@@ -302,8 +336,25 @@ export default function DatabasePageNew() {
     );
   }, [jds, search]);
 
-  const totalPages = Math.ceil(filteredCVs.length / ITEMS_PER_PAGE) || 1;
+  const activeTotalCount =
+    isServerSearchMode
+      ? serverSearchCVs.total
+      : activeFolder === CATEGORY_ALL
+        ? totalCVs
+        : (categories[activeFolder] ?? folderCVs[activeFolder]?.total ?? null);
+
+  const activeLoadedCount =
+    isServerSearchMode
+      ? serverSearchCVs.items.length
+      : activeFolder === CATEGORY_ALL
+        ? cvs.length
+        : (folderCVs[activeFolder]?.items?.length ?? 0);
+
+  // When not searching, the server knows the true total for folders; client may have partial list loaded.
+  const totalItemsForPaging = activeTotalCount ?? filteredCVs.length;
+  const totalPages = Math.ceil(totalItemsForPaging / ITEMS_PER_PAGE) || 1;
   const paginatedCVs = useMemo(() => {
+    if (isServerSearchMode) return filteredCVs;
     const start = (page - 1) * ITEMS_PER_PAGE;
     return filteredCVs.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredCVs, page]);
@@ -338,20 +389,42 @@ export default function DatabasePageNew() {
     }
   };
 
-  const activeTotalCount =
-    activeFolder === CATEGORY_ALL
-      ? totalCVs
-      : (categories[activeFolder] ?? folderCVs[activeFolder]?.total ?? null);
-
-  const activeLoadedCount =
-    activeFolder === CATEGORY_ALL
-      ? cvs.length
-      : (folderCVs[activeFolder]?.items?.length ?? 0);
-
   const loadMoreActiveFolder = async () => {
+    // In server-search mode, pagination is handled by (page -> API fetch) not by loading more into memory.
+    if (isServerSearchMode) return;
     if (activeFolder === CATEGORY_ALL) return loadMoreCVs();
     return loadFolderCVPage(activeFolder, activeLoadedCount);
   };
+
+  const handleNextPage = async () => {
+    if (isServerSearchMode) {
+      if (page < totalPages) setPage((p) => Math.min(totalPages, p + 1));
+      return;
+    }
+    const nextPageEndIndex = page * ITEMS_PER_PAGE;
+    const hasNextPageLocally = filteredCVs.length > nextPageEndIndex;
+
+    // If we already have enough items locally to render the next page, just advance.
+    if (hasNextPageLocally) {
+      setPage((p) => Math.min(totalPages, p + 1));
+      return;
+    }
+
+    // Otherwise, fetch more from server if we know there's more to load, then advance.
+    if (activeTotalCount != null && activeLoadedCount < activeTotalCount) {
+      await loadMoreActiveFolder();
+      setPage((p) => Math.min(totalPages, p + 1));
+      return;
+    }
+
+    // Fallback: if totals are unknown, still allow advancing within computed pages.
+    if (page < totalPages) {
+      setPage((p) => Math.min(totalPages, p + 1));
+    }
+  };
+
+  const pagingStart = paginatedCVs.length > 0 ? (page - 1) * ITEMS_PER_PAGE + 1 : 0;
+  const pagingEnd = paginatedCVs.length > 0 ? (page - 1) * ITEMS_PER_PAGE + paginatedCVs.length : 0;
 
   const selectedCVList = useMemo(
     () => cvs.filter((cv) => selectedCVs.includes(cv.id)),
@@ -447,7 +520,7 @@ export default function DatabasePageNew() {
   }, [categories]);
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-gradient-to-b from-gray-50 to-[#eff6ff]/30">
+    <div className="flex flex-col h-full min-h-0 bg-gray-50">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
@@ -480,8 +553,13 @@ export default function DatabasePageNew() {
               placeholder={view === 'candidates' ? 'Search candidates...' : 'Search job descriptions...'}
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="w-full min-w-0 pl-9 pr-4 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:ring-offset-0 focus:border-[#00529b]"
+              className="w-full min-w-0 pl-9 pr-9 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:ring-offset-0 focus:border-[#00529b]"
             />
+            {view === 'candidates' && serverSearching && search.trim() ? (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <Loader2 className="w-4 h-4 animate-spin" />
+              </div>
+            ) : null}
           </div>
           <div className="flex items-center gap-3 flex-wrap justify-end">
             <Button
@@ -642,15 +720,18 @@ export default function DatabasePageNew() {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+                  <div className="grid grid-cols-1 gap-4 p-4">
                     {filteredJDs.map((jd) => {
                       const d = getJDDisplay(jd);
                       const isSelected = selectedJD === jd.id;
                       return (
                         <div
                           key={jd.id}
-                          className={`rounded-2xl border p-5 transition-colors shadow-sm ${isSelected ? 'border-[#00529b] bg-[#00529b]/5' : 'border-gray-200 hover:border-gray-300 bg-white'
-                            }`}
+                          className={`rounded-2xl border p-5 transition-colors shadow-sm ${
+                            isSelected
+                              ? 'border-[#00529b] bg-[#00529b]/5'
+                              : 'border-gray-200 hover:border-gray-300 bg-white'
+                          }`}
                         >
                           <div className="flex items-start gap-4">
                             <button
@@ -813,6 +894,11 @@ export default function DatabasePageNew() {
                                   )}
                                 </div>
                                 <div className="text-sm text-gray-700 mt-1 line-clamp-2">{d.title}</div>
+                                {cv.is_job_application && cv.applied_job_title ? (
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    Applied for <span className="font-medium text-gray-700">"{cv.applied_job_title}"</span>
+                                  </div>
+                                ) : null}
                               </div>
                               <div className="shrink-0">
                                 <div className="w-14 h-14 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center">
@@ -885,7 +971,7 @@ export default function DatabasePageNew() {
                   <div className="flex flex-col gap-2 px-4 py-3 border-t border-gray-200">
                     <div className="flex items-center justify-between">
                       <p className="text-sm text-gray-600">
-                        Showing {(page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, filteredCVs.length)} of {activeTotalCount != null ? activeTotalCount : filteredCVs.length}
+                        Showing {pagingStart}–{pagingEnd} of {totalItemsForPaging}
                       </p>
                       {totalPages > 1 && (
                         <div className="flex gap-2">
@@ -900,28 +986,17 @@ export default function DatabasePageNew() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            disabled={page >= totalPages}
+                            onClick={handleNextPage}
+                            disabled={
+                              page >= totalPages &&
+                              !(activeTotalCount != null && activeLoadedCount < activeTotalCount)
+                            }
                           >
                             Next
                           </Button>
                         </div>
                       )}
                     </div>
-                    {activeTotalCount != null && activeLoadedCount < activeTotalCount && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        onClick={() => loadMoreActiveFolder()}
-                        disabled={loadingStates.cvs.isLoading || (activeFolder !== CATEGORY_ALL && loadingFolderCVs[activeFolder])}
-                      >
-                        {(loadingStates.cvs.isLoading || (activeFolder !== CATEGORY_ALL && loadingFolderCVs[activeFolder])) ? (
-                          <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
-                        ) : null}
-                        Load more candidates ({activeLoadedCount} of {activeTotalCount} loaded)
-                      </Button>
-                    )}
                   </div>
                 )}
               </>

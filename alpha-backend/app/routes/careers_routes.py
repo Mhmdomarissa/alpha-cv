@@ -11,8 +11,8 @@ import logging
 import secrets
 import uuid
 import re
-from datetime import datetime
-from typing import Optional, List
+from datetime import datetime, date
+from typing import Optional, List, Any, Union
 import tempfile
 import shutil
 import mimetypes
@@ -60,10 +60,24 @@ from app.helpers.careers_helpers import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+def _preview_careers_list_text(value: Any, max_chars: int = 320) -> str:
+    """Short previews for list endpoints (full text is available on detail endpoints)."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        parts = [str(x).strip() for x in value if str(x).strip()]
+        text = " ".join(parts)
+    else:
+        text = str(value)
+    text = " ".join(text.split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "…"
+
 # ==================== PUBLIC ENDPOINTS (No Authentication) ====================
 
 @router.get("/jobs/recent", response_model=List[JobPostingSummary])
-async def get_recent_job_postings(limit: int = 5) -> List[JobPostingSummary]:
+async def get_recent_job_postings(limit: int = 10) -> List[JobPostingSummary]:
     """
     Public endpoint: Get recent job postings (no authentication required)
     
@@ -74,36 +88,32 @@ async def get_recent_job_postings(limit: int = 5) -> List[JobPostingSummary]:
         logger.info(f"📄 Getting recent {limit} job postings")
         
         qdrant = get_qdrant_utils()
-        # Get all active job postings
-        job_postings = qdrant.get_all_job_postings(
-            include_inactive=False,  # Only active jobs
-            posted_by_user=None,
-            user_role=None  # No role filtering for public access
+        recent_rows, _total = qdrant.list_job_postings_lightweight_page(
+            include_inactive=False,
+            limit=max(1, min(int(limit or 5), 50)),
+            offset=0,
+            cache_ttl_seconds=2.0,
         )
         
-        # Sort by upload_date (newest first) and limit
-        job_postings.sort(key=lambda x: x.get("upload_date", x.get("created_date", x.get("stored_at", ""))), reverse=True)
-        recent_jobs = job_postings[:limit]
-        
         summaries = []
-        for job in recent_jobs:
-            # Extract job details from merged job data
-            structured_info = job.get("structured_info", {})
+        for job in recent_rows:
+            structured_info = job.get("structured_info", {}) or {}
             
             job_title = structured_info.get("job_title", "") or job.get("job_title", "Position Available")
             job_location = structured_info.get("job_location", "") or structured_info.get("location", "")
-            job_summary = structured_info.get("job_summary", "") or structured_info.get("summary", "")
+            raw_summary = structured_info.get("job_summary", "") or structured_info.get("summary", "")
+            job_summary = _preview_careers_list_text(raw_summary, 320)
             
             # Get responsibilities and skills
             responsibilities_list = structured_info.get("responsibilities", [])
             if responsibilities_list and isinstance(responsibilities_list, list):
-                key_responsibilities = "\n".join([f"• {resp}" for resp in responsibilities_list])
+                key_responsibilities = _preview_careers_list_text("\n".join([f"• {resp}" for resp in responsibilities_list]), 320)
             else:
                 key_responsibilities = ""
             
             skills_list = structured_info.get("skills", []) or structured_info.get("requirements", [])
             if skills_list and isinstance(skills_list, list):
-                qualifications = "\n".join([f"• {skill}" for skill in skills_list])
+                qualifications = _preview_careers_list_text("\n".join([f"• {skill}" for skill in skills_list]), 320)
             else:
                 qualifications = ""
             
@@ -115,7 +125,7 @@ async def get_recent_job_postings(limit: int = 5) -> List[JobPostingSummary]:
                 key_responsibilities=key_responsibilities,
                 qualifications=qualifications,
                 company_name=job.get("company_name"),
-                upload_date=job.get("created_date", job.get("upload_date", now_iso())),
+                upload_date=job.get("upload_date", now_iso()),
                 filename=job.get("filename", "job_description.pdf"),
                 is_active=job.get("is_active", True),
                 application_count=0,  # Not needed for public view
@@ -237,7 +247,7 @@ async def get_public_job(public_token: str) -> PublicJobView:
 async def apply_to_job(
     public_token: str,
     background_tasks: BackgroundTasks,
-    applicant_name: str = Form(..., min_length=2, max_length=100),
+    applicant_name: str = Form(..., min_length=1, max_length=100),
     applicant_email: str = Form(...),
     applicant_phone: Optional[str] = Form(None),
     cover_letter: Optional[str] = Form(None),
@@ -846,27 +856,40 @@ Additional Information:
         raise HTTPException(status_code=500, detail="Failed to create job posting. Please try again later.")
 
 
-@router.get("/admin/jobs", response_model=List[JobPostingSummary])
+@router.get("/admin/jobs", response_model=Union[List[JobPostingSummary], dict])
 async def list_job_postings(
     include_inactive: bool = False,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
     current_user: User = Depends(require_user)
-) -> List[JobPostingSummary]:
+) -> Union[List[JobPostingSummary], dict]:
     """List job postings for HR dashboard - filtered by user role"""
     try:
-        logger.info(f"📋 Listing job postings for user {current_user.username} (role: {current_user.role}, include_inactive: {include_inactive})")
-        
-        qdrant = get_qdrant_utils()
-        job_postings = qdrant.get_all_job_postings(
-            include_inactive=include_inactive,
-            posted_by_user=None,  # Remove user filtering to show all jobs
-            user_role=current_user.role
+        logger.info(
+            f"📋 Listing job postings for user {current_user.username} "
+            f"(role: {current_user.role}, include_inactive: {include_inactive}, limit: {limit}, offset: {offset})"
         )
         
-        # Sort by upload_date (newest first) before processing
-        job_postings.sort(key=lambda x: x.get("upload_date", x.get("created_date", x.get("stored_at", ""))), reverse=True)
+        qdrant = get_qdrant_utils()
+
+        # Backwards compatible default: legacy clients call without pagination params.
+        if limit is None and offset is None:
+            page_rows, total = qdrant.list_job_postings_lightweight_page(
+                include_inactive=include_inactive,
+                limit=1000,
+                offset=0,
+                cache_ttl_seconds=2.0,
+            )
+        else:
+            page_rows, total = qdrant.list_job_postings_lightweight_page(
+                include_inactive=include_inactive,
+                limit=int(limit or 25),
+                offset=int(offset or 0),
+                cache_ttl_seconds=2.0,
+            )
         
         summaries = []
-        for job in job_postings:
+        for job in page_rows:
             # Debug logging for public_token
             logger.info(f"🔍 Job {job.get('id', 'N/A')} - Public Token: {job.get('public_token', 'MISSING')}")
             
@@ -884,9 +907,6 @@ async def list_job_postings(
                     # Still set the token in memory for this request
                     job["public_token"] = new_token
             
-            # Get application count for this job
-            applications = qdrant.get_applications_for_job(job["id"])
-            
             # Extract job details from merged job data (already contains both metadata and structured data)
             job_title = "Position Available"
             job_location = ""
@@ -894,22 +914,28 @@ async def list_job_postings(
             key_responsibilities = ""
             qualifications = ""
             
-            # The job data is already merged from get_all_job_postings, so we can extract directly
-            structured_info = job.get("structured_info", {})
+            structured_info = job.get("structured_info", {}) or {}
             
             # Use job posting's own data first (this is the edited data)
             job_title = structured_info.get("job_title", "") or job.get("job_title", job_title)
             job_location = structured_info.get("job_location", "") or structured_info.get("location", "")
-            job_summary = structured_info.get("job_summary", "") or structured_info.get("summary", "")
+            raw_summary = structured_info.get("job_summary", "") or structured_info.get("summary", "")
+            job_summary = _preview_careers_list_text(raw_summary, 320)
             
             # Use job posting's own responsibilities and skills (edited data)
             responsibilities_list = structured_info.get("responsibilities", [])
             if responsibilities_list and isinstance(responsibilities_list, list):
-                key_responsibilities = "\n".join([f"• {resp}" for resp in responsibilities_list])
+                key_responsibilities = _preview_careers_list_text(
+                    "\n".join([f"• {resp}" for resp in responsibilities_list]),
+                    320,
+                )
             
             skills_list = structured_info.get("skills", []) or structured_info.get("requirements", [])
             if skills_list and isinstance(skills_list, list):
-                qualifications = "\n".join([f"• {skill}" for skill in skills_list])
+                qualifications = _preview_careers_list_text(
+                    "\n".join([f"• {skill}" for skill in skills_list]),
+                    320,
+                )
             
             # Calculate permissions: user can edit/delete if they posted the job OR if they are admin
             job_poster = job.get("posted_by_user")
@@ -926,10 +952,10 @@ async def list_job_postings(
                 key_responsibilities=key_responsibilities,
                 qualifications=qualifications,
                 company_name=job.get("company_name"),
-                upload_date=job.get("created_date", job.get("upload_date", now_iso())),
+                upload_date=job.get("upload_date", now_iso()),
                 filename=job.get("filename", "job_description.pdf"),
                 is_active=job.get("is_active", True),
-                application_count=len(applications),
+                application_count=int(job.get("application_count") or 0),
                 public_token=job.get("public_token") or "unknown",
                 posted_by_user=job.get("posted_by_user"),
                 posted_by_role=job.get("posted_by_role"),
@@ -940,12 +966,91 @@ async def list_job_postings(
             )
             summaries.append(summary)
         
-        logger.info(f"✅ Found {len(summaries)} job postings")
-        return summaries
+        logger.info(f"✅ Found {len(summaries)} job postings (total={total})")
+        if limit is None and offset is None:
+            return summaries
+        return {"jobs": summaries, "total": total}
         
     except Exception as e:
         logger.error(f"❌ Failed to list job postings: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve job postings")
+
+
+@router.get("/admin/reports/weekly", response_model=dict)
+async def weekly_analysis_report(
+    start_date: str,
+    end_date: str,
+    current_admin: User = Depends(require_admin),  # 🚨 ADMIN ONLY 🚨
+):
+    """Return lightweight stats for a weekly analysis report.
+
+    This endpoint is intentionally aggregate-only (no CV text, no large payloads) so it can be
+    called on demand without impacting normal Careers operations.
+    """
+    try:
+        def _parse_ymd(v: str) -> date:
+            try:
+                return datetime.strptime(v.strip(), "%Y-%m-%d").date()
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+        start = _parse_ymd(start_date)
+        end = _parse_ymd(end_date)
+        if end < start:
+            raise HTTPException(status_code=400, detail="end_date must be >= start_date")
+
+        qdrant = get_qdrant_utils()
+        # One scroll over job metadata; filter in memory by upload_date.
+        jobs = qdrant.get_all_job_postings(include_inactive=True)
+
+        def _job_date(job: dict) -> Optional[date]:
+            raw = str(job.get("upload_date") or job.get("created_date") or "")[:10]
+            if not raw:
+                return None
+            try:
+                return datetime.strptime(raw, "%Y-%m-%d").date()
+            except Exception:
+                return None
+
+        in_range: list[dict] = []
+        for j in jobs:
+            d = _job_date(j)
+            if not d:
+                continue
+            if start <= d <= end:
+                in_range.append(j)
+
+        recruiter_counts: dict[str, int] = {}
+        by_recruiter: dict[str, list[dict]] = {}
+        for j in in_range:
+            poster = (j.get("posted_by_user") or "Unknown").strip() or "Unknown"
+            recruiter_counts[poster] = recruiter_counts.get(poster, 0) + 1
+
+            structured = j.get("structured_info") or {}
+            title = structured.get("job_title") or j.get("job_title") or "Position Available"
+            job_id = str(j.get("id") or j.get("job_id") or "")
+            apps = qdrant.get_application_count_for_job(job_id) if job_id else 0
+
+            by_recruiter.setdefault(poster, []).append(
+                {"job_id": job_id, "job_title": str(title), "applications": int(apps)}
+            )
+
+        # Stable ordering for the UI/doc output.
+        recruiters_sorted = sorted(recruiter_counts.items(), key=lambda x: (-x[1], x[0].lower()))
+        return {
+            "range": {"start_date": start.isoformat(), "end_date": end.isoformat()},
+            "total_jobs_posted": len(in_range),
+            "recruiters_posted": [{"recruiter": name, "jobs_posted": count} for name, count in recruiters_sorted],
+            "applications_by_recruiter": {
+                name: sorted(rows, key=lambda r: r.get("job_title", "").lower())
+                for name, rows in by_recruiter.items()
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ weekly_analysis_report failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate weekly report")
 
 @router.get("/admin/jobs/{job_id}/match-data", response_model=dict)
 async def get_job_for_matching(job_id: str, current_user: User = Depends(require_user)) -> dict:

@@ -27,6 +27,7 @@ export default function AdminUsersPage() {
     password: '',
     email: '',
     role: 'user',
+    otp_mode: 'real',
   });
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -68,8 +69,8 @@ export default function AdminUsersPage() {
     if (!token) return;
 
     // Validate: email is required for non-admin users (user/manager)
-    if (createForm.role !== 'admin' && !createForm.email?.trim()) {
-      setCreateError('Email is required for non-admin users');
+    if (createForm.role !== 'admin' && createForm.otp_mode !== 'fixed' && !createForm.email?.trim()) {
+      setCreateError('Email is required for non-admin users when OTP mode is real');
       return;
     }
 
@@ -87,7 +88,7 @@ export default function AdminUsersPage() {
       setCreateError(null);
       await api.createUser(token, createForm);
       setShowCreateModal(false);
-      setCreateForm({ username: '', password: '', email: '', role: 'user' });
+      setCreateForm({ username: '', password: '', email: '', role: 'user', otp_mode: 'real', team_location: null });
       setCreateError(null);
       await fetchUsers();
     } catch (err: any) {
@@ -156,7 +157,7 @@ export default function AdminUsersPage() {
             <div className="flex items-center space-x-4">
               <div 
                 className="w-8 h-8 rounded-lg flex items-center justify-center"
-                style={{ background: 'var(--gradient-primary)' }}
+                style={{ background: 'var(--primary-500)' }}
               >
                 <span className="text-white text-sm font-bold">⚡</span>
               </div>
@@ -211,11 +212,11 @@ export default function AdminUsersPage() {
             </Card>
 
             {/* Database Management Section */}
-            <Card className="p-6 border-red-200 bg-red-50/30">
+            <Card className="p-6 border border-red-200 bg-white">
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-gradient-to-r from-red-500 to-orange-500 rounded-xl shadow-md">
-                    <Database className="h-5 w-5 text-white" />
+                  <div className="p-2 bg-red-50 border border-red-200 rounded-xl shadow-sm">
+                    <Database className="h-5 w-5 text-red-600" />
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold">Database Management</h3>
@@ -444,12 +445,17 @@ export default function AdminUsersPage() {
                         setCreateError(null);
                       }}
                       placeholder="user@example.com"
-                      required={createForm.role !== 'admin'}
+                      required={createForm.role !== 'admin' && createForm.otp_mode !== 'fixed'}
                       className="w-full"
                     />
-                    {createForm.role !== 'admin' && (
+                    {createForm.role !== 'admin' && createForm.otp_mode !== 'fixed' && (
                       <p className="text-xs text-blue-600 mt-1">
                         ℹ️ Regular users need email for OTP authentication
+                      </p>
+                    )}
+                    {createForm.otp_mode === 'fixed' && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        ⚠️ Fixed OTP mode uses code <strong>123456</strong> and will not send email.
                       </p>
                     )}
                   </div>
@@ -469,7 +475,41 @@ export default function AdminUsersPage() {
                     >
                       <option value="user">Recruiter (Read-only Tracker)</option>
                       <option value="manager">Manager (Read/Write Tracker)</option>
+                      <option value="evp">EVP (Manager access + sees all locations)</option>
                       <option value="admin">Admin (Administrator)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      Team Location <span className="text-xs text-gray-500 ml-2">(Abu Dhabi / Dubai)</span>
+                    </label>
+                    <select
+                      value={createForm.team_location || ''}
+                      onChange={(e) => setCreateForm({ ...createForm, team_location: e.target.value || null })}
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">(None)</option>
+                      <option value="Abu Dhabi">Abu Dhabi</option>
+                      <option value="Dubai">Dubai</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      OTP Mode <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={createForm.otp_mode || 'real'}
+                      onChange={(e) => {
+                        const mode = e.target.value as NonNullable<CreateUserRequest['otp_mode']>;
+                        setCreateForm({ ...createForm, otp_mode: mode });
+                        setCreateError(null);
+                      }}
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="real">Real OTP (email)</option>
+                      <option value="fixed">Fixed OTP (123456, no email)</option>
                     </select>
                   </div>
 
@@ -486,7 +526,7 @@ export default function AdminUsersPage() {
                       variant="outline" 
                       onClick={() => {
                         setShowCreateModal(false);
-                        setCreateForm({ username: '', password: '', email: '', role: 'user' });
+                        setCreateForm({ username: '', password: '', email: '', role: 'user', otp_mode: 'real', team_location: null });
                         setCreateError(null);
                       }}
                       className="flex-1"
@@ -525,12 +565,17 @@ export default function AdminUsersPage() {
                       value={editForm.email !== undefined ? editForm.email : (editUser.email || '')}
                       onChange={(e) => setEditForm({...editForm, email: e.target.value})}
                       placeholder="user@example.com"
-                      required={(editForm.role || editUser.role) !== 'admin'}
+                      required={(editForm.role || editUser.role) !== 'admin' && (editForm.otp_mode || editUser.otp_mode || 'real') !== 'fixed'}
                       className="w-full"
                     />
-                    {(editForm.role || editUser.role) !== 'admin' && (
+                    {(editForm.role || editUser.role) !== 'admin' && (editForm.otp_mode || editUser.otp_mode || 'real') !== 'fixed' && (
                       <p className="text-xs text-blue-600 mt-1">
                         ℹ️ Regular users need email for OTP authentication
+                      </p>
+                    )}
+                    {(editForm.otp_mode || editUser.otp_mode) === 'fixed' && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        ⚠️ Fixed OTP mode uses code <strong>123456</strong> and will not send email.
                       </p>
                     )}
                   </div>
@@ -557,7 +602,41 @@ export default function AdminUsersPage() {
                     >
                       <option value="user">Recruiter (Read-only Tracker)</option>
                       <option value="manager">Manager (Read/Write Tracker)</option>
+                      <option value="evp">EVP (Manager access + sees all locations)</option>
                       <option value="admin">Admin (Administrator)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      Team Location <span className="text-xs text-gray-500 ml-2">(Abu Dhabi / Dubai)</span>
+                    </label>
+                    <select
+                      value={
+                        editForm.team_location !== undefined
+                          ? (editForm.team_location || '')
+                          : (editUser.team_location || '')
+                      }
+                      onChange={(e) => setEditForm({ ...editForm, team_location: e.target.value || null })}
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">(None)</option>
+                      <option value="Abu Dhabi">Abu Dhabi</option>
+                      <option value="Dubai">Dubai</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700 block">
+                      OTP Mode
+                    </label>
+                    <select
+                      value={editForm.otp_mode || editUser.otp_mode || 'real'}
+                      onChange={(e) => setEditForm({ ...editForm, otp_mode: e.target.value as UpdateUserRequest['otp_mode'] })}
+                      className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="real">Real OTP (email)</option>
+                      <option value="fixed">Fixed OTP (123456, no email)</option>
                     </select>
                   </div>
                   <div className="space-y-2">

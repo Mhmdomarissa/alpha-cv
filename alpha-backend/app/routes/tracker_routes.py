@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
@@ -13,11 +13,15 @@ from app.db.tracker_db import get_tracker_session
 from app.deps.auth import require_roles
 from app.models.tracker.models import (
     TrackerApplication,
+    TrackerApplicationAD,
     TrackerCandidate,
-    TrackerCandidateSkill,
-    TrackerDocument,
+    TrackerCandidateAD,
+    TrackerFollowUp,
+    TrackerFollowUpAD,
     TrackerJobOpening,
-    TrackerSkill,
+    TrackerJobOpeningAD,
+    TrackerOption,
+    TrackerOptionAD,
 )
 from app.models.user import User
 from app.schemas.tracker import (
@@ -26,20 +30,59 @@ from app.schemas.tracker import (
     TrackerApplicationUpdate,
     TrackerCandidateCreate,
     TrackerCandidateRead,
-    TrackerCandidateSkillsUpdate,
+    TrackerCandidateRowRead,
     TrackerCandidateUpdate,
-    TrackerDocumentCreate,
-    TrackerDocumentRead,
+    TrackerFollowUpCreate,
+    TrackerFollowUpRead,
+    TrackerFollowUpUpdate,
     TrackerJobOpeningCreate,
     TrackerJobOpeningRead,
     TrackerJobOpeningUpdate,
-    TrackerSkillCreate,
-    TrackerSkillRead,
+    TrackerOptionCreate,
+    TrackerOptionRead,
+    TrackerOptionUpdate,
 )
+from app.utils.redis_cache import get_redis_cache
+from app.core.config import is_followup_email_reminder_enabled
+from app.services.followup_reminder_service import render_followup_email_html, send_followup_reminder_email
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tracker", tags=["Candidate Tracker"])
+
+_TRACKER_CACHE_NAMESPACE = "tracker"
+
+
+def _tracker_cache_key(team: str, name: str, *parts: str) -> str:
+    safe_parts = [p.replace(" ", "").replace("\n", "") for p in parts if p is not None]
+    return "|".join([team, name, *safe_parts])
+
+
+def _tracker_cache_get(team: str, name: str, *parts: str):
+    try:
+        return get_redis_cache().get(_tracker_cache_key(team, name, *parts), namespace=_TRACKER_CACHE_NAMESPACE)
+    except Exception:
+        return None
+
+
+def _tracker_cache_set(team: str, name: str, value, ttl_seconds: int, *parts: str) -> None:
+    try:
+        get_redis_cache().set(
+            _tracker_cache_key(team, name, *parts),
+            value,
+            ttl_seconds=ttl_seconds,
+            namespace=_TRACKER_CACHE_NAMESPACE,
+        )
+    except Exception:
+        return None
+
+
+def _tracker_cache_bust() -> None:
+    # Keep invalidation simple and safe: any write clears tracker cache only.
+    try:
+        get_redis_cache().clear_namespace(_TRACKER_CACHE_NAMESPACE)
+    except Exception:
+        return None
 
 
 def tracker_session(session: Session = Depends(get_tracker_session)) -> Session:
@@ -61,60 +104,372 @@ def _touch_updated_at(obj):
         obj.updated_at = datetime.utcnow()
 
 
-AllowedTrackerReadUser = Depends(require_roles("admin", "manager", "user", "recruiter"))
-AllowedTrackerWriteUser = Depends(require_roles("admin", "manager"))
+# EVP has manager-level access across the app.
+AllowedTrackerReadUser = Depends(require_roles("admin", "manager", "evp", "user", "recruiter"))
+# Write access is restricted to managers/admins only (recruiters/users are read-only).
+AllowedTrackerWriteUser = Depends(require_roles("manager"))
+AllowedTrackerJobWriteUser = Depends(require_roles("manager"))
+AllowedTrackerOptionWriteUser = Depends(require_roles("manager"))
+AllowedTrackerAdminUser = Depends(require_roles("admin"))
+AllowedTrackerManagerUser = Depends(require_roles("manager"))
+
+_RECRUITER_ROLES = frozenset({"recruiter", "user"})
+
+
+def _norm_team(v: str) -> str:
+    return "".join(ch for ch in (v or "").strip().lower() if ch.isalnum())
+
+
+def _resolve_tracker_team(user: User, team: Optional[str]) -> str:
+    """
+    Resolve which tracker table set to use.
+
+    - Non-admin/EVP: forced by user.team_location.
+    - Admin/EVP: can override via ?team=dubai|abudhabi.
+    """
+    is_admin_like = user.role in {"admin", "evp"}
+    if is_admin_like and team:
+        t = _norm_team(team)
+        if t in {"dubai", "dxb"}:
+            return "dubai"
+        if t in {"abudhabi", "abudabi", "abudh"}:
+            return "abudhabi"
+        raise HTTPException(status_code=400, detail="Invalid team; use dubai|abudhabi")
+
+    tl = _norm_team(getattr(user, "team_location", None) or "")
+    if tl in {"abudhabi", "abudabi", "abudh"}:
+        return "abudhabi"
+    # default to dubai to preserve existing behavior/data
+    return "dubai"
+
+
+def _tracker_models(team: str):
+    if team == "abudhabi":
+        return {
+            "JobOpening": TrackerJobOpeningAD,
+            "Candidate": TrackerCandidateAD,
+            "Application": TrackerApplicationAD,
+            "FollowUp": TrackerFollowUpAD,
+            "Option": TrackerOptionAD,
+        }
+    return {
+        "JobOpening": TrackerJobOpening,
+        "Candidate": TrackerCandidate,
+        "Application": TrackerApplication,
+        "FollowUp": TrackerFollowUp,
+        "Option": TrackerOption,
+    }
+
+
+def _reject_job_status_option_for_candidate_roles(user: User, kind: str | None) -> None:
+    """Recruiters (`user` | `recruiter`) must not edit requirement (job) status picklists."""
+    if kind == "job_status" and user.role in _RECRUITER_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not allowed to modify requirement status options",
+        )
+
+
+@router.post("/admin/bootstrap-abudhabi", status_code=200)
+def bootstrap_abudhabi_from_existing_tables(
+    session: Session = Depends(tracker_session),
+    _: User = AllowedTrackerAdminUser,
+):
+    """
+    One-time bootstrap helper (non-destructive):
+    Copy rows from the existing tracker tables into the Abu Dhabi *_ad tables.
+
+    - Does NOT delete or modify Dubai tables.
+    - Keeps the same IDs so relationships (candidate_id, job_opening_id, etc.) remain valid.
+    - Safe to run multiple times (idempotent best-effort).
+    """
+    from sqlalchemy import text
+
+    bind = session.get_bind()
+    url = str(getattr(bind, "url", ""))
+    is_sqlite = url.startswith("sqlite")
+
+    # Include all current tracker tables (even if some endpoints are unused today).
+    # Copy order: referenced tables first.
+    table_pairs = [
+        ("tracker_option", "tracker_option_ad"),
+        ("tracker_job_opening", "tracker_job_opening_ad"),
+        ("tracker_candidate", "tracker_candidate_ad"),
+        ("tracker_application", "tracker_application_ad"),
+        ("tracker_follow_up", "tracker_follow_up_ad"),
+    ]
+
+    inserted: dict[str, int] = {}
+
+    with bind.begin() as conn:
+        for src, dst in table_pairs:
+            try:
+                if is_sqlite:
+                    # SQLite supports INSERT OR IGNORE for PK conflicts.
+                    res = conn.execute(text(f'INSERT OR IGNORE INTO "{dst}" SELECT * FROM "{src}"'))
+                else:
+                    # Postgres: use ON CONFLICT DO NOTHING on the primary key (id).
+                    res = conn.execute(text(f'INSERT INTO "{dst}" SELECT * FROM "{src}" ON CONFLICT (id) DO NOTHING'))
+                inserted[dst] = int(getattr(res, "rowcount", 0) or 0)
+            except Exception:
+                # Best-effort: if table doesn't exist or schemas diverge, skip.
+                inserted[dst] = inserted.get(dst, 0)
+
+    _tracker_cache_bust()
+    return {"success": True, "inserted": inserted}
+
+
+@router.post("/admin/import/selections-xlsx", status_code=200)
+async def import_selections_xlsx(
+    team: str = Query(..., description="dubai|abudhabi"),
+    file: UploadFile = File(...),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerAdminUser,
+):
+    """
+    Admin import for Selections & Joinings from the exported candidates.xlsx format.
+
+    - Imports into the selected team's tables (Dubai or Abu Dhabi).
+    - Does not touch Manager Settings/options; you can manage those manually.
+    """
+    from datetime import date
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    team_norm = _norm_team(team)
+    if team_norm not in {"dubai", "dxb", "abudhabi", "abudabi", "abudh"}:
+        raise HTTPException(status_code=400, detail="Invalid team; use dubai|abudhabi")
+    team_resolved = "abudhabi" if team_norm in {"abudhabi", "abudabi", "abudh"} else "dubai"
+
+    models = _tracker_models(team_resolved)
+    Candidate = models["Candidate"]
+    Application = models["Application"]
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    try:
+        wb = load_workbook(filename=BytesIO(raw), data_only=True)
+        ws = wb.active
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Excel file")
+
+    # Expect the same header as export_candidates_xlsx
+    header_row = [str(c.value).strip() if c.value is not None else "" for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    header_map = {h.lower(): i for i, h in enumerate(header_row)}
+    required = ["candidate name"]
+    for r in required:
+        if r not in header_map:
+            raise HTTPException(status_code=400, detail=f"Missing required column: {r}")
+
+    def _cell(row, name: str) -> str:
+        idx = header_map.get(name.lower())
+        if idx is None:
+            return ""
+        v = row[idx].value
+        return (str(v).strip() if v is not None else "")
+
+    def _parse_date(v: str | None) -> date | None:
+        if not v:
+            return None
+        try:
+            # If openpyxl already gave us a python date/datetime, keep it.
+            if hasattr(v, "year") and hasattr(v, "month") and hasattr(v, "day"):
+                return date(int(v.year), int(v.month), int(v.day))  # type: ignore[arg-type]
+            s = str(v).strip()
+            if not s:
+                return None
+            return date.fromisoformat(s[:10])
+        except Exception:
+            return None
+
+    inserted_candidates = 0
+    inserted_applications = 0
+    skipped = 0
+
+    for row in ws.iter_rows(min_row=2):
+        name = _cell(row, "Candidate Name")
+        if not name:
+            skipped += 1
+            continue
+
+        cand = session.exec(
+            select(Candidate).where(Candidate.name == name).where(Candidate.is_deleted == False)  # noqa: E712
+        ).first()
+        if not cand:
+            cand = Candidate(name=name)
+            session.add(cand)
+            session.commit()
+            session.refresh(cand)
+            inserted_candidates += 1
+
+        applied_date = _parse_date(_cell(row, "Date"))
+        app = Application(
+            candidate_id=cand.id,
+            job_opening_id=None,
+            applied_date=applied_date,
+            position=_cell(row, "Position") or None,
+            client=_cell(row, "Client") or None,
+            location=_cell(row, "Location") or None,
+            status=_cell(row, "Status") or "MRF Pending",
+            recruiter=_cell(row, "Recruiter") or None,
+            account_manager=_cell(row, "Account Manager") or None,
+            recruitment_manager=_cell(row, "Recruitment Manager") or None,
+            comment=_cell(row, "Comment") or None,
+            created_by_username=getattr(user, "username", None),
+            created_by_role=getattr(user, "role", None),
+            created_by_team_location=("Abu Dhabi" if team_resolved == "abudhabi" else "Dubai"),
+        )
+        session.add(app)
+        session.commit()
+        inserted_applications += 1
+
+    _tracker_cache_bust()
+    return {
+        "success": True,
+        "team": team_resolved,
+        "inserted_candidates": inserted_candidates,
+        "inserted_applications": inserted_applications,
+        "skipped_rows": skipped,
+    }
+
+
+@router.post("/admin/clear-team", status_code=200)
+def clear_tracker_team_data(
+    team: str = Query(..., description="dubai|abudhabi"),
+    confirm: str = Query(..., description="must be CLEAR to proceed"),
+    session: Session = Depends(tracker_session),
+    _: User = AllowedTrackerAdminUser,
+):
+    """
+    Admin-only bulk clear for a team's tracker tables.
+
+    This is intended for the migration path where you import old data into Abu Dhabi
+    and then want to clear the Dubai dataset without touching Abu Dhabi (or vice versa).
+    """
+    from sqlalchemy import text
+
+    if confirm.strip().upper() != "CLEAR":
+        raise HTTPException(status_code=400, detail="Missing confirm=CLEAR")
+
+    team_norm = _norm_team(team)
+    if team_norm not in {"dubai", "dxb", "abudhabi", "abudabi", "abudh"}:
+        raise HTTPException(status_code=400, detail="Invalid team; use dubai|abudhabi")
+
+    is_ad = team_norm in {"abudhabi", "abudabi", "abudh"}
+
+    # IMPORTANT: delete order matters due to foreign keys.
+    # We clear all tracker tables for that team, including options.
+    tables = (
+        [
+            "tracker_application_ad",
+            "tracker_candidate_ad",
+            "tracker_job_opening_ad",
+            "tracker_follow_up_ad",
+            "tracker_option_ad",
+        ]
+        if is_ad
+        else [
+            "tracker_application",
+            "tracker_candidate",
+            "tracker_job_opening",
+            "tracker_follow_up",
+            "tracker_option",
+        ]
+    )
+
+    bind = session.get_bind()
+    deleted: dict[str, int] = {}
+    with bind.begin() as conn:
+        for t in tables:
+            try:
+                res = conn.execute(text(f'DELETE FROM "{t}"'))
+                deleted[t] = int(getattr(res, "rowcount", 0) or 0)
+            except Exception:
+                # Best-effort: if table doesn't exist in this deployment, skip.
+                deleted[t] = deleted.get(t, 0)
+
+    _tracker_cache_bust()
+    return {"success": True, "team": ("abudhabi" if is_ad else "dubai"), "deleted": deleted}
 
 
 @router.get("/job-openings", response_model=List[TrackerJobOpeningRead])
 def list_job_openings(
     status_filter: Optional[str] = None,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    _: User = AllowedTrackerReadUser,
+    user: User = AllowedTrackerReadUser,
 ):
-    q = select(TrackerJobOpening).where(TrackerJobOpening.is_deleted == False)  # noqa: E712
+    team_resolved = _resolve_tracker_team(user, team)
+    cache_hit = _tracker_cache_get(
+        team_resolved,
+        "job_openings",
+        f"status={status_filter or ''}",
+    )
+    if cache_hit is not None:
+        return cache_hit
+    JobOpening = _tracker_models(team_resolved)["JobOpening"]
+    q = select(JobOpening).where(JobOpening.is_deleted == False)  # noqa: E712
     if status_filter:
-        q = q.where(TrackerJobOpening.status == status_filter)
-    rows = session.exec(q.order_by(TrackerJobOpening.created_at.desc())).all()
-    return [
+        q = q.where(JobOpening.status == status_filter)
+    rows = session.exec(q.order_by(JobOpening.created_at.desc())).all()
+    out = [
         TrackerJobOpeningRead(
             id=r.id,
             title=r.title,
             department=r.department,
             location=r.location,
+            client=getattr(r, "client", None),
+            work_location=getattr(r, "work_location", None),
             status=r.status,
             hiring_manager=r.hiring_manager,
+            recruitment_manager=getattr(r, "recruitment_manager", None),
             req_date=r.req_date,
             created_at=r.created_at,
             updated_at=r.updated_at,
         )
         for r in rows
     ]
+    _tracker_cache_set(team_resolved, "job_openings", [o.model_dump() for o in out], 60, f"status={status_filter or ''}")
+    return out
 
 
 @router.post("/job-openings", response_model=TrackerJobOpeningRead, status_code=201)
 def create_job_opening(
     data: TrackerJobOpeningCreate,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerJobWriteUser,
 ):
-    row = TrackerJobOpening(
+    team_resolved = _resolve_tracker_team(user, team)
+    JobOpening = _tracker_models(team_resolved)["JobOpening"]
+    row = JobOpening(
         title=data.title,
         department=data.department,
         location=data.location,
+        client=getattr(data, "client", None),
+        work_location=getattr(data, "work_location", None),
         status=data.status,
         hiring_manager=data.hiring_manager,
+        recruitment_manager=getattr(data, "recruitment_manager", None),
         req_date=data.req_date,
     )
     session.add(row)
     session.commit()
     session.refresh(row)
+    _tracker_cache_bust()
     return TrackerJobOpeningRead(
         id=row.id,
         title=row.title,
         department=row.department,
         location=row.location,
+        client=getattr(row, "client", None),
+        work_location=getattr(row, "work_location", None),
         status=row.status,
         hiring_manager=row.hiring_manager,
+        recruitment_manager=getattr(row, "recruitment_manager", None),
         req_date=row.req_date,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -125,10 +480,13 @@ def create_job_opening(
 def update_job_opening(
     job_opening_id: str,
     data: TrackerJobOpeningUpdate,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerJobWriteUser,
 ):
-    row = session.exec(select(TrackerJobOpening).where(TrackerJobOpening.id == job_opening_id)).first()
+    team_resolved = _resolve_tracker_team(user, team)
+    JobOpening = _tracker_models(team_resolved)["JobOpening"]
+    row = session.exec(select(JobOpening).where(JobOpening.id == job_opening_id)).first()
     if not row or row.is_deleted:
         raise HTTPException(status_code=404, detail="Job opening not found")
     for k, v in data.model_dump(exclude_unset=True).items():
@@ -137,44 +495,245 @@ def update_job_opening(
     session.add(row)
     session.commit()
     session.refresh(row)
+    _tracker_cache_bust()
     return TrackerJobOpeningRead(
         id=row.id,
         title=row.title,
         department=row.department,
         location=row.location,
+        client=getattr(row, "client", None),
+        work_location=getattr(row, "work_location", None),
         status=row.status,
         hiring_manager=row.hiring_manager,
+        recruitment_manager=getattr(row, "recruitment_manager", None),
         req_date=row.req_date,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
 
 
+@router.get("/options", response_model=List[TrackerOptionRead])
+def list_options(
+    kind: str,
+    include_deleted: bool = False,
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerReadUser,
+):
+    team_resolved = _resolve_tracker_team(user, team)
+    cache_hit = _tracker_cache_get(
+        team_resolved,
+        "options",
+        f"kind={kind}",
+        f"include_deleted={include_deleted}",
+    )
+    if cache_hit is not None:
+        return cache_hit
+    Option = _tracker_models(team_resolved)["Option"]
+    q = select(Option).where(Option.kind == kind)
+    if not include_deleted:
+        q = q.where(Option.is_deleted == False)  # noqa: E712
+    rows = session.exec(q.order_by(Option.value.asc())).all()
+    out = [
+        TrackerOptionRead(
+            id=r.id,
+            kind=r.kind,
+            value=r.value,
+            email=getattr(r, "email", None),
+            email_enabled=bool(getattr(r, "email_enabled", True)),
+            is_deleted=r.is_deleted,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+        )
+        for r in rows
+    ]
+    _tracker_cache_set(
+        team_resolved,
+        "options",
+        [o.model_dump() for o in out],
+        120,
+        f"kind={kind}",
+        f"include_deleted={include_deleted}",
+    )
+    return out
+
+
+@router.post("/options", response_model=TrackerOptionRead, status_code=201)
+def create_option(
+    data: TrackerOptionCreate,
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerOptionWriteUser,
+):
+    team_resolved = _resolve_tracker_team(user, team)
+    Option = _tracker_models(team_resolved)["Option"]
+    kind = data.kind.strip()
+    _reject_job_status_option_for_candidate_roles(user, kind)
+    value = data.value.strip()
+    if not kind or not value:
+        raise HTTPException(status_code=400, detail="kind and value are required")
+
+    existing = session.exec(
+        select(Option).where(Option.kind == kind).where(Option.value == value).where(Option.is_deleted == False)  # noqa: E712
+    ).first()
+    if existing:
+        return TrackerOptionRead(
+            id=existing.id,
+            kind=existing.kind,
+            value=existing.value,
+            email=getattr(existing, "email", None),
+            email_enabled=bool(getattr(existing, "email_enabled", True)),
+            is_deleted=existing.is_deleted,
+            created_at=existing.created_at,
+            updated_at=existing.updated_at,
+        )
+
+    row = Option(
+        kind=kind,
+        value=value,
+        email=(data.email.strip() if isinstance(getattr(data, "email", None), str) and data.email.strip() else None),
+        email_enabled=bool(getattr(data, "email_enabled", True)),
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    _tracker_cache_bust()
+    return TrackerOptionRead(
+        id=row.id,
+        kind=row.kind,
+        value=row.value,
+        email=getattr(row, "email", None),
+        email_enabled=bool(getattr(row, "email_enabled", True)),
+        is_deleted=row.is_deleted,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+@router.delete("/options/purge-inactive", status_code=200)
+def purge_inactive_options(
+    kind: str,
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerOptionWriteUser,
+):
+    """Hard-delete inactive (is_deleted=true) options for a kind.
+
+    This only affects tracker_option rows and never deletes any requirement/joinings/follow-ups records.
+    """
+    if not kind or not kind.strip():
+        raise HTTPException(status_code=400, detail="kind is required")
+    kind = kind.strip()
+    team_resolved = _resolve_tracker_team(user, team)
+    Option = _tracker_models(team_resolved)["Option"]
+    rows = session.exec(
+        select(Option).where(Option.kind == kind).where(Option.is_deleted == True)  # noqa: E712
+    ).all()
+    n = 0
+    for r in rows:
+        session.delete(r)
+        n += 1
+    session.commit()
+    if n:
+        _tracker_cache_bust()
+    return {"kind": kind, "purged": n}
+
+
+@router.patch("/options/{option_id}", response_model=TrackerOptionRead)
+def update_option(
+    option_id: str,
+    data: TrackerOptionUpdate,
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerOptionWriteUser,
+):
+    team_resolved = _resolve_tracker_team(user, team)
+    Option = _tracker_models(team_resolved)["Option"]
+    row = session.exec(select(Option).where(Option.id == option_id)).first()
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Option not found")
+    _reject_job_status_option_for_candidate_roles(user, row.kind)
+    any_change = False
+    if data.value is not None:
+        row.value = data.value.strip()
+        any_change = True
+    if getattr(data, "email", None) is not None:
+        v = (data.email or "").strip()
+        setattr(row, "email", v or None)
+        any_change = True
+    if getattr(data, "email_enabled", None) is not None:
+        setattr(row, "email_enabled", bool(data.email_enabled))
+        any_change = True
+    if not any_change:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    _touch_updated_at(row)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    _tracker_cache_bust()
+    return TrackerOptionRead(
+        id=row.id,
+        kind=row.kind,
+        value=row.value,
+        email=getattr(row, "email", None),
+        email_enabled=bool(getattr(row, "email_enabled", True)),
+        is_deleted=row.is_deleted,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+@router.delete("/options/{option_id}", status_code=204)
+def delete_option(
+    option_id: str,
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerOptionWriteUser,
+):
+    team_resolved = _resolve_tracker_team(user, team)
+    Option = _tracker_models(team_resolved)["Option"]
+    row = session.exec(select(Option).where(Option.id == option_id)).first()
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Option not found")
+    _reject_job_status_option_for_candidate_roles(user, row.kind)
+    row.is_deleted = True
+    _touch_updated_at(row)
+    session.add(row)
+    session.commit()
+    _tracker_cache_bust()
+    return None
+
+
 @router.delete("/job-openings/{job_opening_id}", status_code=204)
 def delete_job_opening(
     job_opening_id: str,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerJobWriteUser,
 ):
-    row = session.exec(select(TrackerJobOpening).where(TrackerJobOpening.id == job_opening_id)).first()
+    team_resolved = _resolve_tracker_team(user, team)
+    JobOpening = _tracker_models(team_resolved)["JobOpening"]
+    row = session.exec(select(JobOpening).where(JobOpening.id == job_opening_id)).first()
     if not row or row.is_deleted:
         raise HTTPException(status_code=404, detail="Job opening not found")
     row.is_deleted = True
     _touch_updated_at(row)
     session.add(row)
     session.commit()
+    _tracker_cache_bust()
     return None
 
 
 @router.get("/candidates", response_model=List[TrackerCandidateRead])
 def list_candidates(
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    _: User = AllowedTrackerReadUser,
+    user: User = AllowedTrackerReadUser,
 ):
+    team_resolved = _resolve_tracker_team(user, team)
+    Candidate = _tracker_models(team_resolved)["Candidate"]
     rows = session.exec(
-        select(TrackerCandidate)
-        .where(TrackerCandidate.is_deleted == False)  # noqa: E712
-        .order_by(TrackerCandidate.created_at.desc())
+        select(Candidate).where(Candidate.is_deleted == False).order_by(Candidate.created_at.desc())  # noqa: E712
     ).all()
     return [
         TrackerCandidateRead(
@@ -194,10 +753,13 @@ def list_candidates(
 @router.post("/candidates", response_model=TrackerCandidateRead, status_code=201)
 def create_candidate(
     data: TrackerCandidateCreate,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerWriteUser,
 ):
-    row = TrackerCandidate(
+    team_resolved = _resolve_tracker_team(user, team)
+    Candidate = _tracker_models(team_resolved)["Candidate"]
+    row = Candidate(
         name=data.name,
         email=data.email,
         phone=data.phone,
@@ -207,6 +769,7 @@ def create_candidate(
     session.add(row)
     session.commit()
     session.refresh(row)
+    _tracker_cache_bust()
     return TrackerCandidateRead(
         id=row.id,
         name=row.name,
@@ -223,10 +786,13 @@ def create_candidate(
 def update_candidate(
     candidate_id: str,
     data: TrackerCandidateUpdate,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerWriteUser,
 ):
-    row = session.exec(select(TrackerCandidate).where(TrackerCandidate.id == candidate_id)).first()
+    team_resolved = _resolve_tracker_team(user, team)
+    Candidate = _tracker_models(team_resolved)["Candidate"]
+    row = session.exec(select(Candidate).where(Candidate.id == candidate_id)).first()
     if not row or row.is_deleted:
         raise HTTPException(status_code=404, detail="Candidate not found")
     for k, v in data.model_dump(exclude_unset=True).items():
@@ -235,6 +801,7 @@ def update_candidate(
     session.add(row)
     session.commit()
     session.refresh(row)
+    _tracker_cache_bust()
     return TrackerCandidateRead(
         id=row.id,
         name=row.name,
@@ -250,50 +817,66 @@ def update_candidate(
 @router.delete("/candidates/{candidate_id}", status_code=204)
 def delete_candidate(
     candidate_id: str,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerWriteUser,
 ):
-    row = session.exec(select(TrackerCandidate).where(TrackerCandidate.id == candidate_id)).first()
+    team_resolved = _resolve_tracker_team(user, team)
+    Candidate = _tracker_models(team_resolved)["Candidate"]
+    row = session.exec(select(Candidate).where(Candidate.id == candidate_id)).first()
     if not row or row.is_deleted:
         raise HTTPException(status_code=404, detail="Candidate not found")
     row.is_deleted = True
     _touch_updated_at(row)
     session.add(row)
     session.commit()
+    _tracker_cache_bust()
     return None
 
 
 @router.post("/applications", response_model=TrackerApplicationRead, status_code=201)
 def create_application(
     data: TrackerApplicationCreate,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerWriteUser,
 ):
+    team_resolved = _resolve_tracker_team(user, team)
+    models = _tracker_models(team_resolved)
+    Candidate = models["Candidate"]
+    JobOpening = models["JobOpening"]
+    Application = models["Application"]
     # Validate candidate exists
-    cand = session.exec(select(TrackerCandidate).where(TrackerCandidate.id == data.candidate_id)).first()
+    cand = session.exec(select(Candidate).where(Candidate.id == data.candidate_id)).first()
     if not cand or cand.is_deleted:
         raise HTTPException(status_code=400, detail="Invalid candidate_id")
     job_opening_id = (data.job_opening_id or "").strip() or None
     # job_opening_id is optional — only validate if provided
     if job_opening_id:
-        job = session.exec(select(TrackerJobOpening).where(TrackerJobOpening.id == job_opening_id)).first()
+        job = session.exec(select(JobOpening).where(JobOpening.id == job_opening_id)).first()
         if not job or job.is_deleted:
             raise HTTPException(status_code=400, detail="Invalid job_opening_id")
 
-    row = TrackerApplication(
+    row = Application(
         candidate_id=data.candidate_id,
         job_opening_id=job_opening_id,
         applied_date=data.applied_date,
         position=data.position,
         client=data.client,
+        location=getattr(data, "location", None),
         status=data.status,
         recruiter=data.recruiter,
         account_manager=data.account_manager,
+        recruitment_manager=getattr(data, "recruitment_manager", None),
         comment=data.comment,
+        created_by_username=getattr(user, "username", None),
+        created_by_role=getattr(user, "role", None),
+        created_by_team_location=getattr(user, "team_location", None),
     )
     session.add(row)
     session.commit()
     session.refresh(row)
+    _tracker_cache_bust()
     return TrackerApplicationRead(
         id=row.id,
         candidate_id=row.candidate_id,
@@ -301,9 +884,11 @@ def create_application(
         applied_date=row.applied_date,
         position=row.position,
         client=row.client,
+        location=getattr(row, "location", None),
         status=row.status,
         recruiter=row.recruiter,
         account_manager=row.account_manager,
+        recruitment_manager=getattr(row, "recruitment_manager", None),
         comment=row.comment,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -314,15 +899,18 @@ def create_application(
 def list_applications(
     candidate_id: Optional[str] = None,
     job_opening_id: Optional[str] = None,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    _: User = AllowedTrackerReadUser,
+    user: User = AllowedTrackerReadUser,
 ):
-    q = select(TrackerApplication)
+    team_resolved = _resolve_tracker_team(user, team)
+    Application = _tracker_models(team_resolved)["Application"]
+    q = select(Application)
     if candidate_id:
-        q = q.where(TrackerApplication.candidate_id == candidate_id)
+        q = q.where(Application.candidate_id == candidate_id)
     if job_opening_id:
-        q = q.where(TrackerApplication.job_opening_id == job_opening_id)
-    rows = session.exec(q.order_by(TrackerApplication.created_at.desc())).all()
+        q = q.where(Application.job_opening_id == job_opening_id)
+    rows = session.exec(q.order_by(Application.created_at.desc())).all()
     return [
         TrackerApplicationRead(
             id=r.id,
@@ -331,9 +919,11 @@ def list_applications(
             applied_date=r.applied_date,
             position=r.position,
             client=r.client,
+            location=getattr(r, "location", None),
             status=r.status,
             recruiter=r.recruiter,
             account_manager=r.account_manager,
+            recruitment_manager=getattr(r, "recruitment_manager", None),
             comment=r.comment,
             created_at=r.created_at,
             updated_at=r.updated_at,
@@ -342,14 +932,116 @@ def list_applications(
     ]
 
 
+@router.get("/candidate-rows", response_model=List[TrackerCandidateRowRead])
+def list_candidate_rows(
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerReadUser,
+):
+    """Convenience endpoint for UI: returns candidate + latest application in one call."""
+    team_resolved = _resolve_tracker_team(user, team)
+    cache_hit = _tracker_cache_get(
+        team_resolved,
+        "candidate_rows",
+        f"role={user.role}",
+        f"team_location={_norm_team(getattr(user, 'team_location', None) or '')}",
+    )
+    if cache_hit is not None:
+        return cache_hit
+    models = _tracker_models(team_resolved)
+    Candidate = models["Candidate"]
+    Application = models["Application"]
+    candidates = session.exec(
+        select(Candidate).where(Candidate.is_deleted == False).order_by(Candidate.created_at.desc())  # noqa: E712
+    ).all()
+    apps = session.exec(select(Application).order_by(Application.created_at.desc())).all()
+
+    # Row-level access safety:
+    # Even though we split tables by team, older deployments may have mixed-location rows
+    # in the Dubai tables from before the split. For non-admin/EVP users, enforce a strict
+    # filter by the immutable creator team location (fallback: editable location only if needed).
+    if user.role not in {"admin", "evp"}:
+        team_loc = _norm_team(getattr(user, "team_location", None) or "")
+        if team_loc:
+            apps = [
+                a
+                for a in apps
+                if _norm_team(
+                    (getattr(a, "created_by_team_location", None) or getattr(a, "location", None) or "")
+                )
+                == team_loc
+            ]
+        else:
+            apps = []
+
+    latest_app_by_cand: dict[str, Application] = {}
+    for a in apps:
+        if a.candidate_id not in latest_app_by_cand:
+            latest_app_by_cand[a.candidate_id] = a
+
+    out: list[TrackerCandidateRowRead] = []
+    for c in candidates:
+        a = latest_app_by_cand.get(c.id)
+        # For restricted users, hide candidates with no visible application in their team.
+        if user.role not in {"admin", "evp"} and not a:
+            continue
+        out.append(
+            TrackerCandidateRowRead(
+                candidate=TrackerCandidateRead(
+                    id=c.id,
+                    name=c.name,
+                    email=c.email,
+                    phone=c.phone,
+                    current_company=c.current_company,
+                    experience_years=c.experience_years,
+                    created_at=c.created_at,
+                    updated_at=c.updated_at,
+                ),
+                application=(
+                    TrackerApplicationRead(
+                        id=a.id,
+                        candidate_id=a.candidate_id,
+                        job_opening_id=a.job_opening_id,
+                        applied_date=a.applied_date,
+                        position=a.position,
+                        client=a.client,
+                        location=getattr(a, "location", None),
+                        status=a.status,
+                        recruiter=a.recruiter,
+                        account_manager=a.account_manager,
+                        recruitment_manager=getattr(a, "recruitment_manager", None),
+                        comment=a.comment,
+                        created_at=a.created_at,
+                        updated_at=a.updated_at,
+                    )
+                    if a
+                    else None
+                ),
+            )
+        )
+    # Keep TTL short because this is the heaviest endpoint.
+    _tracker_cache_set(
+        team_resolved,
+        "candidate_rows",
+        [o.model_dump() for o in out],
+        30,
+        f"role={user.role}",
+        f"team_location={_norm_team(getattr(user, 'team_location', None) or '')}",
+    )
+    return out
+
+
 @router.patch("/applications/{application_id}", response_model=TrackerApplicationRead)
 def update_application(
     application_id: str,
     data: TrackerApplicationUpdate,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerWriteUser,
 ):
-    row = session.exec(select(TrackerApplication).where(TrackerApplication.id == application_id)).first()
+    team_resolved = _resolve_tracker_team(user, team)
+    Application = _tracker_models(team_resolved)["Application"]
+    row = session.exec(select(Application).where(Application.id == application_id)).first()
     if not row:
         raise HTTPException(status_code=404, detail="Application not found")
     for k, v in data.model_dump(exclude_unset=True).items():
@@ -358,6 +1050,7 @@ def update_application(
     session.add(row)
     session.commit()
     session.refresh(row)
+    _tracker_cache_bust()
     return TrackerApplicationRead(
         id=row.id,
         candidate_id=row.candidate_id,
@@ -365,188 +1058,366 @@ def update_application(
         applied_date=row.applied_date,
         position=row.position,
         client=row.client,
+        location=getattr(row, "location", None),
         status=row.status,
         recruiter=row.recruiter,
         account_manager=row.account_manager,
+        recruitment_manager=getattr(row, "recruitment_manager", None),
         comment=row.comment,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
 
 
-@router.get("/skills", response_model=List[TrackerSkillRead])
-def list_skills(
+@router.get("/follow-ups", response_model=List[TrackerFollowUpRead])
+def list_followups(
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    _: User = AllowedTrackerReadUser,
+    user: User = AllowedTrackerReadUser,
 ):
-    rows = session.exec(select(TrackerSkill).order_by(TrackerSkill.name.asc())).all()
-    return [TrackerSkillRead(id=r.id, name=r.name, created_at=r.created_at) for r in rows]
-
-
-@router.post("/skills", response_model=TrackerSkillRead, status_code=201)
-def create_skill(
-    data: TrackerSkillCreate,
-    session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
-):
-    existing = session.exec(select(TrackerSkill).where(TrackerSkill.name == data.name)).first()
-    if existing:
-        return TrackerSkillRead(id=existing.id, name=existing.name, created_at=existing.created_at)
-    row = TrackerSkill(name=data.name.strip())
-    session.add(row)
-    session.commit()
-    session.refresh(row)
-    return TrackerSkillRead(id=row.id, name=row.name, created_at=row.created_at)
-
-
-@router.put("/candidates/{candidate_id}/skills", status_code=200)
-def set_candidate_skills(
-    candidate_id: str,
-    data: TrackerCandidateSkillsUpdate,
-    session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
-):
-    cand = session.exec(select(TrackerCandidate).where(TrackerCandidate.id == candidate_id)).first()
-    if not cand or cand.is_deleted:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-
-    desired = [s.strip() for s in (data.skill_names or []) if s and s.strip()]
-
-    # Ensure skills exist
-    skill_rows = []
-    for name in sorted(set(desired), key=lambda x: x.lower()):
-        sk = session.exec(select(TrackerSkill).where(TrackerSkill.name == name)).first()
-        if not sk:
-            sk = TrackerSkill(name=name)
-            session.add(sk)
-            session.commit()
-            session.refresh(sk)
-        skill_rows.append(sk)
-
-    # Replace join table rows
-    existing_links = session.exec(
-        select(TrackerCandidateSkill).where(TrackerCandidateSkill.candidate_id == candidate_id)
-    ).all()
-    for link in existing_links:
-        session.delete(link)
-    session.commit()
-
-    for sk in skill_rows:
-        session.add(TrackerCandidateSkill(candidate_id=candidate_id, skill_id=sk.id))
-    _touch_updated_at(cand)
-    session.add(cand)
-    session.commit()
-    return {"success": True, "skills": desired}
-
-
-@router.get("/candidates/{candidate_id}/skills", status_code=200)
-def get_candidate_skills(
-    candidate_id: str,
-    session: Session = Depends(tracker_session),
-    _: User = AllowedTrackerReadUser,
-):
-    cand = session.exec(select(TrackerCandidate).where(TrackerCandidate.id == candidate_id)).first()
-    if not cand or cand.is_deleted:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-
-    links = session.exec(
-        select(TrackerCandidateSkill).where(TrackerCandidateSkill.candidate_id == candidate_id)
-    ).all()
-    if not links:
-        return {"skills": []}
-    skill_ids = [l.skill_id for l in links]
-    skills = session.exec(select(TrackerSkill).where(TrackerSkill.id.in_(skill_ids))).all()
-    names = sorted({s.name for s in skills}, key=lambda x: x.lower())
-    return {"skills": names}
-
-
-@router.get("/candidates/{candidate_id}/documents", response_model=List[TrackerDocumentRead])
-def list_candidate_documents(
-    candidate_id: str,
-    session: Session = Depends(tracker_session),
-    _: User = AllowedTrackerReadUser,
-):
-    cand = session.exec(select(TrackerCandidate).where(TrackerCandidate.id == candidate_id)).first()
-    if not cand or cand.is_deleted:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    team_resolved = _resolve_tracker_team(user, team)
+    cache_hit = _tracker_cache_get(team_resolved, "followups")
+    if cache_hit is not None:
+        return cache_hit
+    FollowUp = _tracker_models(team_resolved)["FollowUp"]
     rows = session.exec(
-        select(TrackerDocument)
-        .where(TrackerDocument.candidate_id == candidate_id)
-        .order_by(TrackerDocument.created_at.desc())
+        select(FollowUp)
+        .where(FollowUp.is_deleted == False)  # noqa: E712
+        .order_by(FollowUp.next_follow_up_date.asc(), FollowUp.created_at.desc())
     ).all()
-    return [
-        TrackerDocumentRead(
+    out = [
+        TrackerFollowUpRead(
             id=r.id,
-            candidate_id=r.candidate_id,
-            label=r.label,
-            url=r.url,
-            storage_key=r.storage_key,
-            doc_type=r.doc_type,
+            client_name=r.client_name,
+            position=r.position,
+            recruiter_name=r.recruiter_name,
+            account_manager=getattr(r, "account_manager", None),
+            recruitment_manager=getattr(r, "recruitment_manager", None),
+            cv_submitted_date=r.cv_submitted_date,
+            current_stage=r.current_stage,
+            last_follow_up_date=r.last_follow_up_date,
+            next_follow_up_date=r.next_follow_up_date,
+            interview_date=r.interview_date,
+            client_feedback=r.client_feedback,
+            interview_feedback=r.interview_feedback,
+            remarks=r.remarks,
+            reminder_last_sent_at=getattr(r, "reminder_last_sent_at", None),
             created_at=r.created_at,
+            updated_at=r.updated_at,
         )
         for r in rows
     ]
+    _tracker_cache_set(team_resolved, "followups", [o.model_dump() for o in out], 60)
+    return out
 
 
-@router.post("/candidates/{candidate_id}/documents", response_model=TrackerDocumentRead, status_code=201)
-def add_candidate_document(
-    candidate_id: str,
-    data: TrackerDocumentCreate,
+@router.post("/follow-ups", response_model=TrackerFollowUpRead, status_code=201)
+def create_followup(
+    data: TrackerFollowUpCreate,
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    __: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerWriteUser,
 ):
-    cand = session.exec(select(TrackerCandidate).where(TrackerCandidate.id == candidate_id)).first()
-    if not cand or cand.is_deleted:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-    if not (data.url or data.storage_key):
-        raise HTTPException(status_code=400, detail="Provide url or storage_key")
-    row = TrackerDocument(
-        candidate_id=candidate_id,
-        label=data.label,
-        url=data.url,
-        storage_key=data.storage_key,
-        doc_type=data.doc_type,
+    team_resolved = _resolve_tracker_team(user, team)
+    FollowUp = _tracker_models(team_resolved)["FollowUp"]
+    row = FollowUp(
+        client_name=data.client_name.strip(),
+        position=(data.position.strip() if data.position else None),
+        recruiter_name=(data.recruiter_name.strip() if data.recruiter_name else None),
+        account_manager=(data.account_manager.strip() if getattr(data, "account_manager", None) else None),
+        recruitment_manager=(data.recruitment_manager.strip() if getattr(data, "recruitment_manager", None) else None),
+        cv_submitted_date=data.cv_submitted_date,
+        current_stage=data.current_stage.strip(),
+        last_follow_up_date=data.last_follow_up_date,
+        next_follow_up_date=data.next_follow_up_date,
+        interview_date=data.interview_date,
+        client_feedback=data.client_feedback,
+        interview_feedback=data.interview_feedback,
+        remarks=data.remarks,
     )
     session.add(row)
-    _touch_updated_at(cand)
-    session.add(cand)
     session.commit()
     session.refresh(row)
-    return TrackerDocumentRead(
+    _tracker_cache_bust()
+    return TrackerFollowUpRead(
         id=row.id,
-        candidate_id=row.candidate_id,
-        label=row.label,
-        url=row.url,
-        storage_key=row.storage_key,
-        doc_type=row.doc_type,
+        client_name=row.client_name,
+        position=row.position,
+        recruiter_name=row.recruiter_name,
+        account_manager=getattr(row, "account_manager", None),
+        recruitment_manager=getattr(row, "recruitment_manager", None),
+        cv_submitted_date=row.cv_submitted_date,
+        current_stage=row.current_stage,
+        last_follow_up_date=row.last_follow_up_date,
+        next_follow_up_date=row.next_follow_up_date,
+        interview_date=row.interview_date,
+        client_feedback=row.client_feedback,
+        interview_feedback=row.interview_feedback,
+        remarks=row.remarks,
+        reminder_last_sent_at=getattr(row, "reminder_last_sent_at", None),
         created_at=row.created_at,
+        updated_at=row.updated_at,
     )
+
+
+@router.get("/manager-settings/followup-email", status_code=200)
+def get_followup_email_settings(
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerManagerUser,
+):
+    team_resolved = _resolve_tracker_team(user, team)
+    Option = _tracker_models(team_resolved)["Option"]
+
+    to_row = session.exec(
+        select(Option)
+        .where(Option.kind == "followup_email_to")
+        .where(Option.is_deleted == False)  # noqa: E712
+        .order_by(Option.updated_at.desc())
+    ).first()
+    cc_row = session.exec(
+        select(Option)
+        .where(Option.kind == "followup_email_cc")
+        .where(Option.is_deleted == False)  # noqa: E712
+        .order_by(Option.updated_at.desc())
+    ).first()
+
+    return {
+        "team": team_resolved,
+        "to": (to_row.value if to_row else ""),
+        "cc": (cc_row.value if cc_row else ""),
+        "enabled": is_followup_email_reminder_enabled(),
+    }
+
+
+@router.put("/manager-settings/followup-email", status_code=200)
+def set_followup_email_settings(
+    to: str = Query(..., description="comma-separated list of To emails"),
+    cc: Optional[str] = Query(default=None, description="comma-separated list of CC emails (optional)"),
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerManagerUser,
+):
+    team_resolved = _resolve_tracker_team(user, team)
+    Option = _tracker_models(team_resolved)["Option"]
+
+    def upsert(kind: str, value: str):
+        existing = session.exec(
+            select(Option)
+            .where(Option.kind == kind)
+            .where(Option.is_deleted == False)  # noqa: E712
+            .order_by(Option.updated_at.desc())
+        ).first()
+        if existing:
+            existing.value = value.strip()
+            _touch_updated_at(existing)
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            return existing
+        row = Option(kind=kind, value=value.strip())
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+    upsert("followup_email_to", to)
+    # CC can be empty; store empty string for clarity.
+    upsert("followup_email_cc", (cc or ""))
+    _tracker_cache_bust()
+    return {"success": True, "team": team_resolved, "to": to, "cc": (cc or ""), "enabled": is_followup_email_reminder_enabled()}
+
+
+@router.post("/follow-ups/{followup_id}/send-reminder", status_code=200)
+async def send_followup_reminder_now(
+    followup_id: str,
+    team: Optional[str] = Query(default=None),
+    to: Optional[str] = Query(default=None, description="override To list (optional)"),
+    cc: Optional[str] = Query(default=None, description="override CC list (optional)"),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerManagerUser,
+):
+    """
+    Manager-triggered "Send now" reminder for a single follow-up row.
+    Uses Manager Settings To/CC by default; can be overridden per request.
+    """
+    if not is_followup_email_reminder_enabled():
+        raise HTTPException(status_code=400, detail="Follow-up email reminders are disabled (SEND_EMAIL_REMINDER_FOLLOWUP!=true)")
+
+    team_resolved = _resolve_tracker_team(user, team)
+    models = _tracker_models(team_resolved)
+    FollowUp = models["FollowUp"]
+    Option = models["Option"]
+
+    row = session.exec(select(FollowUp).where(FollowUp.id == followup_id)).first()
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Follow-up not found")
+
+    def get_opt(kind: str) -> str:
+        r = session.exec(
+            select(Option)
+            .where(Option.kind == kind)
+            .where(Option.is_deleted == False)  # noqa: E712
+            .order_by(Option.updated_at.desc())
+        ).first()
+        return (r.value if r else "").strip()
+
+    def lookup_person_email(kind: str, name: Optional[str]) -> tuple[str, bool]:
+        if not name or not str(name).strip():
+            return "", True
+        nm = str(name).strip()
+        r = session.exec(
+            select(Option)
+            .where(Option.kind == kind)
+            .where(Option.value == nm)
+            .where(Option.is_deleted == False)  # noqa: E712
+            .order_by(Option.updated_at.desc())
+        ).first()
+        if not r:
+            return "", True
+        email = (getattr(r, "email", None) or "").strip()
+        enabled = bool(getattr(r, "email_enabled", True))
+        return email, enabled
+
+    to_override = (to or "").strip()
+    cc_override = (cc or "").strip()
+
+    # Prefer per-row person selection; fallback to Manager Settings defaults; allow overrides.
+    am_email, am_enabled = lookup_person_email("account_manager", getattr(row, "account_manager", None))
+    if not am_enabled:
+        raise HTTPException(status_code=400, detail="Account Manager reminders are OFF for this person.")
+    rm_email, _rm_enabled = lookup_person_email("recruitment_manager", getattr(row, "recruitment_manager", None))
+
+    to_final = to_override or am_email or get_opt("followup_email_to")
+    cc_final = cc_override or rm_email or get_opt("followup_email_cc")
+    if not to_final:
+        raise HTTPException(status_code=400, detail="Missing To emails. Set it in Manager Settings first.")
+
+    payload = TrackerFollowUpRead(
+        id=row.id,
+        client_name=row.client_name,
+        position=row.position,
+        recruiter_name=row.recruiter_name,
+        account_manager=getattr(row, "account_manager", None),
+        recruitment_manager=getattr(row, "recruitment_manager", None),
+        cv_submitted_date=row.cv_submitted_date,
+        current_stage=row.current_stage,
+        last_follow_up_date=row.last_follow_up_date,
+        next_follow_up_date=row.next_follow_up_date,
+        client_feedback=row.client_feedback,
+        interview_feedback=row.interview_feedback,
+        remarks=row.remarks,
+        reminder_last_sent_at=getattr(row, "reminder_last_sent_at", None),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    ).model_dump()
+
+    subject = f"Follow-up Reminder: {row.client_name}" + (f" – {row.position}" if row.position else "")
+    html = render_followup_email_html(payload)
+    ok = await send_followup_reminder_email(to_emails=to_final, cc_emails=cc_final or None, subject=subject, body_html=html)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to send reminder email")
+
+    row.reminder_last_sent_at = datetime.utcnow()
+    _touch_updated_at(row)
+    session.add(row)
+    session.commit()
+    _tracker_cache_bust()
+    return {"success": True, "team": team_resolved, "id": row.id, "to": to_final, "cc": cc_final}
+
+
+@router.patch("/follow-ups/{followup_id}", response_model=TrackerFollowUpRead)
+def update_followup(
+    followup_id: str,
+    data: TrackerFollowUpUpdate,
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerWriteUser,
+):
+    team_resolved = _resolve_tracker_team(user, team)
+    FollowUp = _tracker_models(team_resolved)["FollowUp"]
+    row = session.exec(select(FollowUp).where(FollowUp.id == followup_id)).first()
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Follow-up not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        if isinstance(v, str):
+            v = v.strip()
+        setattr(row, k, v)
+    _touch_updated_at(row)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    _tracker_cache_bust()
+    return TrackerFollowUpRead(
+        id=row.id,
+        client_name=row.client_name,
+        position=row.position,
+        recruiter_name=row.recruiter_name,
+        account_manager=getattr(row, "account_manager", None),
+        recruitment_manager=getattr(row, "recruitment_manager", None),
+        cv_submitted_date=row.cv_submitted_date,
+        current_stage=row.current_stage,
+        last_follow_up_date=row.last_follow_up_date,
+        next_follow_up_date=row.next_follow_up_date,
+        interview_date=row.interview_date,
+        client_feedback=row.client_feedback,
+        interview_feedback=row.interview_feedback,
+        remarks=row.remarks,
+        reminder_last_sent_at=getattr(row, "reminder_last_sent_at", None),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+@router.delete("/follow-ups/{followup_id}", status_code=204)
+def delete_followup(
+    followup_id: str,
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerWriteUser,
+):
+    team_resolved = _resolve_tracker_team(user, team)
+    FollowUp = _tracker_models(team_resolved)["FollowUp"]
+    row = session.exec(select(FollowUp).where(FollowUp.id == followup_id)).first()
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Follow-up not found")
+    row.is_deleted = True
+    _touch_updated_at(row)
+    session.add(row)
+    session.commit()
+    _tracker_cache_bust()
+    return None
 
 
 @router.get("/export/job-openings.xlsx")
 def export_job_openings_xlsx(
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    _: User = AllowedTrackerReadUser,
+    user: User = AllowedTrackerReadUser,
 ):
     from io import BytesIO
     from openpyxl import Workbook
 
+    team_resolved = _resolve_tracker_team(user, team)
+    JobOpening = _tracker_models(team_resolved)["JobOpening"]
     rows = session.exec(
-        select(TrackerJobOpening)
-        .where(TrackerJobOpening.is_deleted == False)  # noqa: E712
-        .order_by(TrackerJobOpening.created_at.desc())
+        select(JobOpening)
+        .where(JobOpening.is_deleted == False)  # noqa: E712
+        .order_by(JobOpening.created_at.desc())
     ).all()
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Requirement Status"
-    ws.append(["Date", "Role", "Client", "Recruiter", "Account Manager", "Status"])
+    ws.append(["Date", "Role", "Client", "Location", "Recruiter", "Recruitment Manager", "Account Manager", "Status"])
     for r in rows:
         ws.append([
             r.req_date.isoformat() if r.req_date else "",
             r.title or "",
-            r.location or "",
+            (getattr(r, "client", None) or r.location or "") if (getattr(r, "client", None) or r.location) else "",
+            getattr(r, "work_location", None) or "",
             r.hiring_manager or "",
+            getattr(r, "recruitment_manager", None) or "",
             r.department or "",
             r.status or "",
         ])
@@ -564,8 +1435,9 @@ def export_job_openings_xlsx(
 
 @router.get("/export/candidates.xlsx")
 def export_candidates_xlsx(
+    team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    _: User = AllowedTrackerReadUser,
+    user: User = AllowedTrackerReadUser,
 ):
     from io import BytesIO
     from openpyxl import Workbook
@@ -573,13 +1445,30 @@ def export_candidates_xlsx(
     wb = Workbook()
     ws = wb.active
     ws.title = "Candidates"
-    ws.append(["Date", "Candidate Name", "Position", "Client", "Status", "Recruiter", "Account Manager", "Comment"])
+    ws.append(
+        [
+            "Date",
+            "Candidate Name",
+            "Position",
+            "Client",
+            "Location",
+            "Status",
+            "Recruiter",
+            "Recruitment Manager",
+            "Account Manager",
+            "Comment",
+        ]
+    )
 
+    team_resolved = _resolve_tracker_team(user, team)
+    models = _tracker_models(team_resolved)
+    Candidate = models["Candidate"]
+    Application = models["Application"]
     candidates_by_id = {
         c.id: c
-        for c in session.exec(select(TrackerCandidate).where(TrackerCandidate.is_deleted == False)).all()  # noqa: E712
+        for c in session.exec(select(Candidate).where(Candidate.is_deleted == False)).all()  # noqa: E712
     }
-    apps = session.exec(select(TrackerApplication).order_by(TrackerApplication.created_at.desc())).all()
+    apps = session.exec(select(Application).order_by(Application.created_at.desc())).all()
 
     for a in apps:
         cand = candidates_by_id.get(a.candidate_id)
@@ -591,8 +1480,10 @@ def export_candidates_xlsx(
                 cand.name,
                 a.position or "",
                 a.client or "",
+                getattr(a, "location", None) or "",
                 a.status or "",
                 a.recruiter or "",
+                getattr(a, "recruitment_manager", None) or "",
                 a.account_manager or "",
                 a.comment or "",
             ]
@@ -602,6 +1493,71 @@ def export_candidates_xlsx(
     wb.save(buf)
     buf.seek(0)
     headers = {"Content-Disposition": 'attachment; filename="candidates.xlsx"'}
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+@router.get("/export/follow-ups.xlsx")
+def export_followups_xlsx(
+    team: Optional[str] = Query(default=None),
+    session: Session = Depends(tracker_session),
+    user: User = AllowedTrackerReadUser,
+):
+    from io import BytesIO
+    from openpyxl import Workbook
+
+    team_resolved = _resolve_tracker_team(user, team)
+    FollowUp = _tracker_models(team_resolved)["FollowUp"]
+    rows = session.exec(
+        select(FollowUp)
+        .where(FollowUp.is_deleted == False)  # noqa: E712
+        .order_by(FollowUp.next_follow_up_date.asc(), FollowUp.created_at.desc())
+    ).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Follow-ups"
+    ws.append(
+        [
+            "Client Name",
+            "Position",
+            "Recruiter Name",
+            "Recruitment Manager",
+            "CV Submitted Date",
+            "Current Stage",
+            "Follow Up Date",
+            "Next Follow-up Date",
+            "Interview Date",
+            "Client Feedback",
+            "Interview Feedback",
+            "Remarks",
+        ]
+    )
+    for r in rows:
+        ws.append(
+            [
+                r.client_name or "",
+                r.position or "",
+                r.recruiter_name or "",
+                getattr(r, "recruitment_manager", None) or "",
+                r.cv_submitted_date.isoformat() if r.cv_submitted_date else "",
+                r.current_stage or "",
+                r.last_follow_up_date.isoformat() if r.last_follow_up_date else "",
+                r.next_follow_up_date.isoformat() if r.next_follow_up_date else "",
+                r.interview_date.isoformat() if r.interview_date else "",
+                r.client_feedback or "",
+                r.interview_feedback or "",
+                r.remarks or "",
+            ]
+        )
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    headers = {"Content-Disposition": 'attachment; filename="follow_ups.xlsx"'}
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

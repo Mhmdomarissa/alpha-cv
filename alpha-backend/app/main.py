@@ -115,6 +115,40 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("🧩 Candidate Tracker disabled (ENABLE_CANDIDATE_TRACKER=false)")
 
+        # Follow-up reminder scheduler (optional, uses tracker DB)
+        followup_task = None
+        followup_stop = None
+        followup_lock_file = None
+        if os.getenv("SEND_EMAIL_REMINDER_FOLLOWUP", "").strip().lower() in ("1", "true", "yes") and os.getenv("ENABLE_CANDIDATE_TRACKER", "").lower() == "true":
+            try:
+                import fcntl  # type: ignore
+                import asyncio
+
+                followup_lock_file = open("/tmp/followup_reminder_scheduler.lock", "w")
+                fcntl.flock(followup_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+                logger.info("📨 Starting follow-up reminder scheduler (acquired lock)...")
+                from app.services.followup_reminder_scheduler import followup_reminder_loop
+
+                followup_stop = asyncio.Event()
+                followup_task = asyncio.create_task(followup_reminder_loop(followup_stop))
+                logger.info("✅ Follow-up reminder scheduler started")
+            except BlockingIOError:
+                logger.info("⏭️ Follow-up reminder scheduler already running on another worker")
+                if followup_lock_file:
+                    followup_lock_file.close()
+                followup_lock_file = None
+            except Exception as e:
+                logger.error(f"❌ Failed to start follow-up reminder scheduler: {e}", exc_info=True)
+                if followup_lock_file:
+                    try:
+                        followup_lock_file.close()
+                    except Exception:
+                        pass
+                followup_lock_file = None
+        else:
+            logger.info("⏸️ Follow-up reminder scheduler is DISABLED (SEND_EMAIL_REMINDER_FOLLOWUP!=true or tracker disabled)")
+
         logger.info("🔄 Starting enterprise job queue...")
         from app.services.enhanced_job_queue import get_enterprise_job_queue
         await get_enterprise_job_queue()  # This will start the workers
@@ -164,6 +198,21 @@ async def lifespan(app: FastAPI):
         yield
         # Graceful shutdown
         logger.info("🛑 Shutting down CV Analyzer API...")
+        if followup_stop is not None:
+            followup_stop.set()
+        if followup_task:
+            try:
+                await asyncio.wait_for(followup_task, timeout=5.0)
+            except Exception:
+                followup_task.cancel()
+        if followup_lock_file:
+            try:
+                import fcntl  # type: ignore
+                fcntl.flock(followup_lock_file.fileno(), fcntl.LOCK_UN)
+                followup_lock_file.close()
+                os.remove("/tmp/followup_reminder_scheduler.lock")
+            except Exception:
+                pass
         if scheduler_task and scheduler:
             logger.info("🛑 Stopping email scheduler...")
             await scheduler.stop_scheduler()

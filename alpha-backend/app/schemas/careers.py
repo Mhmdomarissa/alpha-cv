@@ -52,7 +52,7 @@ class PublicJobView(BaseModel):
 class JobApplicationRequest(BaseModel):
     """Request model for job applications"""
     job_id: str = Field(..., description="ID of the job being applied to")
-    applicant_name: str = Field(..., min_length=2, max_length=100, description="Full name of the applicant")
+    applicant_name: str = Field(..., min_length=1, max_length=100, description="Name of the applicant")
     applicant_email: EmailStr = Field(..., description="Valid email address for contact")
     applicant_phone: Optional[str] = Field(None, max_length=20, description="Phone number (optional)")
     cover_letter: Optional[str] = Field(None, max_length=2000, description="Optional cover letter or message")
@@ -100,9 +100,11 @@ class JobPostingSummary(BaseModel):
     job_id: str = Field(..., description="Unique job identifier")
     job_title: Optional[str] = Field(None, description="Job title")
     job_location: Optional[str] = Field(None, description="Job location")
-    job_summary: Optional[str] = Field(None, description="Job summary")
-    key_responsibilities: Optional[str] = Field(None, description="Key responsibilities")
-    qualifications: Optional[str] = Field(None, description="Qualifications and requirements")
+    # NOTE: These fields are intentionally lightweight for list endpoints.
+    # Full job text remains available via the public job view + edit-data endpoints.
+    job_summary: Optional[str] = Field(None, description="Short job summary preview (not full JD text)")
+    key_responsibilities: Optional[str] = Field(None, description="Short responsibilities preview")
+    qualifications: Optional[str] = Field(None, description="Short qualifications preview")
     company_name: Optional[str] = Field(None, description="Company name")
     upload_date: str = Field(..., description="When job was posted")
     filename: str = Field(..., description="Original filename")

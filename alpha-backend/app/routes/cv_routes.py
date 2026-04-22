@@ -535,7 +535,8 @@ async def upload_cv(
 async def list_cvs(
     limit: Optional[int] = Query(None, description="Max items to return (enables pagination)"),
     offset: int = Query(0, ge=0, description="Number of items to skip"),
-    category: Optional[str] = Query(None, description="Filter by CV category (folder)")
+    category: Optional[str] = Query(None, description="Filter by CV category (folder)"),
+    q: Optional[str] = Query(None, description="Case-insensitive search across name/title/filename/id"),
 ) -> JSONResponse:
     """
     List processed CVs with metadata. Supports optional pagination for faster loads.
@@ -552,6 +553,16 @@ async def list_cvs(
             enhanced = cached_result.get("cvs", [])
             if category:
                 enhanced = [cv for cv in enhanced if (cv.get("category") or "General") == category]
+            if q and q.strip():
+                needle = q.strip().lower()
+                def _match(cv: dict) -> bool:
+                    return (
+                        needle in str(cv.get("full_name") or "").lower()
+                        or needle in str(cv.get("job_title") or "").lower()
+                        or needle in str(cv.get("filename") or "").lower()
+                        or needle in str(cv.get("id") or "").lower()
+                    )
+                enhanced = [cv for cv in enhanced if _match(cv)]
             total = len(enhanced)
             if limit is not None:
                 page = enhanced[offset : offset + limit]
@@ -563,11 +574,25 @@ async def list_cvs(
                     "limit": limit,
                     "offset": offset,
                     "category": category,
+                    "q": q,
                 })
             return JSONResponse(cached_result)
         
         logger.debug("🔄 Cache miss - fetching CV list from database")
         qdrant = get_qdrant_utils()
+        # Map job_id -> job_title for careers applications (cached inside qdrant_utils where possible)
+        job_title_by_id = {}
+        try:
+            for j in qdrant.get_all_job_postings(include_inactive=True):
+                jid = str(j.get("id") or j.get("job_id") or "").strip()
+                if not jid:
+                    continue
+                structured = j.get("structured_info") or {}
+                title = structured.get("job_title") or j.get("job_title") or ""
+                if title:
+                    job_title_by_id[jid] = str(title)
+        except Exception:
+            job_title_by_id = {}
 
         all_structured = []
         scroll_offset = None
@@ -615,6 +640,8 @@ async def list_cvs(
             if filename and "/" in filename:
                 filename = filename.split("/")[-1]
             
+            is_job_application = bool(payload.get("is_job_application", False))
+            applied_job_id = str(payload.get("job_id") or "").strip() if is_job_application else ""
             enhanced.append({
                 "id": doc_id,
                 "filename": filename,
@@ -625,12 +652,25 @@ async def list_cvs(
                 "skills_count": len(skills),
                 "responsibilities_count": len(resps),
                 "has_structured_data": True,
-                "category": structured.get("category", "General")
+                "category": structured.get("category", "General"),
+                "is_job_application": is_job_application,
+                "applied_job_id": applied_job_id or None,
+                "applied_job_title": (job_title_by_id.get(applied_job_id) if applied_job_id else None),
             })
 
         enhanced.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
         if category:
             enhanced = [cv for cv in enhanced if (cv.get("category") or "General") == category]
+        if q and q.strip():
+            needle = q.strip().lower()
+            def _match(cv: dict) -> bool:
+                return (
+                    needle in str(cv.get("full_name") or "").lower()
+                    or needle in str(cv.get("job_title") or "").lower()
+                    or needle in str(cv.get("filename") or "").lower()
+                    or needle in str(cv.get("id") or "").lower()
+                )
+            enhanced = [cv for cv in enhanced if _match(cv)]
         total = len(enhanced)
 
         if limit is not None:
@@ -643,6 +683,7 @@ async def list_cvs(
                 "limit": limit,
                 "offset": offset,
                 "category": category,
+                "q": q,
             }
         else:
             result = {"status": "success", "count": total, "cvs": enhanced}

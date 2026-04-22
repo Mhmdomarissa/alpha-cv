@@ -33,7 +33,8 @@ import {
   PublicJobView,
   JobApplicationResponse,
   JobApplicationListItem,
-  NotesSummaryResponse
+  NotesSummaryResponse,
+  WeeklyAnalysisReport
 } from './types';
 
 class ApiClient {
@@ -132,7 +133,7 @@ class ApiClient {
     return response.data;
   }
 
-  async listCVs(params?: { limit?: number; offset?: number; category?: string }): Promise<CVListResponse> {
+  async listCVs(params?: { limit?: number; offset?: number; category?: string; q?: string }): Promise<CVListResponse> {
     const response = await this.client.get<CVListResponse>('/api/cv/cvs', {
       params: params ?? {},
     });
@@ -606,6 +607,30 @@ class ApiClient {
     return { jobs, total };
   }
 
+  async getWeeklyAnalysisReport(params: {
+    startDate: string; // YYYY-MM-DD
+    endDate: string;   // YYYY-MM-DD
+  }): Promise<WeeklyAnalysisReport> {
+    const { startDate, endDate } = params;
+    const response = await this.client.get<WeeklyAnalysisReport>(
+      '/api/careers/admin/reports/weekly',
+      {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+        params: {
+          start_date: startDate,
+          end_date: endDate,
+          _t: Date.now(),
+        },
+      }
+    );
+    return response.data;
+  }
+
   // lib/api.ts
 
   async getPublicJob(token: string): Promise<PublicJobView> {
@@ -625,7 +650,7 @@ class ApiClient {
     }
   }
 
-  async getRecentJobPostings(limit: number = 5): Promise<JobPostingListItem[]> {
+  async getRecentJobPostings(limit: number = 10): Promise<JobPostingListItem[]> {
     try {
       const response = await this.client.get<JobPostingListItem[]>(`/api/careers/jobs/recent?limit=${limit}`);
       return response.data;
@@ -941,7 +966,7 @@ export const api = {
   listJobPostingsPaged: (params?: { includeInactive?: boolean; limit?: number; offset?: number }) =>
     RequestRetryHandler.withRetry(() => apiClient.listJobPostingsPaged(params)),
   getPublicJob: (token: string) => RequestRetryHandler.withRetry(() => apiClient.getPublicJob(token)),
-  getRecentJobPostings: (limit: number = 5) => RequestRetryHandler.withRetry(() => apiClient.getRecentJobPostings(limit)),
+  getRecentJobPostings: (limit: number = 10) => RequestRetryHandler.withRetry(() => apiClient.getRecentJobPostings(limit)),
   submitJobApplication: (token: string, name: string, email: string, phone: string | undefined, expectedSalary: number, yearsOfExperience: number, cvFile: File) =>
     RequestRetryHandler.withRetry(() => apiClient.submitJobApplication(token, name, email, phone, expectedSalary, yearsOfExperience, cvFile)),
   getJobApplications: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.getJobApplications(jobId)),
@@ -955,6 +980,8 @@ export const api = {
     RequestRetryHandler.withRetry(() => apiClient.matchJobCandidates(jobId, request)),
   deleteJobPosting: (jobId: string) => RequestRetryHandler.withRetry(() => apiClient.deleteJobPosting(jobId)),
   deleteAllJobPostings: () => RequestRetryHandler.withRetry(() => apiClient.deleteAllJobPostings()),
+  getWeeklyAnalysisReport: (params: { startDate: string; endDate: string }) =>
+    RequestRetryHandler.withRetry(() => apiClient.getWeeklyAnalysisReport(params)),
 
   // Category operations
   getCategories: () => RequestRetryHandler.withRetry(() => apiClient.getCategories()),

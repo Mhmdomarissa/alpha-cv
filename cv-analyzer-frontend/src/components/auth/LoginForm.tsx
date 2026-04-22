@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
+import { safeRedirectPath } from '@/lib/safe-redirect';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -13,7 +14,13 @@ import { Typewriter } from '@/components/ui/Typewriter';
 
 export default function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { verifyPassword, sendOTP, verifyOTP, login, loading, error, clearError, user } = useAuthStore();
+
+  const continueAfterAuth = () => {
+    const from = safeRedirectPath(searchParams.get('from'));
+    router.push(from ?? '/');
+  };
   
   const [step, setStep] = useState<'password' | 'otp'>('password');
   const [otpSent, setOtpSent] = useState(false);
@@ -79,12 +86,7 @@ export default function LoginForm() {
           setFormError(null);
           const loginResult = await login(formData.username, formData.password);
           if (loginResult && loginResult.success) {
-            // Redirect based on role
-            if (loginResult.role === 'admin') {
-              router.push('/admin/users');
-            } else {
-              router.push('/');
-            }
+            continueAfterAuth();
           }
           // Don't proceed to OTP step for admin
           return;
@@ -137,12 +139,7 @@ export default function LoginForm() {
       const result = await verifyOTP(formData.username, formData.otp);
       
       if (result && result.success) {
-        // Redirect immediately based on role
-        if (result.role === 'admin') {
-          router.push('/admin/users'); // Admin users go to admin panel
-        } else {
-          router.push('/'); // HR/regular users go to main app (with careers tab)
-        }
+        continueAfterAuth();
       }
       // Error handling is done by the store
     } finally {

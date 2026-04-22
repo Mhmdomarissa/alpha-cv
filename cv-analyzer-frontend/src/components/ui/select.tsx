@@ -40,7 +40,8 @@ export const SelectContent = React.forwardRef<
       ref={ref}
       position={position}
       className={cn(
-        'z-50 min-w-[8rem] overflow-hidden rounded-md border border-gray-200 bg-white shadow-md',
+        // Above dialog layers; explicit pointer-events for interaction with scroll-lock / overlays
+        'pointer-events-auto z-[200] min-w-[8rem] overflow-hidden rounded-md border border-gray-200 bg-white shadow-md',
         className
       )}
       {...props}
