@@ -32,6 +32,7 @@ import { getApiBaseUrl } from '@/lib/config';
 import { Button } from '@/components/ui/button-enhanced';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CVListItem, JDListItem } from '@/lib/types';
+import { Skeleton, LoadingCard } from '@/components/ui/loading';
 
 const FilePreviewModal = dynamic(
   () => import('@/components/ui/file-preview-modal').then((mod) => mod.FilePreviewModal),
@@ -539,7 +540,7 @@ export default function DatabasePageNew() {
             </span>
             {(selectedCVs.length > 0 || selectedJD) && (
               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-gray-200">
-                <ListChecks className="w-3.5 h-3.5 text-[#00529b]" />
+                <ListChecks className="w-3.5 h-3.5 text-primary" />
                 {selectedCVs.length} selected{selectedJD ? ' • 1 JD selected' : ''}
               </span>
             )}
@@ -553,7 +554,7 @@ export default function DatabasePageNew() {
               placeholder={view === 'candidates' ? 'Search candidates...' : 'Search job descriptions...'}
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="w-full min-w-0 pl-9 pr-9 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:ring-offset-0 focus:border-[#00529b]"
+              className="w-full min-w-0 pl-9 pr-9 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
             {view === 'candidates' && serverSearching && search.trim() ? (
               <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
@@ -575,10 +576,10 @@ export default function DatabasePageNew() {
               <Button
                 variant="primary"
                 onClick={handleMatch}
-                className="inline-flex items-center gap-2 bg-[#00529b] hover:bg-[#003d73] !text-white border-0"
+                className="inline-flex items-center gap-2 bg-gradient-primary text-white border-0 shadow-lg shadow-blue-900/20"
               >
-                <Target className="w-4 h-4 !text-white" />
-                <span className="!text-white">
+                <Target className="w-4 h-4 text-white" />
+                <span className="text-white">
                   Match {selectedCVs.length} with {selectedJDDisplay ? getJDDisplay(selectedJDDisplay).title : 'JD'}
                 </span>
               </Button>
@@ -589,7 +590,7 @@ export default function DatabasePageNew() {
 
       <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-4 lg:gap-6">
         {/* Sidebar: Folders + JDs - stacks on mobile */}
-        <aside className="w-full lg:w-72 shrink-0 flex flex-col gap-4 lg:gap-6 bg-white border border-gray-200 rounded-2xl p-4 h-fit lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-auto">
+        <aside className="w-full lg:w-72 shrink-0 flex flex-col gap-4 lg:gap-6 bg-white/70 backdrop-blur-sm border border-gray-200/60 rounded-2xl p-4 h-fit lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-auto">
           <div>
             <h2 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
               <FolderOpen className="w-4 h-4" />
@@ -598,26 +599,28 @@ export default function DatabasePageNew() {
             <nav className="space-y-0.5">
               <button
                 onClick={() => { setActiveFolder(CATEGORY_ALL); setPage(1); }}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm font-medium transition-colors ${activeFolder === CATEGORY_ALL ? 'bg-[#00529b] hover:bg-[#003d73] !text-white' : 'text-gray-700 hover:bg-gray-100 hover:!text-gray-900'
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm font-medium transition-colors ${activeFolder === CATEGORY_ALL ? 'bg-gradient-primary text-white shadow-lg shadow-blue-900/20' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
                   }`}
               >
-                <span className={activeFolder === CATEGORY_ALL ? '!text-white' : ''}>All candidates</span>
-                <span className={activeFolder === CATEGORY_ALL ? '!text-white' : 'text-gray-500'}>{totalCVs ?? cvs.length}</span>
+                <span className={activeFolder === CATEGORY_ALL ? 'text-white' : ''}>All candidates</span>
+                <span className={activeFolder === CATEGORY_ALL ? 'text-white/90' : 'text-gray-500'}>{totalCVs ?? cvs.length}</span>
               </button>
               {loadingCategories ? (
-                <div className="flex items-center gap-2 px-3 py-2 text-gray-500 text-sm">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                <div className="space-y-2 py-2">
+                  <Skeleton width="100%" height="32px" className="rounded-lg" />
+                  <Skeleton width="100%" height="32px" className="rounded-lg" />
+                  <Skeleton width="100%" height="32px" className="rounded-lg" />
                 </div>
               ) : (
                 folderList.map(([cat, count]) => (
                   <button
                     key={cat}
                     onClick={() => { setActiveFolder(cat); setPage(1); }}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm font-medium transition-colors ${activeFolder === cat ? 'bg-[#00529b] hover:bg-[#003d73] !text-white' : 'text-gray-700 hover:bg-gray-100 hover:!text-gray-900'
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm font-medium transition-colors ${activeFolder === cat ? 'bg-gradient-primary text-white shadow-lg shadow-blue-900/20' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
                       }`}
                   >
-                    <span className={`truncate ${activeFolder === cat ? '!text-white' : ''}`}>{cat}</span>
-                    <span className={activeFolder === cat ? '!text-white' : 'text-gray-500'}>{count}</span>
+                    <span className={`truncate ${activeFolder === cat ? 'text-white' : ''}`}>{cat}</span>
+                    <span className={activeFolder === cat ? 'text-white/90' : 'text-gray-500'}>{count}</span>
                   </button>
                 ))
               )}
@@ -637,7 +640,7 @@ export default function DatabasePageNew() {
                 jds.map((jd) => (
                   <label
                     key={jd.id}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm ${selectedJD === jd.id ? 'bg-[#00529b]/10 text-[#00529b] font-medium' : 'hover:bg-gray-100'
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm ${selectedJD === jd.id ? 'bg-[neutral-900]/10 text-primary font-medium' : 'hover:bg-gray-100'
                       }`}
                   >
                     <input
@@ -688,7 +691,7 @@ export default function DatabasePageNew() {
                 <select
                   value={notesFilter}
                   onChange={(e) => { setNotesFilter(e.target.value as 'all' | 'with_notes' | 'without_notes'); setPage(1); }}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[neutral-900] focus:border-[neutral-900]"
                   title="Filter by notes"
                 >
                   <option value="all">All candidates</option>
@@ -710,9 +713,15 @@ export default function DatabasePageNew() {
               {activeFolder !== CATEGORY_ALL && ` in ${activeFolder}`}
             </p>
           )}
-          <div className="flex-1 overflow-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="flex-1 overflow-auto rounded-2xl border border-gray-200/60 bg-white/60 backdrop-blur-sm shadow-sm">
             {view === 'jobs' ? (
-              filteredJDs.length === 0 ? (
+              loadingStates.jds.isLoading && jds.length === 0 ? (
+                <div className="grid grid-cols-1 gap-4 p-4">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <LoadingCard key={i} type="jd" />
+                  ))}
+                </div>
+              ) : filteredJDs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-gray-500">
                   <FileText className="w-12 h-12 mb-3 text-gray-300" />
                   <p className="font-medium text-gray-700">{search ? 'No job descriptions match your search.' : 'No job descriptions yet.'}</p>
@@ -729,7 +738,7 @@ export default function DatabasePageNew() {
                           key={jd.id}
                           className={`rounded-2xl border p-5 transition-colors shadow-sm ${
                             isSelected
-                              ? 'border-[#00529b] bg-[#00529b]/5'
+                              ? 'border-blue-600 bg-blue-50/50'
                               : 'border-gray-200 hover:border-gray-300 bg-white'
                           }`}
                         >
@@ -737,11 +746,11 @@ export default function DatabasePageNew() {
                             <button
                               type="button"
                               onClick={() => selectJD(isSelected ? null : jd.id)}
-                              className="shrink-0 mt-0.5 p-0.5 rounded text-gray-500 hover:text-[#00529b]"
+                              className="shrink-0 mt-0.5 p-0.5 rounded text-gray-500 hover:text-primary"
                               aria-label={isSelected ? 'Deselect JD' : 'Select JD for matching'}
                               title={isSelected ? 'Deselect' : 'Select for matching'}
                             >
-                              {isSelected ? <CheckSquare className="w-5 h-5 text-[#00529b]" /> : <Square className="w-5 h-5" />}
+                              {isSelected ? <CheckSquare className="w-5 h-5 text-primary" /> : <Square className="w-5 h-5" />}
                             </button>
                             <div
                               className="min-w-0 flex-1 cursor-pointer"
@@ -767,42 +776,41 @@ export default function DatabasePageNew() {
                                     )}
                                   </div>
                                 </div>
-                                <div className="shrink-0">
-                                  <div className="w-14 h-14 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center">
-                                    <FileText className="w-7 h-7 text-gray-500" />
+                                <div className="shrink-0 flex flex-col items-center gap-2">
+                                  <div className="w-14 h-14 rounded-xl bg-gradient-primary/10 border border-blue-100 flex items-center justify-center shadow-inner">
+                                    <FileText className="w-7 h-7 text-blue-600" />
                                   </div>
                                 </div>
                               </div>
                             </div>
-                            <div className="flex flex-col gap-1 shrink-0">
-                              <button
-                                type="button"
-                                className="inline-flex items-center justify-center font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 rounded-lg text-neutral-700 hover:bg-neutral-100 focus:ring-neutral-500 active:bg-neutral-200 text-sm gap-2 h-8 w-8 p-0"
-                                title="View details & notes"
-                                onClick={() => setDetailJDId(jd.id)}
-                                aria-label="View details & notes"
-                              >
-                                <FileTextIcon className="w-4 h-4" aria-hidden />
-                              </button>
+                            <div className="flex flex-col gap-2 shrink-0 border-l border-gray-100 pl-4">
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 w-8 p-0"
+                                className="h-9 w-9 p-0 rounded-full hover:bg-blue-50 hover:text-blue-600"
                                 onClick={() => openPreview(jd.id, 'jd', d.title, jd)}
-                                aria-label="Preview PDF"
-                                title="View PDF"
+                                title="View Raw Document (PDF/DOCX)"
                               >
-                                <Eye className="w-4 h-4" />
+                                <FileTextIcon className="w-4.5 h-4.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-9 w-9 p-0 rounded-full hover:bg-blue-50 hover:text-blue-600"
+                                title="View Full Text & Analysis"
+                                onClick={() => setDetailJDId(jd.id)}
+                              >
+                                <Eye className="w-4.5 h-4.5" />
                               </Button>
                               <div className="relative">
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 w-8 p-0"
+                                  className="h-9 w-9 p-0 rounded-full hover:bg-gray-100"
                                   onClick={() => setOpenMenuJDId(openMenuJDId === jd.id ? null : jd.id)}
                                   aria-label="More"
                                 >
-                                  <MoreVertical className="w-4 h-4" />
+                                  <MoreVertical className="w-4.5 h-4.5" />
                                 </Button>
                                 {openMenuJDId === jd.id && (
                                   <>
@@ -842,6 +850,12 @@ export default function DatabasePageNew() {
                   )}
                 </>
               )
+            ) : (loadingStates.cvs.isLoading || loadingFolderCVs[activeFolder]) && paginatedCVs.length === 0 ? (
+              <div className="grid grid-cols-1 gap-4 p-4">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <LoadingCard key={i} type="cv" />
+                ))}
+              </div>
             ) : filteredCVs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-gray-500">
                 <Users className="w-12 h-12 mb-3 text-gray-300" />
@@ -862,16 +876,16 @@ export default function DatabasePageNew() {
                     return (
                       <div
                         key={cv.id}
-                        className={`rounded-2xl border p-5 transition-colors shadow-sm ${isSelected ? 'border-[#00529b] bg-[#00529b]/5' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
+                        className={`rounded-2xl border p-5 transition-colors shadow-sm ${isSelected ? 'border-[#00529b] bg-blue-50/30' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
                       >
                         <div className="flex items-start gap-4">
                           <button
                             type="button"
                             onClick={() => toggleCV(cv.id)}
-                            className="shrink-0 mt-0.5 p-0.5 rounded text-gray-500 hover:text-[#00529b]"
+                            className="shrink-0 mt-0.5 p-0.5 rounded text-gray-500 hover:text-primary"
                             aria-label={isSelected ? 'Deselect' : 'Select'}
                           >
-                            {isSelected ? <CheckSquare className="w-5 h-5 text-[#00529b]" /> : <Square className="w-5 h-5" />}
+                            {isSelected ? <CheckSquare className="w-5 h-5 text-primary" /> : <Square className="w-5 h-5" />}
                           </button>
                           <div
                             className="min-w-0 flex-1 cursor-pointer"
@@ -888,21 +902,24 @@ export default function DatabasePageNew() {
                                     {d.years}y
                                   </span>
                                   {noteCount > 0 && (
-                                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 inline-flex items-center gap-1">
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-[#00529b] border border-blue-200 inline-flex items-center gap-1">
                                       <MessageSquare className="w-3 h-3" /> {noteCount}
                                     </span>
                                   )}
                                 </div>
                                 <div className="text-sm text-gray-700 mt-1 line-clamp-2">{d.title}</div>
-                                {cv.is_job_application && cv.applied_job_title ? (
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    Applied for <span className="font-medium text-gray-700">"{cv.applied_job_title}"</span>
+                                <div className="mt-2 flex items-center gap-2">
+                                  <div className="text-[10px] font-bold text-[#00529b] bg-blue-50 px-2 py-1 rounded-md border border-blue-100 uppercase tracking-tighter">
+                                    Applied for
                                   </div>
-                                ) : null}
+                                  <div className="text-sm font-bold text-gray-900 truncate max-w-[300px]">
+                                    {cv.applied_job_title || 'General Database'}
+                                  </div>
+                                </div>
                               </div>
-                              <div className="shrink-0">
-                                <div className="w-14 h-14 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center">
-                                  <UserIcon className="w-7 h-7 text-gray-500" />
+                              <div className="shrink-0 flex flex-col items-center gap-2">
+                                <div className="w-14 h-14 rounded-xl bg-gradient-primary/10 border border-blue-100 flex items-center justify-center shadow-inner">
+                                  <UserIcon className="w-7 h-7 text-[#00529b]" />
                                 </div>
                               </div>
                             </div>
@@ -916,35 +933,34 @@ export default function DatabasePageNew() {
                               </span>
                             </div>
                           </div>
-                          <div className="flex flex-col gap-1 shrink-0">
+                          <div className="flex flex-col gap-2 shrink-0 border-l border-gray-100 pl-4">
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0"
-                              onClick={() => setDetailCVId(cv.id)}
-                              title="View details & notes"
+                              className="h-9 w-9 p-0 rounded-full hover:bg-blue-50 hover:text-[#00529b]"
+                              onClick={() => openPreview(cv.id, 'cv', d.name, cv)}
+                              title="View Raw Document (PDF/DOCX)"
                             >
-                              <FileTextIcon className="w-4 h-4" />
+                              <FileTextIcon className="w-4.5 h-4.5" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0"
-                              onClick={() => openPreview(cv.id, 'cv', d.name, cv)}
-                              aria-label="Preview PDF"
-                              title="View PDF"
+                              className="h-9 w-9 p-0 rounded-full hover:bg-blue-50 hover:text-[#00529b]"
+                              onClick={() => setDetailCVId(cv.id)}
+                              title="View Full Text & Analysis"
                             >
-                              <Eye className="w-4 h-4" />
+                              <Eye className="w-4.5 h-4.5" />
                             </Button>
                             <div className="relative">
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 w-8 p-0"
+                                className="h-9 w-9 p-0 rounded-full hover:bg-gray-100"
                                 onClick={() => setOpenMenuCVId(openMenuCVId === cv.id ? null : cv.id)}
                                 aria-label="More"
                               >
-                                <MoreVertical className="w-4 h-4" />
+                                <MoreVertical className="w-4.5 h-4.5" />
                               </Button>
                               {openMenuCVId === cv.id && (
                                 <>
@@ -1007,22 +1023,23 @@ export default function DatabasePageNew() {
 
       {/* Detail panel: full CV + notes + View PDF */}
       {detailCVId && (
-        <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
+        <div className="fixed inset-y-0 right-0 z-[999] w-full sm:max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
           <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
             <h2 className="text-lg font-semibold text-gray-900">Candidate details & notes</h2>
-            <button
-              type="button"
-              onClick={() => { setDetailCVId(null); setEditingNoteIndex(null); setNewNoteText(''); setEditNoteText(''); }}
-              className="p-2 rounded-lg hover:bg-gray-200"
-              aria-label="Close"
-            >
-              <X className="w-5 h-5" />
-            </button>
           </div>
+          <button
+            type="button"
+            onClick={() => { setDetailCVId(null); setEditingNoteIndex(null); setNewNoteText(''); setEditNoteText(''); }}
+            className="fixed top-[76px] right-3 z-[1005] p-2 rounded-full bg-gradient-primary text-white shadow-lg shadow-blue-900/20 transition-all duration-200 hover:scale-110"
+            aria-label="Close"
+            title="Close"
+          >
+            <X className="w-5 h-5 text-white" />
+          </button>
           <div className="flex-1 overflow-y-auto p-4 space-y-6">
             {detailLoading ? (
               <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-[#00529b]" />
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
                 <p className="text-gray-500 mt-2">Loading details...</p>
               </div>
             ) : detailCV ? (
@@ -1045,7 +1062,7 @@ export default function DatabasePageNew() {
                   <Button
                     variant="primary"
                     size="sm"
-                    className="mt-3 w-full bg-[#00529b] hover:bg-[#003d73]"
+                    className="mt-3 w-full bg-gradient-primary !text-white border-0 shadow-lg shadow-blue-900/20 hover:opacity-95"
                     onClick={() => {
                       const displayName = detailCV.candidate?.full_name || detailCV.filename || 'document';
                       const fileName = previewFileName({ filename: detailCV.filename, full_name: displayName }, 'cv');
@@ -1064,7 +1081,9 @@ export default function DatabasePageNew() {
                       return (
                         <>
                           {skills.slice(0, 30).map((s: string, i: number) => (
-                            <span key={i} className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-800">{s}</span>
+                            <span key={i} className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-800">
+                              {i + 1}. {s}
+                            </span>
                           ))}
                           {skills.length > 30 && <span className="text-xs text-gray-500">+{skills.length - 30} more</span>}
                         </>
@@ -1074,11 +1093,13 @@ export default function DatabasePageNew() {
                 </div>
                 <div className="rounded-xl border border-gray-200 p-4">
                   <h4 className="text-sm font-semibold text-gray-900 mb-2">Responsibilities</h4>
-                  <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
+                  <ol className="list-decimal list-inside text-sm text-gray-600 space-y-1">
                     {(detailCV.candidate?.responsibilities || detailCV.structured_info?.responsibility_sentences || []).slice(0, 15).map((r: string, i: number) => (
-                      <li key={i} className="line-clamp-2">{r}</li>
+                      <li key={i}>
+                        <span className="line-clamp-2">{r}</span>
+                      </li>
                     ))}
-                  </ul>
+                  </ol>
                 </div>
                 <div className="rounded-xl border border-gray-200 p-4">
                   <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
@@ -1099,9 +1120,14 @@ export default function DatabasePageNew() {
                                 rows={2}
                               />
                               <div className="flex gap-2">
-                                <Button size="sm" onClick={handleSaveEditNote} disabled={savingNote}>
-                                  {savingNote ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                  Save
+                                <Button
+                                  size="sm"
+                                  onClick={handleSaveEditNote}
+                                  disabled={savingNote}
+                                  className="bg-gradient-primary text-white shadow-lg shadow-blue-900/20"
+                                >
+                                  {savingNote ? <Loader2 className="w-4 h-4 animate-spin text-white mr-1" /> : <Save className="w-4 h-4 text-white mr-1" />}
+                                  <span className="text-white">Save</span>
                                 </Button>
                                 <Button size="sm" variant="outline" onClick={() => { setEditingNoteIndex(null); setEditNoteText(''); }}>Cancel</Button>
                               </div>
@@ -1146,12 +1172,12 @@ export default function DatabasePageNew() {
                     />
                     <Button
                       size="sm"
-                      className="mt-2 bg-[#00529b] hover:bg-[#003d73]"
+                      className="mt-2 bg-gradient-primary text-white shadow-lg shadow-blue-900/20"
                       onClick={handleAddNote}
                       disabled={savingNote || !newNoteText.trim()}
                     >
-                      {savingNote ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <MessageSquare className="w-4 h-4 mr-2" />}
-                      Add note
+                      {savingNote ? <Loader2 className="w-4 h-4 animate-spin mr-2 text-white" /> : <MessageSquare className="w-4 h-4 mr-2 text-white" />}
+                      <span className="text-white">Add note</span>
                     </Button>
                   </div>
                 </div>
@@ -1166,14 +1192,14 @@ export default function DatabasePageNew() {
       {/* Backdrop when detail panel is open */}
       {detailCVId && (
         <div
-          className="fixed inset-0 z-40 bg-black/30"
+          className="fixed inset-0 z-[998] bg-black/30"
           onClick={() => { setDetailCVId(null); setEditingNoteIndex(null); setNewNoteText(''); setEditNoteText(''); }}
           aria-hidden
         />
       )}
       {detailJDId && (
         <div
-          className="fixed inset-0 z-40 bg-black/30"
+          className="fixed inset-0 z-[998] bg-black/30"
           onClick={() => setDetailJDId(null)}
           aria-hidden
         />
@@ -1181,22 +1207,23 @@ export default function DatabasePageNew() {
 
       {/* JD detail panel */}
       {detailJDId && (
-        <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
+        <div className="fixed inset-y-0 right-0 z-[999] w-full sm:max-w-lg bg-white border-l border-gray-200 shadow-2xl flex flex-col">
           <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
             <h2 className="text-lg font-semibold text-gray-900">JD details</h2>
-            <button
-              type="button"
-              onClick={() => setDetailJDId(null)}
-              className="p-2 rounded-lg hover:bg-gray-200"
-              aria-label="Close"
-            >
-              <X className="w-5 h-5" />
-            </button>
           </div>
+          <button
+            type="button"
+            onClick={() => setDetailJDId(null)}
+            className="fixed top-[76px] right-3 z-[1005] p-2 rounded-full bg-gradient-primary text-white shadow-lg shadow-blue-900/20 transition-all duration-200 hover:scale-110"
+            aria-label="Close"
+            title="Close"
+          >
+            <X className="w-5 h-5 text-white" />
+          </button>
           <div className="flex-1 overflow-y-auto p-4 space-y-6">
             {detailJDLoading ? (
               <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-[#00529b]" />
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
                 <p className="text-gray-500 mt-2">Loading JD...</p>
               </div>
             ) : detailJD ? (
@@ -1213,7 +1240,7 @@ export default function DatabasePageNew() {
                   <Button
                     variant="primary"
                     size="sm"
-                    className="mt-3 w-full bg-[#00529b] hover:bg-[#003d73]"
+                    className="mt-3 w-full bg-gradient-primary !text-white border-0 shadow-lg shadow-blue-900/20 hover:opacity-95"
                     onClick={() => {
                       const title = detailJD.job_requirements?.job_title || detailJD.filename || 'document';
                       const fileName = previewFileName({ filename: detailJD.filename, job_title: title }, 'jd');
@@ -1270,7 +1297,7 @@ export default function DatabasePageNew() {
               </>
             ) : (
               <>
-                <Loader2 className="w-10 h-10 animate-spin text-[#00529b]" />
+                <Loader2 className="w-10 h-10 animate-spin text-primary" />
                 <p className="text-gray-700">Loading document…</p>
               </>
             )}
@@ -1293,7 +1320,7 @@ export default function DatabasePageNew() {
         <DialogContent className="max-w-md max-h-[80vh] flex flex-col bg-white">
           <DialogHeader className="border-b border-gray-200 pb-3">
             <DialogTitle className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <ListChecks className="w-5 h-5 text-[#00529b]" />
+              <ListChecks className="w-5 h-5 text-primary" />
               Selected CVs ({selectedCVList.length})
             </DialogTitle>
           </DialogHeader>
@@ -1426,7 +1453,7 @@ export default function DatabasePageNew() {
           <button
             type="button"
             onClick={() => setShowSelectionPopup((v) => !v)}
-            className="relative z-50 inline-flex items-center gap-2 px-4 py-3 rounded-full bg-[#00529b] hover:bg-[#003d73] !text-white shadow-lg shadow-blue-900/20 transition-colors"
+            className="relative z-50 inline-flex items-center gap-2 px-4 py-3 rounded-full bg-gradient-primary !text-white shadow-lg shadow-blue-900/20 transition-colors"
             aria-label="Open selection"
           >
             <ListChecks className="w-5 h-5 !text-white" />

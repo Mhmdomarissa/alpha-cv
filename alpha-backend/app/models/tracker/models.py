@@ -13,7 +13,7 @@ class TrackerOption(TrackerSQLModel, table=True):
     __tablename__ = "tracker_option"
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True)
-    kind: str = Field(index=True)  # e.g. status | recruiter | account_manager | location
+    kind: str = Field(index=True)  # e.g. status | recruiter | account_manager | requirement
     value: str = Field(index=True)
     email: Optional[str] = Field(default=None, index=True)
     email_enabled: bool = Field(default=True, index=True)
@@ -26,16 +26,19 @@ class TrackerJobOpening(TrackerSQLModel, table=True):
     __tablename__ = "tracker_job_opening"
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True)
+    # "Role" shown in Requirement Status
     title: str = Field(index=True)
+    # "Requirement" dropdown (maintained from Manager Settings)
+    requirement: Optional[str] = Field(default=None, index=True)
     department: Optional[str] = Field(default=None, index=True)
-    # Legacy column used as "client" in the UI previously. Kept for backwards compatibility.
-    location: Optional[str] = Field(default=None, index=True)
     client: Optional[str] = Field(default=None, index=True)
-    work_location: Optional[str] = Field(default=None, index=True)
     status: str = Field(default="Open", index=True)
     hiring_manager: Optional[str] = Field(default=None, index=True)
     recruitment_manager: Optional[str] = Field(default=None, index=True)
     req_date: Optional[date] = Field(default=None, index=True)
+    submission_date: Optional[date] = Field(default=None, index=True)
+    cvs_submitted_count: Optional[int] = Field(default=None, index=True)
+    comments: Optional[str] = Field(default=None)
 
     is_deleted: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
@@ -70,7 +73,6 @@ class TrackerApplication(TrackerSQLModel, table=True):
     applied_date: Optional[date] = Field(default=None, index=True)
     position: Optional[str] = Field(default=None, index=True)
     client: Optional[str] = Field(default=None, index=True)
-    location: Optional[str] = Field(default=None, index=True)
     status: str = Field(default="MRF Pending", index=True)
     recruiter: Optional[str] = Field(default=None, index=True)
     account_manager: Optional[str] = Field(default=None, index=True)
@@ -139,14 +141,16 @@ class TrackerJobOpeningAD(TrackerSQLModel, table=True):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True)
     title: str = Field(index=True)
+    requirement: Optional[str] = Field(default=None, index=True)
     department: Optional[str] = Field(default=None, index=True)
-    location: Optional[str] = Field(default=None, index=True)
     client: Optional[str] = Field(default=None, index=True)
-    work_location: Optional[str] = Field(default=None, index=True)
     status: str = Field(default="Open", index=True)
     hiring_manager: Optional[str] = Field(default=None, index=True)
     recruitment_manager: Optional[str] = Field(default=None, index=True)
     req_date: Optional[date] = Field(default=None, index=True)
+    submission_date: Optional[date] = Field(default=None, index=True)
+    cvs_submitted_count: Optional[int] = Field(default=None, index=True)
+    comments: Optional[str] = Field(default=None)
 
     is_deleted: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
@@ -179,7 +183,6 @@ class TrackerApplicationAD(TrackerSQLModel, table=True):
     applied_date: Optional[date] = Field(default=None, index=True)
     position: Optional[str] = Field(default=None, index=True)
     client: Optional[str] = Field(default=None, index=True)
-    location: Optional[str] = Field(default=None, index=True)
     status: str = Field(default="MRF Pending", index=True)
     recruiter: Optional[str] = Field(default=None, index=True)
     account_manager: Optional[str] = Field(default=None, index=True)

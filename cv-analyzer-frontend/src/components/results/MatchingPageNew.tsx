@@ -62,21 +62,33 @@ function normalizeWeights(w: MatchWeights) {
 }
 
 function scoreBadge(score: number) {
-  if (score >= 0.8) return { label: 'Excellent', bg: 'bg-[#00529b]/10', text: 'text-[#00529b]' };
-  if (score >= 0.6) return { label: 'Good', bg: 'bg-slate-100', text: 'text-slate-700' };
-  return { label: 'Needs Review', bg: 'bg-gray-100', text: 'text-gray-700' };
+  if (score >= 0.8) return { label: 'Excellent', bg: 'bg-neutral-900', text: 'text-white' };
+  if (score >= 0.6) return { label: 'Good', bg: 'bg-neutral-100', text: 'text-neutral-900' };
+  return { label: 'Needs Review', bg: 'bg-neutral-50', text: 'text-neutral-500' };
 }
 
 function scoreColor(score: number) {
-  if (score >= 0.8) return 'text-[#00529b]';
-  if (score >= 0.6) return 'text-slate-700';
-  return 'text-gray-600';
+  if (score >= 0.8) return 'text-neutral-900';
+  if (score >= 0.6) return 'text-neutral-700';
+  return 'text-neutral-500';
 }
 
 function barColor(score: number) {
-  if (score >= 0.7) return 'bg-[#00529b]';
-  if (score >= 0.5) return 'bg-slate-500';
-  return 'bg-gray-400';
+  if (score >= 0.7) return 'bg-neutral-900';
+  if (score >= 0.5) return 'bg-neutral-400';
+  return 'bg-neutral-200';
+}
+
+function metricBarColor(score: number) {
+  if (score >= 0.5) return 'bg-emerald-500';
+  if (score >= 0.3) return 'bg-amber-500';
+  return 'bg-rose-500';
+}
+
+function metricTextColor(score: number) {
+  if (score >= 0.5) return 'text-emerald-700';
+  if (score >= 0.3) return 'text-amber-700';
+  return 'text-rose-700';
 }
 
 function clamp01(n: number) {
@@ -590,7 +602,7 @@ export default function MatchingPageNew() {
           <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center items-center">
             <button
               onClick={() => useAppStore.getState().setCurrentTab?.('database')}
-              className="inline-flex items-center px-4 py-2 bg-[#00529b] text-white rounded-lg hover:bg-[#003d73] transition-colors"
+              className="inline-flex items-center px-4 py-2 bg-[neutral-900] text-white rounded-lg hover:bg-[neutral-800] transition-colors"
             >
               Go to Database
             </button>
@@ -628,7 +640,7 @@ export default function MatchingPageNew() {
           </p>
           <button
             onClick={() => useAppStore.getState().setCurrentTab?.('database')}
-            className="inline-flex items-center px-4 py-2 bg-[#00529b] text-white rounded-lg hover:bg-[#003d73] transition-colors"
+            className="inline-flex items-center px-4 py-2 bg-[neutral-900] text-white rounded-lg hover:bg-[neutral-800] transition-colors"
           >
             Go to Database
           </button>
@@ -638,14 +650,14 @@ export default function MatchingPageNew() {
   }
 
   return (
-    <div className="space-y-8 bg-gradient-to-b from-gray-50 to-[#eff6ff]/30 min-h-full p-1">
+    <div className="space-y-8 bg-white min-h-full p-1">
       {matchingQueue?.isQueued && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center justify-between shadow-sm">
+        <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-4 flex items-center justify-between shadow-sm">
           <div className="flex items-center space-x-3 flex-1">
             <div className="flex-shrink-0">
-              <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
+              <div className="w-10 h-10 bg-neutral-100 rounded-full flex items-center justify-center">
                 <svg
-                  className="animate-spin h-5 w-5 text-yellow-600"
+                  className="animate-spin h-5 w-5 text-neutral-900"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -667,12 +679,12 @@ export default function MatchingPageNew() {
               </div>
             </div>
             <div className="flex-1">
-              <p className="text-sm font-medium text-yellow-800">
+              <p className="text-sm font-medium text-neutral-900">
                 ⏳ Waiting in queue - Other users are currently matching
               </p>
               {matchingQueue.queuePosition !== null && (
-                <p className="text-xs text-yellow-600 mt-1">
-                  Your position: <span className="font-semibold">#{matchingQueue.queuePosition}</span>
+                <p className="text-xs text-neutral-500 mt-1">
+                  Your position: <span className="font-semibold text-neutral-900">#{matchingQueue.queuePosition}</span>
                   {matchingQueue.estimatedWaitTime && (
                     <span className="ml-2">
                       • Estimated wait: {Math.ceil((matchingQueue.estimatedWaitTime || 0) / 60)} minutes
@@ -681,7 +693,7 @@ export default function MatchingPageNew() {
                 </p>
               )}
               {matchingQueue.message && (
-                <p className="text-xs text-yellow-700 mt-1">{matchingQueue.message}</p>
+                <p className="text-xs text-neutral-600 mt-1">{matchingQueue.message}</p>
               )}
             </div>
           </div>
@@ -727,10 +739,10 @@ export default function MatchingPageNew() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
-        <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 text-center border border-gray-200">
+        <div className="bg-gradient-to-br from-white via-white to-[#00529b]/[0.06] rounded-xl shadow-sm p-4 sm:p-6 text-center border border-[#00529b]/15 hover:shadow-md transition-shadow">
           <div className="flex justify-center mb-2 sm:mb-3">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-gray-100">
-              <Users className="w-4 h-4 sm:w-5 sm:h-5 text-gray-700" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-[#00529b]/12 to-sky-500/10 border border-[#00529b]/15 shadow-sm">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5 text-[#00529b]" />
             </div>
           </div>
           <div className="text-lg sm:text-2xl font-semibold text-gray-900">
@@ -743,39 +755,39 @@ export default function MatchingPageNew() {
             {resultsLimit !== 'all' ? `Top ${resultsLimit} Candidates` : 'Total Candidates'}
           </p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 text-center border border-gray-200">
+        <div className="bg-gradient-to-br from-white via-white to-sky-500/10 rounded-xl shadow-sm p-4 sm:p-6 text-center border border-sky-500/15 hover:shadow-md transition-shadow">
           <div className="flex justify-center mb-2 sm:mb-3">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-amber-50">
-              <Award className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-[#00529b]/12 to-sky-500/10 border border-[#00529b]/15 shadow-sm">
+              <Award className="w-4 h-4 sm:w-5 sm:h-5 text-[#00529b]" />
             </div>
           </div>
-          <div className="text-lg sm:text-2xl font-semibold text-amber-600">{visibleTop}%</div>
+          <div className="text-lg sm:text-2xl font-semibold text-neutral-900">{visibleTop}%</div>
           <p className="text-sm text-gray-600">Best {resultsLimit !== 'all' ? 'Visible' : ''} Match</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 text-center border border-gray-200">
+        <div className="bg-gradient-to-br from-white via-white to-indigo-500/10 rounded-xl shadow-sm p-4 sm:p-6 text-center border border-indigo-500/15 hover:shadow-md transition-shadow">
           <div className="flex justify-center mb-2 sm:mb-3">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-emerald-50">
-              <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-[#00529b]/12 to-sky-500/10 border border-[#00529b]/15 shadow-sm">
+              <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-[#00529b]" />
             </div>
           </div>
           <div className="text-lg sm:text-2xl font-semibold text-gray-900">{visibleAverage}%</div>
           <p className="text-sm text-gray-600">{resultsLimit !== 'all' ? 'Visible' : ''} Average Score</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 text-center border border-gray-200">
+        <div className="bg-gradient-to-br from-white via-white to-amber-500/10 rounded-xl shadow-sm p-4 sm:p-6 text-center border border-amber-500/15 hover:shadow-md transition-shadow">
           <div className="flex justify-center mb-2 sm:mb-3">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-emerald-50">
-              <Star className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-gradient-primary shadow-sm shadow-blue-900/15">
+              <Star className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
             </div>
           </div>
-          <div className="text-lg sm:text-2xl font-semibold text-emerald-600">{visibleExcellent}</div>
+          <div className="text-lg sm:text-2xl font-semibold text-neutral-900">{visibleExcellent}</div>
           <p className="text-sm text-gray-600">{resultsLimit !== 'all' ? 'Visible' : ''} Excellent (≥80%)</p>
         </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-200">
         <div className="flex items-center gap-3 mb-4 sm:mb-6">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-gray-100 shrink-0">
-            <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-700" />
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-[#00529b]/12 to-sky-500/10 border border-[#00529b]/15 shadow-sm shrink-0">
+            <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-[#00529b]" />
           </div>
           <div className="min-w-0">
             <h3 className="text-base sm:text-lg font-semibold text-gray-900">Quality Distribution</h3>
@@ -784,7 +796,7 @@ export default function MatchingPageNew() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
           <div className="text-center">
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
+            <div className="w-full bg-emerald-100 rounded-full h-2 mb-2 overflow-hidden">
               <div
                 className="h-2 rounded-full bg-emerald-500 transition-[width] duration-300"
                 style={{ width: `${(excellentMatches / Math.max(totalMatches, 1)) * 100}%` }}
@@ -794,7 +806,7 @@ export default function MatchingPageNew() {
             <p className="text-sm text-gray-500">80–100% match</p>
           </div>
           <div className="text-center">
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
+            <div className="w-full bg-amber-100 rounded-full h-2 mb-2 overflow-hidden">
               <div
                 className="h-2 rounded-full bg-amber-500 transition-[width] duration-300"
                 style={{ width: `${(goodMatches / Math.max(totalMatches, 1)) * 100}%` }}
@@ -804,7 +816,7 @@ export default function MatchingPageNew() {
             <p className="text-sm text-gray-500">60–79% match</p>
           </div>
           <div className="text-center">
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
+            <div className="w-full bg-rose-100 rounded-full h-2 mb-2 overflow-hidden">
               <div
                 className="h-2 rounded-full bg-rose-500 transition-[width] duration-300"
                 style={{ width: `${((totalMatches - excellentMatches - goodMatches) / Math.max(totalMatches, 1)) * 100}%` }}
@@ -824,7 +836,7 @@ export default function MatchingPageNew() {
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortKey)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[neutral-900] focus:border-[neutral-900]"
           >
             <option value="score">Sort by Overall Score</option>
             <option value="skills">Sort by Skills Match</option>
@@ -836,7 +848,7 @@ export default function MatchingPageNew() {
             <select
               value={resultsLimit}
               onChange={(e) => setResultsLimit(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[neutral-900] focus:border-[neutral-900]"
             >
               <option value={3}>Show Top 3</option>
               <option value={5}>Show Top 5</option>
@@ -880,7 +892,7 @@ export default function MatchingPageNew() {
               return (
                 <div
                   key={candidate.cv_id}
-                  className={`relative overflow-hidden rounded-xl border bg-white ${isOpen ? 'ring-2 ring-[#00529b]/30 border-[#00529b]' : 'border-gray-200'}`}
+                  className={`relative overflow-hidden rounded-xl border bg-white ${isOpen ? 'ring-2 ring-[neutral-900]/30 border-[neutral-900]' : 'border-gray-200'}`}
                 >
                     {/* OUTER WRAPPER FIXED: now a <div> with role="button" */}
                     <div
@@ -895,9 +907,7 @@ export default function MatchingPageNew() {
                       <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
                         <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                           <div
-                            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm font-bold text-white shrink-0 ${barColor(
-                              overall
-                            )}`}
+                            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm font-bold text-white shrink-0 ${index === 0 ? 'bg-emerald-500' : metricBarColor(overall)}`}
                           >
                             #{index + 1}
                           </div>
@@ -974,7 +984,7 @@ export default function MatchingPageNew() {
                                 </span>
                               )}
                             </div>
-                            <span className="text-sm text-[#00529b] hover:text-[#003d73]">
+                            <span className="text-sm text-[neutral-900] hover:text-[neutral-800]">
                               {isOpen ? 'Hide details' : 'View details'}
                             </span>
                           </div>
@@ -1002,13 +1012,13 @@ export default function MatchingPageNew() {
                               <div className="p-3 rounded-lg border border-gray-200 bg-white">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-xs font-medium text-gray-600">Skills</span>
-                                  <span className={`text-xs font-semibold ${scoreColor(scores.skills)}`}>
+                                  <span className={`text-xs font-semibold ${metricTextColor(scores.skills)}`}>
                                     {Math.round(scores.skills * 100)}%
                                   </span>
                                 </div>
                                 <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
                                   <div
-                                    className={`h-2 rounded-full transition-[width] duration-300 ${barColor(scores.skills)}`}
+                                    className={`h-2 rounded-full transition-[width] duration-300 ${metricBarColor(scores.skills)}`}
                                     style={{ width: `${Math.max(0, Math.min(100, scores.skills * 100))}%` }}
                                   />
                                 </div>
@@ -1018,13 +1028,13 @@ export default function MatchingPageNew() {
                               <div className="p-3 rounded-lg border border-gray-200 bg-white">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-xs font-medium text-gray-600">Responsibilities</span>
-                                  <span className={`text-xs font-semibold ${scoreColor(scores.responsibilities)}`}>
+                                  <span className={`text-xs font-semibold ${metricTextColor(scores.responsibilities)}`}>
                                     {Math.round(scores.responsibilities * 100)}%
                                   </span>
                                 </div>
                                 <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
                                   <div
-                                    className={`h-2 rounded-full transition-[width] duration-300 ${barColor(scores.responsibilities)}`}
+                                    className={`h-2 rounded-full transition-[width] duration-300 ${metricBarColor(scores.responsibilities)}`}
                                     style={{ width: `${Math.max(0, Math.min(100, scores.responsibilities * 100))}%` }}
                                   />
                                 </div>
@@ -1034,13 +1044,13 @@ export default function MatchingPageNew() {
                               <div className="p-3 rounded-lg border border-gray-200 bg-white">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-xs font-medium text-gray-600">Title</span>
-                                  <span className={`text-xs font-semibold ${scoreColor(scores.title)}`}>
+                                  <span className={`text-xs font-semibold ${metricTextColor(scores.title)}`}>
                                     {Math.round(scores.title * 100)}%
                                   </span>
                                 </div>
                                 <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
                                   <div
-                                    className={`h-2 rounded-full transition-[width] duration-300 ${barColor(scores.title)}`}
+                                    className={`h-2 rounded-full transition-[width] duration-300 ${metricBarColor(scores.title)}`}
                                     style={{ width: `${Math.max(0, Math.min(100, scores.title * 100))}%` }}
                                   />
                                 </div>
@@ -1050,13 +1060,13 @@ export default function MatchingPageNew() {
                               <div className="p-3 rounded-lg border border-gray-200 bg-white">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-xs font-medium text-gray-600">Years</span>
-                                  <span className={`text-xs font-semibold ${scoreColor(scores.years)}`}>
+                                  <span className={`text-xs font-semibold ${metricTextColor(scores.years)}`}>
                                     {Math.round(scores.years * 100)}%
                                   </span>
                                 </div>
                                 <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
                                   <div
-                                    className={`h-2 rounded-full transition-[width] duration-300 ${barColor(scores.years)}`}
+                                    className={`h-2 rounded-full transition-[width] duration-300 ${metricBarColor(scores.years)}`}
                                     style={{ width: `${Math.max(0, Math.min(100, scores.years * 100))}%` }}
                                   />
                                 </div>
@@ -1076,26 +1086,27 @@ export default function MatchingPageNew() {
                                 value={noteText}
                                 onChange={(e) => setNoteText(e.target.value)}
                                 placeholder="Add a note about this candidate..."
-                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] resize-none"
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[neutral-900] resize-none"
                                 rows={2}
                                 cols={30}
                                 onClick={(e) => e.stopPropagation()}
                               />
                               <Button
-                                variant="outline"
+                                variant="primary"
                                 size="sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleSaveNote(candidate.cv_id);
                                 }}
                                 disabled={savingNote === candidate.cv_id || !noteText.trim()}
-                                className="flex items-center gap-1"
+                                className="flex items-center gap-1 bg-gradient-primary text-white shadow-sm"
                               >
                                 {savingNote === candidate.cv_id ? (
-                                  <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                 ) : (
-                                  <Save className="w-4 h-4" />
+                                  <Save className="w-4 h-4 text-white" />
                                 )}
+                                <span className="text-white">Save</span>
                               </Button>
                               <Button
                                 variant="outline"
@@ -1206,72 +1217,75 @@ export default function MatchingPageNew() {
                           <div className="mt-2 space-y-6">
                             {/* AI Analysis Section (Redesigned) */}
                             {candidate.has_llm_analysis && candidate.llm_analysis && (
-                              <div className="p-6 rounded-xl bg-gradient-to-br from-white to-gray-50 border border-gray-200 shadow-sm space-y-6">
-                                <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+                              <div className="p-4 sm:p-5 rounded-xl bg-white border border-gray-200 shadow-sm space-y-4">
+                                <div className="flex items-start justify-between gap-4 pb-3 border-b border-gray-100">
                                   <div className="flex items-center gap-3">
                                     <div className={`p-2 rounded-lg ${candidate.llm_analysis.match_level === 'Strong' ? 'bg-emerald-100 text-emerald-600' :
                                       candidate.llm_analysis.match_level === 'Good' ? 'bg-blue-100 text-blue-600' :
                                         'bg-amber-100 text-amber-600'
                                       }`}>
-                                      <Sparkles className="w-6 h-6" />
+                                      <Sparkles className="w-5 h-5" />
                                     </div>
                                     <div>
-                                      <h4 className="text-lg font-bold text-gray-900 leading-tight">AI Match Analysis</h4>
-                                      <p className="text-sm font-medium text-gray-500">
-                                        Match Level: <span className={
+                                      <h4 className="text-base font-semibold text-gray-900 leading-tight">AI Match Analysis</h4>
+                                      <p className="text-xs font-medium text-gray-500 mt-0.5">
+                                        Match Level:{' '}
+                                        <span className={`font-semibold ${
                                           candidate.llm_analysis.match_level === 'Strong' ? 'text-emerald-600' :
                                             candidate.llm_analysis.match_level === 'Good' ? 'text-blue-600' :
                                               'text-amber-600'
-                                        }>{candidate.llm_analysis.match_level || 'N/A'}</span>
+                                        }`}>
+                                          {candidate.llm_analysis.match_level || 'N/A'}
+                                        </span>
                                       </p>
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    <p className="text-2xl font-bold text-gray-900">{Math.round(overall * 100)}</p>
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Score</p>
+                                    <p className="text-xl font-bold text-gray-900 leading-none">{Math.round(overall * 100)}</p>
+                                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mt-1">Score</p>
                                   </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                   <div>
-                                    <h5 className="text-sm font-bold text-emerald-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                                    <h5 className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2 flex items-center gap-2">
                                       <CheckCircle2 className="w-4 h-4" /> Key Matches
                                     </h5>
-                                    <ul className="space-y-3">
+                                    <ul className="space-y-2">
                                       {(candidate.llm_analysis.key_matches || []).map((match: string, i: number) => (
-                                        <li key={i} className="flex gap-2 text-sm text-gray-700 leading-relaxed">
+                                        <li key={i} className="flex gap-2 text-sm text-gray-900 leading-relaxed">
                                           <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
                                           {match}
                                         </li>
                                       ))}
                                       {(!candidate.llm_analysis.key_matches || candidate.llm_analysis.key_matches.length === 0) && (
-                                        <li className="text-sm text-gray-400">No key matches identified.</li>
+                                        <li className="text-sm text-gray-700">No key matches identified.</li>
                                       )}
                                     </ul>
                                   </div>
 
                                   <div>
-                                    <h5 className="text-sm font-bold text-rose-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                                    <h5 className="text-xs font-semibold text-rose-700 uppercase tracking-wide mb-2 flex items-center gap-2">
                                       <AlertTriangle className="w-4 h-4" /> Gaps
                                     </h5>
-                                    <ul className="space-y-3">
+                                    <ul className="space-y-2">
                                       {(candidate.llm_analysis.gaps || []).map((gap: string, i: number) => (
-                                        <li key={i} className="flex gap-2 text-sm text-gray-700 leading-relaxed">
+                                        <li key={i} className="flex gap-2 text-sm text-gray-900 leading-relaxed">
                                           <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
                                           {gap}
                                         </li>
                                       ))}
                                       {(!candidate.llm_analysis.gaps || candidate.llm_analysis.gaps.length === 0) && (
-                                        <li className="text-sm text-gray-400 italic">No major gaps identified.</li>
+                                        <li className="text-sm text-gray-700">No major gaps identified.</li>
                                       )}
                                     </ul>
                                   </div>
                                 </div>
 
-                                <div className="pt-4 border-t border-gray-100">
-                                  <h5 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2">Fit Summary</h5>
-                                  <p className="text-sm text-gray-800 leading-relaxed italic">
-                                    "{candidate.llm_analysis.summary || 'Detailed summary unavailable.'}"
+                                <div className="pt-3 border-t border-gray-100">
+                                  <h5 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Fit Summary</h5>
+                                  <p className="text-sm text-gray-900 leading-relaxed">
+                                    {candidate.llm_analysis.summary || 'Detailed summary unavailable.'}
                                   </p>
                                 </div>
                               </div>
@@ -1313,7 +1327,7 @@ export default function MatchingPageNew() {
                                 {Array.isArray(candidate.skills_assignments) && candidate.skills_assignments.length > 0 && (
                                   <div>
                                     <div className="flex items-center gap-2 mb-3">
-                                      <Brain className="w-4 h-4 text-[#00529b]" />
+                                      <Brain className="w-4 h-4 text-[neutral-900]" />
                                       <h4 className="font-semibold text-gray-900">
                                         Matched Skills ({candidate.skills_assignments.length})
                                       </h4>
@@ -1419,7 +1433,7 @@ export default function MatchingPageNew() {
                                 <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
                                   <div className="grid grid-cols-2 gap-4 text-center">
                                     <div>
-                                      <div className="text-lg font-semibold text-[#00529b]">
+                                      <div className="text-lg font-semibold text-[neutral-900]">
                                         {candidate.skills_assignments
                                           ? candidate.skills_assignments.filter((a: any) => (a.score ?? 0) >= 0.7).length
                                           : 0}

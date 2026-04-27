@@ -904,7 +904,7 @@ export const api = {
 
   // CV operations
   uploadCV: (file: File, cvText?: string) => RequestRetryHandler.withRetry(() => apiClient.uploadCV(file, cvText)),
-  listCVs: (params?: { limit?: number; offset?: number; category?: string }) =>
+  listCVs: (params?: { limit?: number; offset?: number; category?: string; q?: string }) =>
     RequestRetryHandler.withRetry(() => apiClient.listCVs(params)),
   getCVDetails: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.getCVDetails(cvId)),
   deleteCV: (cvId: string) => RequestRetryHandler.withRetry(() => apiClient.deleteCV(cvId)),

@@ -187,7 +187,7 @@ export function ManagedSelect({
                     }}
                   >
                     <span className="w-4 shrink-0 inline-flex items-center justify-center">
-                      {isSelected ? <Check className="w-3.5 h-3.5 text-[#00529b]" /> : null}
+                      {isSelected ? <Check className="w-3.5 h-3.5 text-[neutral-900]" /> : null}
                     </span>
                     <span className="truncate text-gray-800 font-[13px]">{o.value}</span>
                   </button>
@@ -231,7 +231,7 @@ export function ManagedSelect({
             <div className="border-t border-gray-100">
               <button
                 type="button"
-                className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-[#00529b] hover:bg-blue-50 font-semibold transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-[neutral-900] hover:bg-blue-50 font-semibold transition-colors"
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => {
                   closeMenu();
@@ -261,7 +261,7 @@ export function ManagedSelect({
           disabled
             ? 'opacity-40 cursor-not-allowed border-gray-200'
             : menuOpen
-            ? 'border-[#00529b] ring-2 ring-[#00529b]/15 shadow-sm'
+            ? 'border-[neutral-900] ring-2 ring-[neutral-900]/15 shadow-sm'
             : 'border-gray-200 hover:border-gray-400 shadow-sm',
         ].join(' ')}
       >
@@ -279,7 +279,7 @@ export function ManagedSelect({
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-sm bg-white text-gray-900">
           <DialogHeader>
-            <DialogTitle className="text-[#00529b]">Add {label}</DialogTitle>
+            <DialogTitle className="text-[neutral-900]">Add {label}</DialogTitle>
             <DialogDescription>Type a new option and press Add.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 pt-1">
@@ -308,7 +308,7 @@ export function ManagedSelect({
                   setSaving(true);
                   try { await onAdd(v); setAddOpen(false); await onChange(v); } finally { setSaving(false); }
                 }}
-                className="bg-[#00529b] hover:bg-[#003d73] text-white"
+                className="bg-[neutral-900] hover:bg-[neutral-800] text-white"
               >
                 <Plus className="w-3.5 h-3.5 mr-1" /> Add
               </Button>
@@ -321,7 +321,7 @@ export function ManagedSelect({
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-sm bg-white text-gray-900">
           <DialogHeader>
-            <DialogTitle className="text-[#00529b]">Edit {label}</DialogTitle>
+            <DialogTitle className="text-[neutral-900]">Edit {label}</DialogTitle>
             <DialogDescription>Change the name, then click Save.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 pt-1">
@@ -342,7 +342,7 @@ export function ManagedSelect({
                 size="sm"
                 disabled={!draft.trim() || saving}
                 onClick={saveEdit}
-                className="bg-[#00529b] hover:bg-[#003d73] text-white"
+                className="bg-[neutral-900] hover:bg-[neutral-800] text-white"
               >
                 Save
               </Button>

@@ -390,14 +390,16 @@ export interface UpdateUserRequest {
 export interface TrackerJobOpening {
   id: string;
   title: string;
+  requirement?: string | null;
   department?: string | null;
-  location?: string | null;
   client?: string | null;
-  work_location?: string | null;
   status: string;
   hiring_manager?: string | null;
   recruitment_manager?: string | null;
   req_date?: string | null;
+  submission_date?: string | null;
+  cvs_submitted_count?: number | null;
+  comments?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -420,7 +422,6 @@ export interface TrackerApplication {
   applied_date?: string | null;
   position?: string | null;
   client?: string | null;
-  location?: string | null;
   status: string;
   recruiter?: string | null;
   account_manager?: string | null;

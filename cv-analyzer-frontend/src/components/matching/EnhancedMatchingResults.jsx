@@ -91,8 +91,8 @@ export const EnhancedMatchingResults = ({ results, jobTitle }) => {
                         <Filter className="w-5 h-5 text-gray-500" />
                         <button
                             onClick={() => setFilter('all')}
-                            className={`px-4 py-2 rounded-lg font-medium transition ${filter === 'all'
-                                ? 'bg-blue-600 text-white'
+                            className={`px-4 py-2 rounded-lg font-medium transition shadow-sm ${filter === 'all'
+                                ? 'bg-gradient-primary text-white'
                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                 }`}
                         >
@@ -100,8 +100,8 @@ export const EnhancedMatchingResults = ({ results, jobTitle }) => {
                         </button>
                         <button
                             onClick={() => setFilter('ai-enhanced')}
-                            className={`px-4 py-2 rounded-lg font-medium transition ${filter === 'ai-enhanced'
-                                ? 'bg-green-600 text-white'
+                            className={`px-4 py-2 rounded-lg font-medium transition shadow-sm ${filter === 'ai-enhanced'
+                                ? 'bg-gradient-primary text-white'
                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                 }`}
                         >
@@ -109,8 +109,8 @@ export const EnhancedMatchingResults = ({ results, jobTitle }) => {
                         </button>
                         <button
                             onClick={() => setFilter('semantic')}
-                            className={`px-4 py-2 rounded-lg font-medium transition ${filter === 'semantic'
-                                ? 'bg-blue-600 text-white'
+                            className={`px-4 py-2 rounded-lg font-medium transition shadow-sm ${filter === 'semantic'
+                                ? 'bg-gradient-primary text-white'
                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                 }`}
                         >
@@ -147,9 +147,9 @@ export const EnhancedMatchingResults = ({ results, jobTitle }) => {
                     </div>
 
                     {/* Export Button */}
-                    <button className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg font-medium transition flex items-center gap-2">
-                        <Download className="w-4 h-4" />
-                        Export CSV
+                    <button className="px-4 py-2 bg-gradient-primary text-white rounded-lg font-medium transition flex items-center gap-2 shadow-lg shadow-blue-900/10">
+                        <Download className="w-4 h-4 text-white" />
+                        <span className="text-white">Export CSV</span>
                     </button>
                 </div>
             </div>

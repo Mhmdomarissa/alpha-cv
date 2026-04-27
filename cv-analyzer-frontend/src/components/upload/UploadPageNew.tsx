@@ -18,6 +18,7 @@ import {
 import { useAppStore } from '@/stores/appStore';
 import { useUploadQueue } from '@/stores/uploadQueue';
 import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button';
 /**
  * UploadPageNew
  * - Uses a persisted Zustand queue (useUploadQueue) so items don't "disappear" on navigation.
@@ -376,7 +377,7 @@ export default function UploadPageNew() {
                 <p>Drag & drop files here, or click to browse</p>
                 <p className="mt-1">Max 200 files, 10MB each</p>
               </div>
-              <button className="btn-secondary">Browse Files</button>
+              <Button variant="secondary">Browse Files</Button>
             </div>
           </div>
         </div>
@@ -430,14 +431,14 @@ export default function UploadPageNew() {
                 <p>Drag & drop files here, or click to browse</p>
                 <p className="mt-1">Max 5 files, 10MB each</p>
               </div>
-              <button className="btn-secondary">Browse Files</button>
+              <Button variant="secondary">Browse Files</Button>
             </div>
           </div>
         </div>
       </div>
       {/* Processing Queue */}
       {totalFiles > 0 && (
-        <div className="card-elevated">
+        <div className="bg-white border border-neutral-200 rounded-lg p-6 shadow-sm">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center space-x-3">
               <div
@@ -454,10 +455,10 @@ export default function UploadPageNew() {
               </div>
             </div>
             <div className="flex items-center space-x-3">
-              <button
+              <Button
                 onClick={processFiles}
                 disabled={isUploading}
-                className="btn-primary"
+                className="w-full sm:w-auto"
               >
                 {isUploading ? (
                   <>
@@ -470,24 +471,24 @@ export default function UploadPageNew() {
                     Extract All
                   </>
                 )}
-              </button>
+              </Button>
               
               {hasDuplicates && (
-                <button
+                <Button
                   onClick={removeDuplicates}
                   disabled={isUploading || anyProcessing}
-                  className="btn-outline"
+                  variant="outline"
                   title="Remove duplicate files"
                 >
                   <Trash2 className="w-4 h-4" />
                   Remove Duplicates
-                </button>
+                </Button>
               )}
               
-              <button onClick={clearAll} disabled={isUploading || anyProcessing} className="btn-outline">
+              <Button onClick={clearAll} disabled={isUploading || anyProcessing} variant="outline">
                 <X className="w-4 h-4" />
                 Clear All
-              </button>
+              </Button>
             </div>
           </div>
           
@@ -606,7 +607,7 @@ export default function UploadPageNew() {
       )}
       {/* Debug Info - Remove in production */}
       {process.env.NODE_ENV === 'development' && (
-        <div className="card-simple bg-yellow-50 border-yellow-200">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <h4 className="font-medium text-yellow-800">Debug Info:</h4>
           <p className="text-sm text-yellow-700">
             Queue items: {items.length} (JDs: {jdItems.length}, CVs: {cvItems.length})
@@ -630,7 +631,7 @@ export default function UploadPageNew() {
       )}
       {/* Next Steps */}
       {canContinue && (
-        <div className="card-simple">
+        <div className="bg-white border border-neutral-200 rounded-lg p-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center space-x-3">
               <CheckCircle className="w-8 h-8" style={{ color: 'var(--green-500)' }} />
@@ -647,24 +648,25 @@ export default function UploadPageNew() {
             </div>
             
             <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-              <button 
+              <Button 
                 onClick={() => setCurrentTab('database')} 
-                className="btn-secondary w-full sm:w-auto"
+                variant="secondary"
+                className="w-full sm:w-auto"
               >
                 <Eye className="w-4 h-4" />
                 Review Database
-              </button>
+              </Button>
               
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <button
+                <Button
                   onClick={handleMatchUploadedOnly}
-                  className="btn-primary w-full sm:w-auto"
+                  className="w-full sm:w-auto"
                   disabled={loadingStates.matching?.isLoading || !(jdItems.some(f => f.status === 'completed') || cvItems.some(f => f.status === 'completed'))}
                   title="Match only the files uploaded in this session"
                 >
                   <Play className="w-4 h-4" />
                   {loadingStates.matching?.isLoading ? 'Matching...' : 'Match Uploaded Files'}
-                </button>
+                </Button>
               </div>
             </div>
           </div>

@@ -1,4 +1,5 @@
-import type { NextConfig } from "next";
+// NOTE: Some Next.js versions' exported `NextConfig` type is narrower than runtime config.
+// Keep this file build-safe by avoiding strict typing here.
 
 // Backend URL used by the Next.js server-side rewrite proxy.
 // Inside Docker the backend service is reachable at http://backend-dev:8000 (dev)
@@ -8,7 +9,7 @@ import type { NextConfig } from "next";
 const backendUrl =
   process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 
-const nextConfig: NextConfig = {
+const nextConfig = {
   /* config options here */
   reactStrictMode: true,
   env: {

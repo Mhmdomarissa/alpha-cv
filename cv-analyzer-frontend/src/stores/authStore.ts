@@ -15,10 +15,10 @@ interface AuthState {
 
 interface AuthActions {
   initFromStorage: () => Promise<void>;
-  login: (username: string, password: string) => Promise<{ success: boolean; role?: 'admin' | 'user' | 'recruiter' | 'manager'; error?: string }>;
+  login: (username: string, password: string) => Promise<{ success: boolean; role?: 'admin' | 'user' | 'recruiter' | 'manager' | 'evp'; error?: string }>;
   verifyPassword: (username: string, password: string) => Promise<{ success: boolean; requires_otp?: boolean; error?: string }>;
   sendOTP: (username: string, password: string) => Promise<{ success: boolean; masked_email?: string; error?: string }>;
-  verifyOTP: (username: string, otp: string) => Promise<{ success: boolean; role?: 'admin' | 'user' | 'recruiter' | 'manager'; error?: string }>;
+  verifyOTP: (username: string, otp: string) => Promise<{ success: boolean; role?: 'admin' | 'user' | 'recruiter' | 'manager' | 'evp'; error?: string }>;
   logout: () => void;
   clearError: () => void;
 }

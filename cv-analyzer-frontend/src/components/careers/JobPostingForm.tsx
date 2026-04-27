@@ -817,10 +817,10 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
             <Button
               onClick={handleSave}
               disabled={isSaving}
-              className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-8 py-3 bg-gradient-primary text-white font-semibold shadow-lg shadow-blue-900/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Save className="w-5 h-5 mr-2" />
-              {isSaving ? 'Saving...' : 'Save Changes'}
+              <Save className="w-5 h-5 mr-2 text-white" />
+              <span className="text-white">{isSaving ? 'Saving...' : 'Save Changes'}</span>
             </Button>
           )}
           
@@ -836,14 +836,16 @@ export default function JobPostingForm({ onSuccess, jobId, publicToken, initialD
                 isUploading || 
                 isAutoFilling
               }
-              className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-8 py-3 bg-gradient-primary text-white font-semibold shadow-lg shadow-blue-900/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-              <Briefcase className="w-5 h-5 mr-2" />
-              {isCreatingJob ? 'Creating...' : 
-               isUploading ? 'Uploading...' : 
-               isAutoFilling ? 'Auto-filling...' : 
-               (uploadPhase === 'uploaded' && !showForm) ? 'Extract Job Details First' :
-               'Post Job'}
+              <Briefcase className="w-5 h-5 mr-2 text-white" />
+              <span className="text-white">
+                {isCreatingJob ? 'Creating...' : 
+                 isUploading ? 'Uploading...' : 
+                 isAutoFilling ? 'Auto-filling...' : 
+                 (uploadPhase === 'uploaded' && !showForm) ? 'Extract Job Details First' :
+                 'Post Job'}
+              </span>
         </Button>
           )}
         </div>

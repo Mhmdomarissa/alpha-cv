@@ -1,4 +1,7 @@
 import type { Config } from 'tailwindcss'
+const {
+  default: flattenColorPalette,
+} = require("tailwindcss/lib/util/flattenColorPalette");
 
 const config: Config = {
   content: [
@@ -6,6 +9,7 @@ const config: Config = {
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
@@ -17,13 +21,6 @@ const config: Config = {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
-        },
-        signature: {
-          50: '#f0f4ff',
-          100: '#e0e7ff',
-          500: 'rgba(0, 82, 155, 0.8)',
-          600: 'rgba(0, 61, 115, 0.8)',
-          700: 'rgba(0, 41, 82, 0.8)',
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -55,11 +52,6 @@ const config: Config = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
-      fontSize: {
-        'body': ['1.0625rem', { lineHeight: '1.6' }],
-        'ui': ['0.9375rem', { lineHeight: '1.45' }],
-        'caption': ['0.8125rem', { lineHeight: '1.35' }],
-      },
       keyframes: {
         "accordion-down": {
           from: { height: "0" },
@@ -69,30 +61,31 @@ const config: Config = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
-        "fadeInUp": {
-          from: { opacity: "0", transform: "translateY(10px)" },
-          to: { opacity: "1", transform: "translateY(0)" },
-        },
-        "typingCursor": {
-          "0%, 50%": { opacity: "1" },
-          "51%, 100%": { opacity: "0" },
+        shimmer: {
+          "0%": { backgroundPosition: "-1000px 0" },
+          "100%": { backgroundPosition: "1000px 0" },
         },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "fade-in-up": "fadeInUp 0.4s ease-out forwards",
-        "typing-cursor": "typingCursor 0.8s step-end infinite",
-      },
-      animationDelay: {
-        "100": "0.1s",
-        "200": "0.2s",
-        "300": "0.3s",
-        "400": "0.4s",
+        shimmer: "shimmer 2s infinite linear",
       },
     },
   },
-  plugins: [],
+  plugins: [addVariablesForColors],
+}
+
+// This plugin adds each Tailwind color as a global CSS variable, e.g. var(--gray-200).
+function addVariablesForColors({ addBase, theme }: any) {
+  let allColors = flattenColorPalette(theme("colors"));
+  let newVars = Object.fromEntries(
+    Object.entries(allColors).map(([key, val]) => [`--${key}`, val])
+  );
+
+  addBase({
+    ":root": newVars,
+  });
 }
 
 export default config

@@ -290,7 +290,7 @@ export default function ApplicationsList() {
   if (isLoading) {
     return (
       <div className="p-6 flex justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-[#00529b]" />
+        <Loader2 className="w-8 h-8 animate-spin text-[neutral-900]" />
       </div>
     );
   }
@@ -337,7 +337,7 @@ export default function ApplicationsList() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search name, email, phone, filename…"
-              className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[neutral-900] focus:border-[neutral-900]"
             />
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -346,7 +346,7 @@ export default function ApplicationsList() {
               <select
                 value={sourceFilter}
                 onChange={(e) => setSourceFilter(e.target.value as any)}
-                className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+                className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[neutral-900] focus:border-[neutral-900]"
                 title="Filter by source"
               >
                 <option value="all">All sources</option>
@@ -359,7 +359,7 @@ export default function ApplicationsList() {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+                className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[neutral-900] focus:border-[neutral-900]"
                 title="Sort"
               >
                 <option value="recent">Most recent</option>
@@ -410,7 +410,7 @@ export default function ApplicationsList() {
                 </div>
               </td>
               <td className="py-2 sm:py-3 px-2 sm:px-4">
-                <a href={`mailto:${application.applicant_email}`} className="text-[#00529b] hover:underline truncate block max-w-[120px] sm:max-w-[200px]" title={application.applicant_email}>
+                <a href={`mailto:${application.applicant_email}`} className="text-[neutral-900] hover:underline truncate block max-w-[120px] sm:max-w-[200px]" title={application.applicant_email}>
                   {application.applicant_email}
                 </a>
                 {application.applicant_phone && (
@@ -494,7 +494,7 @@ export default function ApplicationsList() {
             <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 sm:space-y-6">
               {loadingCVData ? (
                 <div className="flex flex-col items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-[#00529b]" />
+                  <Loader2 className="w-8 h-8 animate-spin text-[neutral-900]" />
                   <p className="text-gray-500 mt-2">Loading details...</p>
                 </div>
               ) : (
@@ -531,7 +531,7 @@ export default function ApplicationsList() {
                           )}
                           <Button
                             size="sm"
-                            className="mt-3 w-full bg-[#00529b] hover:bg-[#003d73] text-white"
+                            className="mt-3 w-full bg-[neutral-900] hover:bg-[neutral-800] text-white"
                             onClick={() => setPdfPreview({ cvId: viewingCVData.cvId, fileName })}
                           >
                             <Eye className="w-4 h-4 mr-2" />
@@ -570,11 +570,11 @@ export default function ApplicationsList() {
                                       <textarea
                                         value={editNoteText}
                                         onChange={(e) => setEditNoteText(e.target.value)}
-                                        className="w-full text-sm border border-gray-300 rounded-lg p-2 resize-none focus:ring-2 focus:ring-[#00529b]"
+                                        className="w-full text-sm border border-gray-300 rounded-lg p-2 resize-none focus:ring-2 focus:ring-[neutral-900]"
                                         rows={2}
                                       />
                                       <div className="flex gap-2">
-                                        <Button size="sm" onClick={handlePanelSaveEditNote} disabled={savingPanelNote} className="bg-[#00529b] hover:bg-[#003d73]">
+                                        <Button size="sm" onClick={handlePanelSaveEditNote} disabled={savingPanelNote} className="bg-[neutral-900] hover:bg-[neutral-800]">
                                           {savingPanelNote ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                                           <span className="ml-1">Save</span>
                                         </Button>
@@ -588,7 +588,7 @@ export default function ApplicationsList() {
                                         <span className="text-xs text-gray-500">{note.hr_user} • {note.updated_at ? new Date(note.updated_at).toLocaleDateString() : ''}</span>
                                         {note.hr_user === user?.username && (
                                           <div className="flex gap-2">
-                                            <button type="button" className="text-xs text-[#00529b] hover:underline" onClick={() => { setEditingNoteIndex(i); setEditNoteText(note.note || ''); }}>Edit</button>
+                                            <button type="button" className="text-xs text-[neutral-900] hover:underline" onClick={() => { setEditingNoteIndex(i); setEditNoteText(note.note || ''); }}>Edit</button>
                                             <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => handlePanelDeleteNote(note.hr_user)}>Delete</button>
                                           </div>
                                         )}
@@ -604,12 +604,12 @@ export default function ApplicationsList() {
                               value={newNoteText}
                               onChange={(e) => setNewNoteText(e.target.value)}
                               placeholder="Add a note..."
-                              className="w-full text-sm border border-gray-300 rounded-lg p-2 resize-none focus:ring-2 focus:ring-[#00529b]"
+                              className="w-full text-sm border border-gray-300 rounded-lg p-2 resize-none focus:ring-2 focus:ring-[neutral-900]"
                               rows={2}
                             />
                             <Button
                               size="sm"
-                              className="mt-2 bg-[#00529b] hover:bg-[#003d73] text-white"
+                              className="mt-2 bg-[neutral-900] hover:bg-[neutral-800] text-white"
                               onClick={handlePanelAddNote}
                               disabled={savingPanelNote || !newNoteText.trim()}
                             >
@@ -636,7 +636,7 @@ export default function ApplicationsList() {
         pdfLoading ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="bg-white rounded-lg p-6 flex flex-col items-center gap-3">
-              <Loader2 className="w-10 h-10 animate-spin text-[#00529b]" />
+              <Loader2 className="w-10 h-10 animate-spin text-[neutral-900]" />
               <p className="text-gray-700">Loading PDF...</p>
             </div>
           </div>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date
 from typing import Iterable, Optional
 
@@ -110,11 +111,23 @@ def render_followup_email_html(data: dict) -> str:
         for k, v in rows
     )
 
+    app_url = (os.getenv("FRONTEND_URL") or os.getenv("NEXT_PUBLIC_API_URL") or "http://alphacv.alphadatarecruitment.ae/").strip()
+    if not app_url:
+        app_url = "http://alphacv.alphadatarecruitment.ae/"
+    if not app_url.startswith(("http://", "https://")):
+        app_url = f"https://{app_url}"
+
     return f"""
     <div style="font-family:Calibri, Arial, sans-serif; font-size:11pt; color:#111827;">
       <div style="font-weight:700; font-size:14pt; margin-bottom:10px;">Follow-up Reminder</div>
       <div style="margin-bottom:12px; color:#374151;">
         This is an automated reminder for today’s follow-up.
+      </div>
+      <div style="margin-bottom:12px;">
+        <a href="{app_url}" style="color:#00529b; font-weight:700; text-decoration:none;">
+          Open Alpha CV
+        </a>
+        <span style="color:#6b7280; font-size:10pt;">&nbsp;({app_url})</span>
       </div>
       <table style="border-collapse:collapse; width:100%; max-width:820px;">
         {trs}

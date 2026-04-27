@@ -155,11 +155,12 @@ export default function AdminUsersPage() {
         <header className="bg-white border-b" style={{ borderColor: 'var(--gray-200)' }}>
           <div className="container mx-auto px-4 py-4 flex justify-between items-center">
             <div className="flex items-center space-x-4">
-              <div 
-                className="w-8 h-8 rounded-lg flex items-center justify-center"
-                style={{ background: 'var(--primary-500)' }}
-              >
-                <span className="text-white text-sm font-bold">⚡</span>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-600 shadow-lg shadow-blue-200">
+                <img
+                  src="/alphadatalogo.svg"
+                  alt="Alpha Data Logo"
+                  className="w-full h-full object-contain brightness-0 invert"
+                />
               </div>
               <div>
                 <h1 className="text-xl font-bold" style={{ color: 'var(--gray-900)' }}>{config.appName} - Admin</h1>
@@ -172,11 +173,7 @@ export default function AdminUsersPage() {
                   <strong>{user?.username}</strong>
                 </span>
                 <span 
-                  className="text-xs px-2 py-1 rounded-full"
-                  style={{ 
-                    backgroundColor: 'var(--red-100)',
-                    color: 'var(--red-800)'
-                  }}
+                  className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-800"
                 >
                   {user?.role}
                 </span>
@@ -275,7 +272,7 @@ export default function AdminUsersPage() {
                 {/* Page Header */}
                 <div className="flex justify-between items-center">
                   <h2 className="text-xl font-semibold">User Management</h2>
-                  <Button onClick={() => setShowCreateModal(true)}>
+                  <Button onClick={() => setShowCreateModal(true)} className="bg-blue-600 hover:bg-blue-700">
                     Create User
                   </Button>
                 </div>
@@ -301,7 +298,7 @@ export default function AdminUsersPage() {
                 {/* Users Table */}
                 {loading ? (
                   <div className="flex justify-center py-8">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">

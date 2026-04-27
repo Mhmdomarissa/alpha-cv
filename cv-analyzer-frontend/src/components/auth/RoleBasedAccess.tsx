@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 
 interface RoleBasedAccessProps {
   children: ReactNode;
-  allowedRoles: ('admin' | 'user' | 'recruiter' | 'manager')[];
+  allowedRoles: ('admin' | 'user' | 'recruiter' | 'manager' | 'evp')[];
   fallback?: ReactNode;
   hideWhenUnauthorized?: boolean;
 }
