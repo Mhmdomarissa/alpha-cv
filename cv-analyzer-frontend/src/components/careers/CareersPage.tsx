@@ -47,6 +47,15 @@ function toYmd(d: Date) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function formatDate(d?: string) {
+  if (!d || d === 'Unknown') return '—';
+  try {
+    return new Date(d).toLocaleDateString();
+  } catch {
+    return d;
+  }
+}
+
 function downloadWordHtml(filename: string, html: string) {
   const blob = new Blob(
     [
@@ -140,10 +149,32 @@ export default function CareersPage() {
   const [reportTo, setReportTo] = useState(() => toYmd(new Date()));
   const [downloadingReport, setDownloadingReport] = useState(false);
 
-  // Reset to first page when filters change (do not reset when loading more rows — that would jump the user back)
+  // Reset to first page when filters change
   useEffect(() => {
     setListPageIndex(0);
   }, [jobFilter, statusFilter, query]);
+
+  // When user searches, load all remaining pages so results aren't limited to first page
+  useEffect(() => {
+    if (!query.trim()) return;
+    const { totalJobPostings: total, jobPostings: jp } = useCareersStore.getState();
+    if (total != null && jp.length >= total) return;
+    let cancelled = false;
+    const loadAll = async () => {
+      let attempts = 0;
+      while (attempts < 50 && !cancelled) {
+        const { jobPostings: current, totalJobPostings: tot } = useCareersStore.getState();
+        if (tot != null && current.length >= tot) break;
+        const lenBefore = current.length;
+        await loadMoreJobPostings();
+        const lenAfter = useCareersStore.getState().jobPostings.length;
+        if (lenAfter === lenBefore) break;
+        attempts++;
+      }
+    };
+    loadAll();
+    return () => { cancelled = true; };
+  }, [query, loadMoreJobPostings]);
 
   useEffect(() => {
     queueRequest('load-job-postings', async () => {
@@ -369,7 +400,8 @@ export default function CareersPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 bg-gradient-to-b from-gray-50 to-[#eff6ff]/30 min-h-full">
+    <div className="w-full bg-gray-50 min-h-screen">
+      <div className="relative z-10 w-full p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="min-w-0">
@@ -402,10 +434,10 @@ export default function CareersPage() {
           </Button>
           <Button
             onClick={() => setShowCreateForm(true)}
-            className="bg-[#00529b] hover:bg-[#003d73] !text-white border-0"
+            className="bg-gradient-primary text-white border-0 shadow-lg shadow-blue-900/20"
           >
-            <FileText className="w-4 h-4 mr-2 !text-white" />
-            <span className="!text-white">Post JD as File</span>
+            <FileText className="w-4 h-4 mr-2 text-white" />
+            <span className="text-white">Post JD as File</span>
           </Button>
           <AdminOnly>
             {jobPostings.length > 0 && (
@@ -433,10 +465,10 @@ export default function CareersPage() {
 
       {/* Role banners */}
       {user.role === 'admin' && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
+        <div className="bg-blue-600 border border-blue-600 rounded-lg p-3 sm:p-4 text-white shadow-lg shadow-blue-500/20">
           <div className="flex items-start sm:items-center gap-2">
-            <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 sm:mt-0 shrink-0"></div>
-            <p className="text-blue-800 text-xs sm:text-sm">
+            <div className="w-2 h-2 bg-white rounded-full mt-1.5 sm:mt-0 shrink-0"></div>
+            <p className="text-white text-xs sm:text-sm">
               <strong>Admin View:</strong> You can see and manage all job postings in the system.
             </p>
           </div>
@@ -460,7 +492,7 @@ export default function CareersPage() {
                   type="date"
                   value={reportFrom}
                   onChange={(e) => setReportFrom(e.target.value)}
-                  className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+                  className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -469,12 +501,12 @@ export default function CareersPage() {
                   type="date"
                   value={reportTo}
                   onChange={(e) => setReportTo(e.target.value)}
-                  className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+                  className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
               <Button
                 disabled={!reportFrom || !reportTo || downloadingReport}
-                className="bg-[#00529b] hover:bg-[#003d73] !text-white border-0"
+                className="bg-primary hover:bg-blue-700 !text-white border-0 shadow-sm"
                 onClick={async () => {
                   if (downloadingReport) return;
                   setDownloadingReport(true);
@@ -555,7 +587,7 @@ export default function CareersPage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search job title, poster, subject…"
-                className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b]"
+                className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             <div className="inline-flex items-center gap-2">
@@ -563,7 +595,7 @@ export default function CareersPage() {
               <select
                 value={jobFilter}
                 onChange={(e) => setJobFilter(e.target.value as 'all' | 'yours' | 'others')}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b] min-w-0"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-0"
                 title="Ownership filter"
               >
                 <option value="all">All Jobs</option>
@@ -573,7 +605,7 @@ export default function CareersPage() {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as any)}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00529b] focus:border-[#00529b] min-w-0"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-0"
                 title="Status filter"
               >
                 <option value="all">All status</option>
@@ -594,10 +626,10 @@ export default function CareersPage() {
       </div>
       
       {user.role === 'user' && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 sm:p-4">
+        <div className="bg-neutral-100 border border-neutral-200 rounded-lg p-3 sm:p-4">
           <div className="flex items-start sm:items-center gap-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full mt-1.5 sm:mt-0 shrink-0"></div>
-            <p className="text-green-800 text-xs sm:text-sm">
+            <div className="w-2 h-2 bg-neutral-900 rounded-full mt-1.5 sm:mt-0 shrink-0"></div>
+            <p className="text-neutral-900 text-xs sm:text-sm">
               <strong>User View:</strong> You can see all job postings but can only edit and manage the ones you created.
             </p>
           </div>
@@ -616,7 +648,13 @@ export default function CareersPage() {
 
       {/* Job Postings List */}
       <div className="grid gap-6">
-        {filteredJobs.length === 0 ? (
+        {isLoading && jobPostings.length === 0 ? (
+          <div className="grid gap-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <LoadingCard key={i} type="jd" />
+            ))}
+          </div>
+        ) : filteredJobs.length === 0 ? (
           <Card>
             <CardContent className="p-12 text-center">
               <Briefcase className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -635,7 +673,7 @@ export default function CareersPage() {
               <div className="flex justify-center space-x-3">
                 <Button
                   onClick={() => setShowCreateForm(true)}
-                  className="bg-[#00529b] hover:bg-[#003d73] text-white border-0"
+                  className="bg-[neutral-900] hover:bg-[neutral-800] text-white border-0"
                 >
                   <FileText className="w-4 h-4 mr-2" />
                   Post JD as File
@@ -652,11 +690,83 @@ export default function CareersPage() {
                 <CardHeader className="p-4 sm:p-6">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-2">
-                        <CardTitle className="text-lg sm:text-xl break-words">{job.job_title}</CardTitle>
-                        <Badge variant={job.is_active ? "default" : "secondary"}>
-                          {job.is_active ? "Active" : "Inactive"}
-                        </Badge>
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+                          <CardTitle className="text-lg sm:text-xl break-words">{job.job_title}</CardTitle>
+                          <Badge
+                            variant={job.is_active ? "default" : "secondary"}
+                            className={job.is_active ? "bg-blue-600 text-white" : "bg-neutral-100 text-neutral-500"}
+                          >
+                            {job.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </div>
+
+                        {/* All action buttons in a single inline row */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {job.can_edit && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => { e.stopPropagation(); handleEditJob(job); }}
+                              title="Edit"
+                              className="h-8 w-8 p-0 rounded-full text-blue-600 hover:bg-blue-50"
+                              disabled={isLoadingEditData}
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {job.can_edit && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => { e.stopPropagation(); handleToggleStatus(job.job_id, job.is_active); }}
+                              title={job.is_active ? 'Deactivate' : 'Activate'}
+                              className={`h-8 w-8 p-0 rounded-full ${
+                                job.is_active ? 'text-orange-600 hover:bg-orange-50' : 'text-green-600 hover:bg-green-50'
+                              }`}
+                            >
+                              {job.is_active ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+                            </Button>
+                          )}
+                          {job.can_delete && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => { e.stopPropagation(); setShowJobDeleteConfirm(job); }}
+                              title="Delete"
+                              className="h-8 w-8 p-0 rounded-full text-red-600 hover:bg-red-50"
+                              disabled={isDeletingJob === job.job_id}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const jobUrl = `${window.location.origin}/careers/jobs/${job.public_token}`;
+                              navigator.clipboard.writeText(jobUrl);
+                              setCopiedLink(job.job_id);
+                              setTimeout(() => setCopiedLink(null), 2000);
+                            }}
+                            title="Copy public job link"
+                            className="h-8 w-8 p-0 rounded-full text-gray-500 hover:bg-blue-50 hover:text-blue-600"
+                          >
+                            {copiedLink === job.job_id
+                              ? <Check className="w-4 h-4 text-green-600" />
+                              : <Copy className="w-4 h-4" />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => { e.stopPropagation(); window.open(`/careers/jobs/${job.public_token}`, '_blank'); }}
+                            title="View Live Page"
+                            className="h-8 w-8 p-0 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
 
                       {/* User Attribution */}
@@ -664,15 +774,15 @@ export default function CareersPage() {
                         <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm text-gray-500 mb-2">
                           <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                           <span>Posted by: </span>
-                          <span className="font-medium text-gray-700">{job.posted_by_user}</span>
+                          <span className="font-medium text-neutral-900">{job.posted_by_user}</span>
                           {job.posted_by_role === 'admin' && (
-                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">Admin</Badge>
+                            <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700 border-blue-200">Admin</Badge>
                           )}
                           {job.posted_by_role === 'user' && (
-                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">User</Badge>
+                            <Badge variant="outline" className="text-xs bg-neutral-100 text-neutral-500 border-neutral-200">User</Badge>
                           )}
                           {job.posted_by_user === user.username && (
-                            <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">Your Job</Badge>
+                            <Badge variant="outline" className="text-xs bg-primary text-white border-blue-600 shadow-md">Your Job</Badge>
                           )}
                         </div>
                       )}
@@ -689,133 +799,65 @@ export default function CareersPage() {
                       </div>
 
                       {/* Email Subject Template */}
-                      <div className="mt-3">
                         {job.email_subject_template && (
-                          <div className="min-w-0 p-2.5 sm:p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                              <div className="min-w-0 flex-1">
-                                <div className="text-xs font-medium text-blue-700 mb-1">Email Subject for Naukri/Candidates:</div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <code className="text-xs sm:text-sm font-mono text-blue-900 bg-blue-100 px-2 py-1 rounded break-all">
-                                    {job.email_subject_template}
-                                  </code>
-                                  <span className="text-xs text-blue-600">({job.email_subject_id})</span>
-                                </div>
-                              </div>
+                          <div className="mt-4 p-4 rounded-xl bg-gray-50 border border-gray-100 shadow-inner">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-2">
+                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Email / Naukri Subject</span>
+                              <div className="flex flex-wrap items-center justify-end gap-2" />
+                            </div>
+                            <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-2.5 rounded-lg shadow-sm group hover:border-blue-200 transition-colors">
+                              <code className="text-xs sm:text-sm font-mono text-gray-800 break-all flex-1">
+                                {job.email_subject_template}
+                              </code>
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (job.email_subject_template) {
-                                    navigator.clipboard.writeText(job.email_subject_template);
-                                    setCopiedLink(`${job.job_id}-subject`);
-                                    setTimeout(() => setCopiedLink(null), 2000);
-                                  }
+                                  navigator.clipboard.writeText(job.email_subject_template || '');
+                                  setCopiedLink(`${job.job_id}-subject`);
+                                  setTimeout(() => setCopiedLink(null), 2000);
                                 }}
-                                className="shrink-0 text-blue-600 hover:text-blue-700 hover:bg-blue-100"
-                                title="Copy Email Subject"
+                                className="h-8 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-100/50 gap-1.5 rounded-lg transition-all shrink-0"
+                                title="Copy Subject"
                               >
-                                {copiedLink === `${job.job_id}-subject` ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                                {copiedLink === `${job.job_id}-subject` ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                <span className="text-xs font-bold">Copy Subject</span>
                               </Button>
                             </div>
-                            <div className="text-xs text-blue-600 mt-2">
-                              💡 Paste this subject when posting on Naukri or sharing with candidates
-                            </div>
+                            <p className="text-[10px] text-gray-500 mt-2 flex items-center gap-1.5">
+                              <span className="w-1 h-1 rounded-full bg-blue-400" />
+                              Use this subject when posting on job boards or emailing candidates
+                            </p>
                           </div>
                         )}
                       </div>
                     </div>
 
-                    {/* Action buttons */}
-                    <div className="flex flex-wrap items-center justify-end sm:justify-start gap-1 sm:gap-2 sm:ml-4 shrink-0">
-                      {job.can_edit && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => { e.stopPropagation(); handleEditJob(job); }}
-                          title="Edit Job Posting"
-                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                          disabled={isLoadingEditData}
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {job.can_edit && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => { e.stopPropagation(); handleToggleStatus(job.job_id, job.is_active); }}
-                          title={job.is_active ? "Deactivate Job" : "Activate Job"}
-                          className={job.is_active
-                            ? "text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                            : "text-green-600 hover:text-green-700 hover:bg-green-50"
-                          }
-                        >
-                          {job.is_active ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
-                        </Button>
-                      )}
-                      {job.can_delete && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => { e.stopPropagation(); setShowJobDeleteConfirm(job); }}
-                          title="Delete Job Posting"
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          disabled={isDeletingJob === job.job_id}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const jobUrl = `${window.location.origin}/careers/jobs/${job.public_token}`;
-                          navigator.clipboard.writeText(jobUrl);
-                          setCopiedLink(job.job_id);
-                          setTimeout(() => setCopiedLink(null), 2000);
-                        }}
-                        title="Copy Job Link"
-                        className="text-gray-600 hover:text-gray-700 hover:bg-gray-50"
-                      >
-                        {copiedLink === job.job_id ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => { e.stopPropagation(); window.open(`/careers/jobs/${job.public_token}`, '_blank'); }}
-                        title="View Job Posting"
-                        className="text-gray-600 hover:text-gray-700 hover:bg-gray-50"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-
                   {/* Match + View Applied Candidates buttons */}
                   {(job.application_count || 0) > 0 && (
-                    <div className="mt-3 flex flex-col sm:flex-row justify-end gap-2">
+                    <div className="mt-8 pt-4 border-t border-gray-100">
+                      <div className="flex flex-col sm:flex-row justify-end gap-3">
                       <Button
                         size="sm"
                         onClick={(e) => { e.stopPropagation(); handleMatchCandidates(job); }}
                         title="Match Candidates"
-                        className="bg-[#00529b] hover:bg-[#003d73] !text-white w-full sm:w-auto"
+                        className="bg-gradient-primary text-white w-full sm:w-auto shadow-lg shadow-blue-900/20"
                       >
-                        <Target className="w-4 h-4 mr-1 !text-white shrink-0" />
-                        <span className="!text-white truncate">Match ({job.application_count || 0})</span>
+                        <Target className="w-4 h-4 mr-1 text-white shrink-0" />
+                        <span className="text-white truncate">Match ({job.application_count || 0})</span>
                       </Button>
                       <Button
                         size="sm"
                         onClick={() => handleViewApplicants(job)}
-                        className="w-full sm:w-auto bg-[#00529b] hover:bg-[#003d73] !text-white"
+                        className="w-full sm:w-auto bg-gradient-primary text-white shadow-lg shadow-blue-900/20"
                       >
-                        <Users className="w-4 h-4 mr-2 !text-white shrink-0" />
-                        <span className="!text-white truncate">
+                        <Users className="w-4 h-4 mr-2 text-white shrink-0" />
+                        <span className="text-white truncate">
                           View Applied Candidates ({job.application_count || 0})
                         </span>
                       </Button>
+                      </div>
                     </div>
                   )}
                 </CardHeader>
@@ -957,6 +999,7 @@ export default function CareersPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

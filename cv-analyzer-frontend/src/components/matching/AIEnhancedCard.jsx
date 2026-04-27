@@ -198,14 +198,13 @@ export const AIEnhancedCard = ({ candidate }) => {
       
       {/* Actions */}
       <div className="flex gap-3 mt-6">
-        <button className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition">
-          📄 View Full CV
+        <button className="flex-1 px-4 py-2 bg-gradient-primary text-white rounded-lg font-medium transition shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2">
+          <Briefcase className="w-4 h-4 text-white" />
+          <span className="text-white">View Full CV</span>
         </button>
-        <button className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition">
-          📧 Contact
-        </button>
-        <button className="flex-1 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium transition">
-          ⭐ Shortlist
+        <button className="flex-1 px-4 py-2 bg-gradient-primary text-white rounded-lg font-medium transition shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2">
+          <Star className="w-4 h-4 text-white" />
+          <span className="text-white">Shortlist</span>
         </button>
       </div>
     </div>

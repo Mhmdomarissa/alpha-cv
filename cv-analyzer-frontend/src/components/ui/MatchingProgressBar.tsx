@@ -20,36 +20,36 @@ const stageInfo = {
     title: 'Initializing',
     description: 'Setting up AI models and preparing data...',
     icon: Target,
-    color: 'text-[#00529b]',
-    bgColor: 'bg-[#00529b]/10',
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-600/10',
   },
   processing: {
     title: 'Processing CVs',
     description: 'Extracting and analyzing candidate information...',
     icon: Users,
-    color: 'text-[#00529b]',
-    bgColor: 'bg-[#00529b]/10',
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-600/10',
   },
   analyzing: {
     title: 'Analyzing Matches',
     description: 'Comparing skills and experience with job requirements...',
     icon: Brain,
-    color: 'text-[#00529b]',
-    bgColor: 'bg-[#00529b]/10',
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-600/10',
   },
   scoring: {
     title: 'Calculating Scores',
     description: 'Computing weighted match scores and rankings...',
     icon: CheckCircle,
-    color: 'text-[#00529b]',
-    bgColor: 'bg-[#00529b]/10',
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-600/10',
   },
   finalizing: {
     title: 'Finalizing',
     description: 'Preparing your match results...',
     icon: Clock,
-    color: 'text-[#00529b]',
-    bgColor: 'bg-[#00529b]/10',
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-600/10',
   },
 };
 
@@ -85,11 +85,13 @@ export default function MatchingProgressBar({
           : null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[100] p-4 animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 sm:p-8 border border-gray-100 ring-2 ring-[#00529b]/20">
+    <div className="fixed inset-0 z-[100] p-4 animate-fade-in">
+      <div className="absolute inset-0 bg-gradient-to-br from-[#00529b]/25 via-black/40 to-sky-500/20" />
+      <div className="absolute inset-0 backdrop-blur-[2px]" />
+      <div className="relative bg-white/90 backdrop-blur rounded-2xl shadow-2xl max-w-md w-full p-5 sm:p-8 border border-white/60 ring-1 ring-black/5 mx-auto">
         {/* Headline + engaging line */}
         <div className="text-center mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-1 min-h-[1.5em]">
+          <h2 className="text-xl font-extrabold tracking-tight text-gray-900 mb-1 min-h-[1.5em]">
             <Typewriter text="AI Matching in Progress" speed={50} delay={0} cursor={false} />
           </h2>
           <p className="text-sm text-gray-500 min-h-[1.25em]">
@@ -99,8 +101,11 @@ export default function MatchingProgressBar({
 
         {/* Current stage icon with pulse */}
         <div className="flex justify-center mb-6">
-          <div className={`w-20 h-20 rounded-2xl ${stage.bgColor} flex items-center justify-center animate-matching-pulse`}>
-            <Icon className={`w-10 h-10 ${stage.color}`} />
+          <div className="relative">
+            <div className="absolute -inset-2 rounded-3xl bg-gradient-to-br from-[#00529b]/25 to-sky-500/15 blur-md" />
+            <div className={`relative w-20 h-20 rounded-2xl ${stage.bgColor} flex items-center justify-center animate-matching-pulse border border-[#00529b]/15`}>
+              <Icon className={`w-10 h-10 ${stage.color}`} />
+            </div>
           </div>
         </div>
 
@@ -119,13 +124,13 @@ export default function MatchingProgressBar({
         <div className="mb-4">
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm font-medium text-gray-700">{stage.title}</span>
-            <span className="text-sm font-semibold text-[#00529b]">
+            <span className="text-sm font-semibold text-blue-600">
               {processedCVs} / {totalCVs}
             </span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
             <div
-              className="h-full bg-[#00529b] rounded-full transition-[width] duration-500 ease-out"
+              className="h-full bg-gradient-primary rounded-full transition-[width] duration-500 ease-out"
               style={{ width: `${Math.max(2, progress)}%` }}
             />
           </div>
@@ -133,7 +138,7 @@ export default function MatchingProgressBar({
             <Typewriter key={currentStage} text={stage.description} speed={30} delay={0} cursor={false} />
           </p>
           {batchStatusMessage && (
-            <p className="text-xs font-medium text-[#00529b] mt-2 flex items-center gap-1.5">
+            <p className="text-xs font-medium text-blue-600 mt-2 flex items-center gap-1.5">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#00529b] animate-matching-dot" />
               {batchStatusMessage}
             </p>

@@ -11,7 +11,9 @@ import {
   Briefcase
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import { Button } from '@/components/ui/button';
 import { TypewriterCycle } from '@/components/ui/Typewriter';
+import { Skeleton } from '@/components/ui/loading';
 
 export default function DashboardPage() {
   const {
@@ -23,7 +25,8 @@ export default function DashboardPage() {
     setCurrentTab,
     setDatabaseActiveTab,
     loadCVs,
-    loadJDs
+    loadJDs,
+    loadingStates
   } = useAppStore();
 
   const cvCount = totalCVs ?? cvs.length;
@@ -36,15 +39,16 @@ export default function DashboardPage() {
   }, [loadCVs, loadJDs]);
 
   return (
-    <div className="space-y-8 min-h-full">
+    <div className="w-full bg-gray-50 min-h-screen">
+      <div className="w-full max-w-7xl mx-auto space-y-8 py-8 px-4 sm:px-6 lg:px-8 relative z-10">
       <div className="text-center space-y-3 sm:space-y-4 px-1">
         <div className="flex justify-center">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-white border border-gray-200 shadow-sm">
-            <svg width="36" height="36" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <g transform="translate(0,200) scale(0.1,-0.1)" fill="#00529b">
-                <path d="M0 1000 l0 -1000 1000 0 1000 0 0 1000 0 1000 -1000 0 -1000 0 0 -1000z m925 779 c-153 -31 -275 -94 -275 -142 0 -11 -20 -62 -44 -111 -25 -50 -50 -118 -57 -151 -11 -53 -10 -65 6 -99 26 -54 21 -90 -21 -159 -27 -46 -37 -74 -38 -107 l-1 -45 53 -3 52 -3 0 -38 c0 -23 6 -44 15 -51 11 -9 13 -16 5 -24 -16 -16 -12 -44 9 -56 17 -9 19 -18 14 -85 -5 -63 -3 -75 11 -81 31 -12 5 -24 -52 -24 -37 0 -66 6 -81 16 -22 16 -23 22 -18 91 5 66 4 74 -15 84 -16 9 -19 17 -14 44 4 19 2 36 -4 40 -5 3 -10 21 -10 40 0 36 -13 46 -53 38 -69 -13 -74 46 -12 163 25 46 45 91 45 98 0 7 -9 34 -20 58 -17 40 -18 53 -9 104 5 33 30 100 55 150 24 49 44 100 44 111 0 22 42 63 89 87 82 42 230 74 346 74 l70 0 -90 -19z m55 -1181 c27 -29 38 -73 45 -188 5 -72 4 -99 -7 -111 -14 -18 -119 -91 -123 -87 -2 2 2 27 8 56 9 43 8 64 -6 116 -9 36 -17 79 -17 98 -1 40 -25 111 -40 116 -5 2 -10 8 -10 13 0 5 29 9 65 9 53 0 68 -4 85 -22z" />
-              </g>
-            </svg>
+          <div className="flex items-center justify-center">
+            <img
+              src="/alphadatalogo.svg"
+              alt="Alpha Data Logo"
+              className="w-20 h-20 sm:w-24 sm:h-24 object-contain"
+            />
           </div>
         </div>
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Welcome to Alpha CV</h1>
@@ -67,10 +71,14 @@ export default function DashboardPage() {
           onClick={() => { setDatabaseActiveTab('cvs'); setCurrentTab('database'); }}
           className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-shadow w-full text-left animate-fade-in-up animation-delay-100"
         >
-          <div className="w-12 h-12 rounded-xl bg-[#00529b]/10 border border-[#00529b]/10 flex items-center justify-center mb-4">
-            <Users className="w-6 h-6 text-[#00529b]" />
+          <div className="w-12 h-12 rounded-xl bg-gradient-primary flex items-center justify-center mb-4 shadow-lg shadow-blue-900/20">
+            <Users className="w-6 h-6 text-white" />
           </div>
-          <div className="text-2xl font-bold text-gray-800">{cvCount}</div>
+          {loadingStates.cvs.isLoading ? (
+            <Skeleton width="40px" height="32px" className="mb-1" />
+          ) : (
+            <div className="text-2xl font-bold text-gray-800">{cvCount}</div>
+          )}
           <p className="text-ui font-medium text-gray-600">Candidates</p>
           <p className="text-caption text-gray-500">Ready for matching</p>
         </button>
@@ -79,19 +87,27 @@ export default function DashboardPage() {
           onClick={() => { setDatabaseActiveTab('jds'); setCurrentTab('database'); }}
           className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-shadow w-full text-left animate-fade-in-up animation-delay-200"
         >
-          <div className="w-12 h-12 rounded-xl bg-[#00529b]/10 border border-[#00529b]/10 flex items-center justify-center mb-4">
-            <Briefcase className="w-6 h-6 text-[#00529b]" />
+          <div className="w-12 h-12 rounded-xl bg-gradient-primary flex items-center justify-center mb-4 shadow-lg shadow-blue-900/20">
+            <Briefcase className="w-6 h-6 text-white" />
           </div>
-          <div className="text-2xl font-bold text-gray-800">{jdCount}</div>
+          {loadingStates.jds.isLoading ? (
+            <Skeleton width="40px" height="32px" className="mb-1" />
+          ) : (
+            <div className="text-2xl font-bold text-gray-800">{jdCount}</div>
+          )}
           <p className="text-ui font-medium text-gray-600">Job Positions</p>
           <p className="text-caption text-gray-500">Available for matching</p>
         </button>
 
         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm transition-shadow hover:shadow-md animate-fade-in-up animation-delay-300">
-          <div className="w-12 h-12 rounded-xl bg-[#00529b]/10 border border-[#00529b]/10 flex items-center justify-center mb-4">
-            <Award className="w-6 h-6 text-[#00529b]" />
+          <div className="w-12 h-12 rounded-xl bg-gradient-primary flex items-center justify-center mb-4 shadow-lg shadow-blue-900/20">
+            <Award className="w-6 h-6 text-white" />
           </div>
-          <div className="text-2xl font-bold text-gray-800">{totalMatches}</div>
+          {loadingStates.cvs.isLoading || loadingStates.jds.isLoading ? (
+            <Skeleton width="40px" height="32px" className="mb-1" />
+          ) : (
+            <div className="text-2xl font-bold text-gray-800">{totalMatches}</div>
+          )}
           <p className="text-ui font-medium text-gray-600">AI Matches</p>
           <p className="text-caption text-gray-500">Generated so far</p>
         </div>
@@ -114,29 +130,27 @@ export default function DashboardPage() {
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             {(cvCount === 0 || jdCount === 0) ? (
-              <button
+              <Button
                 onClick={() => setCurrentTab('upload')}
-                className="inline-flex items-center justify-center px-4 py-2.5 bg-[#00529b] hover:bg-[#003d73] text-white font-semibold rounded-lg transition-colors"
               >
                 <Upload className="w-4 h-4 mr-2" />
                 Upload documents
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 onClick={() => { setDatabaseActiveTab('cvs'); setCurrentTab('database'); }}
-                className="inline-flex items-center justify-center px-4 py-2.5 bg-[#00529b] hover:bg-[#003d73] text-white font-semibold rounded-lg transition-colors"
               >
                 <Database className="w-4 h-4 mr-2" />
                 Go to Database
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               onClick={() => setCurrentTab('careers')}
-              className="inline-flex items-center justify-center px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold rounded-lg transition-colors"
+              variant="outline"
             >
               <Briefcase className="w-4 h-4 mr-2" />
               Manage jobs
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -144,16 +158,16 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
         <div className="bg-white rounded-xl p-5 sm:p-8 border border-gray-200 shadow-sm animate-fade-in-up animation-delay-200">
           <div className="flex items-center space-x-4 mb-6">
-            <div className="w-12 h-12 rounded-lg bg-[#00529b] flex items-center justify-center">
-              <svg width="24" height="24" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-white">
-                <g transform="translate(0,200) scale(0.1,-0.1)" fill="currentColor">
-                  <path d="M0 1000 l0 -1000 1000 0 1000 0 0 1000 0 1000 -1000 0 -1000 0 0 -1000z m925 779 c-153 -31 -275 -94 -275 -142 0 -11 -20 -62 -44 -111 -25 -50 -50 -118 -57 -151 -11 -53 -10 -65 6 -99 26 -54 21 -90 -21 -159 -27 -46 -37 -74 -38 -107 l-1 -45 53 -3 52 -3 0 -38 c0 -23 6 -44 15 -51 11 -9 13 -16 5 -24 -16 -16 -12 -44 9 -56 17 -9 19 -18 14 -85 -5 -63 -3 -75 11 -81 31 -12 5 -24 -52 -24 -37 0 -66 6 -81 16 -22 16 -23 22 -18 91 5 66 4 74 -15 84 -16 9 -19 17 -14 44 4 19 2 36 -4 40 -5 3 -10 21 -10 40 0 36 -13 46 -53 38 -69 -13 -74 46 -12 163 25 46 45 91 45 98 0 7 -9 34 -20 58 -17 40 -18 53 -9 104 5 33 30 100 55 150 24 49 44 100 44 111 0 22 42 63 89 87 82 42 230 74 346 74 l70 0 -90 -19z m55 -1181 c27 -29 38 -73 45 -188 5 -72 4 -99 -7 -111 -14 -18 -119 -91 -123 -87 -2 2 2 27 8 56 9 43 8 64 -6 116 -9 36 -17 79 -17 98 -1 40 -25 111 -40 116 -5 2 -10 8 -10 13 0 5 29 9 65 9 53 0 68 -4 85 -22z" />
-                </g>
-              </svg>
+            <div className="w-12 h-12 rounded-lg bg-gradient-primary flex items-center justify-center shadow-lg shadow-blue-900/20">
+              <img
+                src="/alphadatalogo.svg"
+                alt="Alpha Data Logo"
+                className="w-8 h-8 object-contain brightness-0 invert"
+              />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-slate-800">Quick Actions</h3>
-              <p className="text-slate-600 font-medium">Get started with your CV matching workflow</p>
+              <h3 className="text-xl font-bold text-neutral-900">Quick Actions</h3>
+              <p className="text-neutral-600 font-medium">Get started with your CV matching workflow</p>
             </div>
           </div>
           <div className="space-y-3">
@@ -162,7 +176,7 @@ export default function DashboardPage() {
               className="w-full flex items-center justify-between p-4 rounded-lg bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors text-left"
             >
               <div className="flex items-center space-x-4">
-                <div className="w-10 h-10 rounded-lg bg-[#00529b] flex items-center justify-center">
+                <div className="w-10 h-10 rounded-lg bg-gradient-primary flex items-center justify-center shadow-md">
                   <Upload className="w-5 h-5 text-white" />
                 </div>
                 <div>
@@ -178,7 +192,7 @@ export default function DashboardPage() {
               className="w-full flex items-center justify-between p-4 rounded-lg bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center space-x-4">
-                <div className="w-10 h-10 rounded-lg bg-green-600 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-lg bg-gradient-primary flex items-center justify-center shadow-md">
                   <Database className="w-5 h-5 text-white" />
                 </div>
                 <div>
@@ -194,7 +208,7 @@ export default function DashboardPage() {
 
         <div className="bg-white rounded-xl p-5 sm:p-8 border border-gray-200 shadow-sm animate-fade-in-up animation-delay-300">
           <div className="flex items-center space-x-4 mb-6">
-            <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-lg bg-gradient-primary flex items-center justify-center shadow-lg shadow-blue-900/20">
               <BarChart3 className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -203,17 +217,16 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="text-center py-8">
-            <div className="w-16 h-16 bg-green-100 rounded-full mx-auto flex items-center justify-center mb-4">
-              <BarChart3 className="w-8 h-8 text-green-600" />
+            <div className="w-16 h-16 bg-blue-50/50 rounded-full mx-auto flex items-center justify-center mb-4 border border-blue-100">
+              <BarChart3 className="w-8 h-8 text-[#00529b]" />
             </div>
             <h4 className="text-lg font-semibold text-gray-800 mb-2">View Recent Matches</h4>
             <p className="text-gray-600 mb-4">Check candidate rankings and match results</p>
-            <button
+            <Button
               onClick={() => setCurrentTab('match')}
-              className="px-6 py-3 bg-[#00529b] hover:bg-[#003d73] text-white font-semibold rounded-lg transition-colors"
             >
               View Recent Matches
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -221,7 +234,7 @@ export default function DashboardPage() {
       <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-lg bg-gradient-primary flex items-center justify-center shadow-lg shadow-blue-900/20">
               <CheckCircle className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -230,11 +243,12 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: '#10b981' }} />
-            <span className="text-sm font-medium text-green-600">Online</span>
+            <div className="w-3 h-3 rounded-full animate-pulse bg-[#00529b]" />
+            <span className="text-sm font-medium text-[#00529b]">Online</span>
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }

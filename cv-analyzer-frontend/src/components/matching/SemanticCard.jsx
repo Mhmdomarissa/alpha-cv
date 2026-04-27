@@ -95,11 +95,11 @@ export const SemanticCard = ({ candidate }) => {
 
             {/* Actions */}
             <div className="flex gap-2">
-                <button className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg font-medium transition">
-                    📄 View Details
+                <button className="flex-1 px-3 py-2 bg-gradient-primary text-white text-sm rounded-lg font-medium transition shadow-lg shadow-blue-900/10">
+                    View Details
                 </button>
-                <button className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg font-medium transition">
-                    📧 Contact
+                <button className="flex-1 px-3 py-2 bg-gradient-primary text-white text-sm rounded-lg font-medium transition shadow-lg shadow-blue-900/10">
+                    Shortlist
                 </button>
             </div>
         </div>

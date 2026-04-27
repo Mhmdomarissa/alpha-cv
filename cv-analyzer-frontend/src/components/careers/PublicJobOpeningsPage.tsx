@@ -183,7 +183,7 @@ export default function PublicJobOpeningsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#f7fbff] via-white to-white">
+    <div className="min-h-screen bg-transparent">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-12">
         {/* Hero */}
         <div className="mb-8 rounded-3xl border border-gray-200/70 bg-white/80 backdrop-blur shadow-[0_10px_30px_-18px_rgba(2,6,23,0.25)] overflow-hidden">

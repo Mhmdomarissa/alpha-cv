@@ -39,7 +39,7 @@ export default function ProfessionalJobPage({ token }: ProfessionalJobPageProps)
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 py-12">
+      <div className="min-h-screen bg-transparent py-12">
         <div className="max-w-4xl mx-auto px-6">
           <LoadingCard count={1} />
         </div>
@@ -81,168 +81,178 @@ export default function ProfessionalJobPage({ token }: ProfessionalJobPageProps)
   }
 
   return (
-    <div className="professional-job-layout">
-      {/* Header with Logo and Apply Button */}
-      <div className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-4xl mx-auto px-6 py-6">
+    <div className="min-h-screen bg-transparent">
+      {/* Premium Header */}
+      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-200/60 shadow-sm">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
-            {/* AlphaData Logo */}
-            <div className="flex items-center space-x-3">
-              <div className="w-20 h-16 flex items-center justify-center">
-                <img 
-                  src="https://www.alphadatarecruitment.ae/wp-content/uploads/2020/07/130-60.svg"
-                  alt="AlphaData Recruitment"
-                  className="h-14 w-auto object-contain"
-                  onError={(e) => {
-                    // Fallback to briefcase icon if image fails to load
-                    e.currentTarget.style.display = 'none';
-                    const fallback = e.currentTarget.nextElementSibling as HTMLElement;
-                    if (fallback) fallback.style.display = 'flex';
-                  }}
-                />
-                <div className="alphadata-logo w-16 h-16 rounded-lg items-center justify-center hidden">
-                  <Briefcase className="w-8 h-8 text-white" />
+            <div className="flex items-center gap-4">
+              <div className="relative group">
+                <div className="absolute -inset-1 bg-gradient-primary rounded-xl blur opacity-25 group-hover:opacity-40 transition duration-300"></div>
+                <div className="relative w-14 h-14 bg-white rounded-xl border border-gray-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
+                  <img 
+                    src="/alphadatalogo.svg"
+                    alt="Alpha CV"
+                    className="h-10 w-10 object-contain"
+                  />
                 </div>
               </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">AlphaData</h1>
-                <p className="text-sm text-gray-600">Recruitment Solutions</p>
+              <div className="hidden sm:block">
+                <h1 className="text-lg font-bold text-gray-900 leading-tight">AlphaData</h1>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Recruitment Solutions</p>
               </div>
             </div>
 
-            {/* Apply Button - Top Right */}
-            {publicJob.is_active && (
-              <Button
-                onClick={() => setShowApplicationForm(true)}
-                className="btn-professional animate-scale-in"
-              >
-                Apply Now
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        <div className="space-y-8">
-          {/* Job Title and Location */}
-          <div className="text-center space-y-4 animate-slide-in-up">
-            <h1 className="text-4xl md:text-5xl font-bold text-gray-900 job-title-mobile">
-              {publicJob.job_title || 'Open Position'}
-            </h1>
-            <div className="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-6 text-gray-600">
-              {publicJob.job_location && (
-                <div className="flex items-center space-x-2">
-                  <MapPin className="w-5 h-5" />
-                  <span>{publicJob.job_location}</span>
-                </div>
-              )}
-              <div className="flex items-center space-x-2">
-                <Building className="w-5 h-5" />
-                <span>{publicJob.company_name || 'AlphaData Recruitment'}</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Calendar className="w-5 h-5" />
-                <span>Posted {formatDate(publicJob.upload_date)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Job Summary Section */}
-          <div className="job-section-card animate-slide-in-up">
-            <CardHeader>
-              <CardTitle className="text-xl font-semibold text-gray-900">
-                Job Summary:
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="prose prose-gray max-w-none">
-                <div className="whitespace-pre-wrap text-gray-700 leading-relaxed">
-                  {publicJob.job_description}
-                </div>
-              </div>
-            </CardContent>
-          </div>
-
-          {/* Key Responsibilities Section */}
-          {publicJob.responsibilities && publicJob.responsibilities.filter(Boolean).length > 0 && (
-            <div className="job-section-card animate-slide-in-up">
-              <CardHeader>
-                <CardTitle className="text-xl font-semibold text-gray-900">
-                  Key Responsibilities:
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {publicJob.responsibilities
-                    .filter((r: string) => r && r.trim())
-                    .map((responsibility: string, idx: number) => (
-                      <div key={idx} className="flex items-start space-x-3">
-                        <Users className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                        <span className="text-gray-700">{responsibility}</span>
-                      </div>
-                    ))}
-                </div>
-              </CardContent>
-            </div>
-          )}
-
-          {/* Qualifications Section */}
-          {publicJob.requirements && publicJob.requirements.filter(Boolean).length > 0 && (
-            <div className="job-section-card animate-slide-in-up">
-              <CardHeader>
-                <CardTitle className="text-xl font-semibold text-gray-900">
-                  Qualifications:
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {publicJob.requirements
-                    .filter((req: string) => req && req.trim())
-                    .map((requirement: string, idx: number) => (
-                      <div key={idx} className="flex items-start space-x-3">
-                        <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
-                        <span className="text-gray-700">{requirement}</span>
-                      </div>
-                    ))}
-                </div>
-              </CardContent>
-            </div>
-          )}
-
-          {/* Bottom Apply Button */}
-          <div className="text-center py-8 animate-slide-in-up">
             {publicJob.is_active ? (
               <Button
                 onClick={() => setShowApplicationForm(true)}
-                className="btn-professional text-lg px-8 py-3"
+                className="bg-gradient-primary text-white shadow-lg shadow-blue-900/20 px-6 h-11 font-semibold rounded-xl hover:scale-[1.02] transition-all"
+                title="Apply now"
               >
                 Apply Now
               </Button>
             ) : (
-              <div className="text-center space-y-4">
-                <div className="w-16 h-16 bg-red-100 rounded-full mx-auto flex items-center justify-center">
-                  <AlertCircle className="w-8 h-8 text-red-600" />
+              <div className="px-4 py-2 rounded-xl bg-neutral-100 border border-neutral-200 text-neutral-600 text-sm font-semibold">
+                No longer accepting candidates
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
+        <div className="grid grid-cols-1 gap-6">
+          {/* Main Job Info */}
+          <div className="space-y-6">
+            {/* Hero Card */}
+            <div className="bg-white rounded-3xl border border-gray-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+              <div className="p-6 sm:p-7 relative">
+                <div className="relative space-y-4 text-center">
+                  <h1 className="text-2xl sm:text-4xl font-extrabold text-gray-900 tracking-tight leading-tight">
+                    {publicJob.job_title || 'Open Position'}
+                  </h1>
+
+                  <div className="mx-auto w-full max-w-3xl grid grid-cols-1 sm:grid-cols-3 gap-4 text-gray-600 place-items-center">
+                    <div className="flex items-center gap-2.5 justify-center">
+                      <div className="w-9 h-9 rounded-full bg-gray-50 flex items-center justify-center border border-gray-100">
+                        <MapPin className="w-4.5 h-4.5 text-gray-500" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Location</p>
+                        <p className="text-sm font-semibold text-gray-700">{publicJob.job_location || 'UAE'}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2.5 justify-center">
+                      <div className="w-9 h-9 rounded-full bg-gray-50 flex items-center justify-center border border-gray-100">
+                        <Building className="w-4.5 h-4.5 text-gray-500" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Company</p>
+                        <p className="text-sm font-semibold text-gray-700">{publicJob.company_name || 'AlphaData'}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 justify-center">
+                      <div className="w-9 h-9 rounded-full bg-gray-50 flex items-center justify-center border border-gray-100">
+                        <Calendar className="w-4.5 h-4.5 text-gray-500" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Posted On</p>
+                        <p className="text-sm font-semibold text-gray-700">{formatDate(publicJob.upload_date)}</p>
+                      </div>
+                    </div>
                 </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-red-700">No Longer Accepting Applications</h3>
-                  <p className="text-gray-600 mt-2">
-                    This job posting is no longer active and is not accepting new applications.
-                  </p>
-                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        </div>
+
+        {/* Content Sections - Full Width Below Hero */}
+        <div className="mt-8 space-y-6">
+          {/* Job Summary */}
+          <div className="bg-white rounded-3xl border border-gray-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 sm:p-8">
+            <h2 className="text-xl sm:text-2xl font-extrabold text-gray-900 mb-5 flex items-center gap-3">
+              <div className="w-2 h-7 bg-gradient-primary rounded-full"></div>
+              Job Summary
+            </h2>
+            <div className="prose prose-blue max-w-none text-gray-700 text-base leading-relaxed whitespace-pre-wrap">
+              {publicJob.job_description}
+            </div>
+          </div>
+
+          {/* Responsibilities */}
+          {publicJob.responsibilities && publicJob.responsibilities.filter(Boolean).length > 0 && (
+            <div className="bg-white rounded-3xl border border-gray-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 sm:p-8">
+              <h2 className="text-xl sm:text-2xl font-extrabold text-gray-900 mb-5 flex items-center gap-3">
+                <div className="w-2 h-7 bg-gradient-primary rounded-full"></div>
+                Key Responsibilities
+              </h2>
+              <div className="grid grid-cols-1 gap-3">
+                {publicJob.responsibilities
+                  .filter((r: string) => r && r.trim())
+                  .map((responsibility: string, idx: number) => (
+                    <div key={idx} className="flex items-start gap-3 p-4 rounded-2xl border border-gray-100 bg-gray-50/30 hover:bg-white hover:border-blue-200 hover:shadow-md transition-all duration-300 group">
+                      <div className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0 mt-0.5 group-hover:bg-gradient-primary transition-colors">
+                        <Users className="w-3.5 h-3.5 text-[#00529b] group-hover:text-white" />
+                      </div>
+                      <span className="text-gray-700 font-semibold leading-relaxed text-sm sm:text-base">{responsibility}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Qualifications */}
+          {publicJob.requirements && publicJob.requirements.filter(Boolean).length > 0 && (
+            <div className="bg-white rounded-3xl border border-gray-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 sm:p-8">
+              <h2 className="text-xl sm:text-2xl font-extrabold text-gray-900 mb-5 flex items-center gap-3">
+                <div className="w-2 h-7 bg-gradient-primary rounded-full"></div>
+                Qualifications & Requirements
+              </h2>
+              <div className="grid grid-cols-1 gap-3">
+                {publicJob.requirements
+                  .filter((req: string) => req && req.trim())
+                  .map((requirement: string, idx: number) => (
+                    <div key={idx} className="flex items-start gap-3 p-4 rounded-2xl border border-gray-100 bg-blue-50/20 hover:bg-white hover:border-blue-200 hover:shadow-md transition-all duration-300 group">
+                      <div className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0 mt-0.5 group-hover:bg-gradient-primary transition-colors">
+                        <CheckCircle className="w-3.5 h-3.5 text-[#00529b] group-hover:text-white" />
+                      </div>
+                      <span className="text-gray-700 font-semibold leading-relaxed text-sm sm:text-base">{requirement}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Apply CTA (between Qualifications/Responsibilities and Related Openings) */}
+          <div className="flex justify-center">
+            {publicJob.is_active ? (
+              <Button
+                onClick={() => setShowApplicationForm(true)}
+                className="bg-gradient-primary text-white shadow-lg shadow-blue-900/20 px-10 h-12 font-semibold rounded-2xl hover:scale-[1.02] transition-all"
+              >
+                Apply Now
+              </Button>
+            ) : (
+              <div className="px-5 py-3 rounded-2xl bg-neutral-100 border border-neutral-200 text-neutral-600 text-sm font-semibold">
+                No longer accepting candidates
               </div>
             )}
           </div>
 
-          {/* More Openings Section */}
-          <div className="mt-16 pt-8 border-t border-gray-200 animate-slide-in-up">
-            <div className="job-section-card">
-              <MoreOpenings currentJobToken={token} />
-            </div>
+          {/* Related Jobs / More Openings */}
+          <div className="bg-white rounded-3xl border border-gray-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 sm:p-12 overflow-hidden">
+            <h3 className="text-2xl font-extrabold text-gray-900 mb-8 flex items-center gap-3">
+              <div className="w-2 h-8 bg-gradient-primary rounded-full"></div>
+              Related Openings
+            </h3>
+            <MoreOpenings currentJobToken={token} />
           </div>
         </div>
-      </div>
+      </main>
 
       {/* Application Form Modal/Overlay */}
       {showApplicationForm && (

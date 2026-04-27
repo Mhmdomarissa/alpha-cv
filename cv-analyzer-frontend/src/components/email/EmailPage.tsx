@@ -122,15 +122,15 @@ export default function EmailPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
+      <div className="bg-white rounded-2xl p-6 border border-neutral-200 shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] flex items-center justify-center">
+            <div className="w-12 h-12 rounded-xl bg-neutral-900 flex items-center justify-center">
               <Mail className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">Email CV Processing</h1>
-              <p className="text-sm text-slate-600">Automatic email processing with backend scheduler</p>
+              <h1 className="text-2xl font-bold text-neutral-900">Email CV Processing</h1>
+              <p className="text-sm text-neutral-500">Automatic email processing with backend scheduler</p>
             </div>
           </div>
           <button
@@ -138,7 +138,7 @@ export default function EmailPage() {
               loadHealth();
               loadStatus();
             }}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors duration-200 flex items-center space-x-2"
+            className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 rounded-xl transition-colors duration-200 flex items-center space-x-2"
           >
             <RefreshCw className="w-4 h-4" />
             <span>Refresh</span>
@@ -147,13 +147,13 @@ export default function EmailPage() {
       </div>
 
       {/* Automatic Processing Info */}
-      <div className="bg-gradient-to-r from-[rgba(0,82,155,0.7)] to-[rgba(0,61,115,0.7)] rounded-2xl p-6 border border-white/30 shadow-lg text-white">
+      <div className="bg-neutral-900 rounded-2xl p-6 border border-neutral-800 shadow-lg text-white">
         <div className="flex items-center space-x-3 mb-4">
           <PlayCircle className="w-6 h-6" />
           <h2 className="text-xl font-semibold">Automatic Email Processing</h2>
         </div>
         
-        <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
+        <div className="bg-white/10 rounded-xl p-4">
           <p className="text-sm text-white/90">
             <strong>✅ Running:</strong> The backend automatically checks for new emails every 5 minutes. 
             This happens in the background without any user interaction required.
@@ -166,76 +166,75 @@ export default function EmailPage() {
 
       {/* Health Status */}
       {health && (
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center space-x-2">
-            <AlertCircle className="w-5 h-5" />
+        <div className="bg-white rounded-2xl p-6 border border-neutral-200 shadow-sm">
+          <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center space-x-2">
+            <AlertCircle className="w-5 h-5 text-neutral-900" />
             <span>Email Service Health</span>
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="flex items-center space-x-3">
               {health.azure_connection ? (
-                <CheckCircle className="w-5 h-5 text-green-500" />
+                <CheckCircle className="w-5 h-5 text-neutral-900" />
               ) : (
-                <XCircle className="w-5 h-5 text-red-500" />
+                <XCircle className="w-5 h-5 text-neutral-400" />
               )}
               <div>
-                <p className="text-sm font-medium text-slate-700">Azure Connection</p>
-                <p className="text-xs text-slate-500">
+                <p className="text-sm font-medium text-neutral-900">Azure Connection</p>
+                <p className="text-xs text-neutral-500">
                   {health.azure_connection ? 'Connected' : 'Disconnected'}
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-3">
               {health.mailbox_accessible ? (
-                <CheckCircle className="w-5 h-5 text-green-500" />
+                <CheckCircle className="w-5 h-5 text-neutral-900" />
               ) : (
-                <XCircle className="w-5 h-5 text-red-500" />
+                <XCircle className="w-5 h-5 text-neutral-400" />
               )}
               <div>
-                <p className="text-sm font-medium text-slate-700">Mailbox Access</p>
-                <p className="text-xs text-slate-500">
+                <p className="text-sm font-medium text-neutral-900">Mailbox Access</p>
+                <p className="text-xs text-neutral-500">
                   {health.mailbox_accessible ? 'Accessible' : 'Not accessible'}
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-3">
               {health.access_token_valid ? (
-                <CheckCircle className="w-5 h-5 text-green-500" />
+                <CheckCircle className="w-5 h-5 text-neutral-900" />
               ) : (
-                <XCircle className="w-5 h-5 text-red-500" />
+                <XCircle className="w-5 h-5 text-neutral-400" />
               )}
               <div>
-                <p className="text-sm font-medium text-slate-700">Access Token</p>
-                <p className="text-xs text-slate-500">
+                <p className="text-sm font-medium text-neutral-900">Access Token</p>
+                <p className="text-xs text-neutral-500">
                   {health.access_token_valid ? 'Valid' : 'Invalid'}
                 </p>
               </div>
             </div>
           </div>
           {health.error_message && (
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-800">{health.error_message}</p>
+            <div className="mt-4 p-3 bg-neutral-50 border border-neutral-200 rounded-lg">
+              <p className="text-sm text-neutral-900">{health.error_message}</p>
             </div>
           )}
         </div>
       )}
 
       {/* Manual Processing */}
-      <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
-        <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center space-x-2">
+      <div className="bg-white rounded-2xl p-6 border border-neutral-200 shadow-sm">
+        <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center space-x-2">
           <Mail className="w-5 h-5" />
           <span>Manual Email Processing</span>
         </h2>
-        <p className="text-sm text-slate-600 mb-6">
+        <p className="text-sm text-neutral-500 mb-6">
           Trigger immediate email processing independently of the automatic scheduler. This will check for new CV attachments right now.
         </p>
         <button
           onClick={processEmails}
           disabled={isProcessing}
-          className="w-full px-6 py-3 rounded-xl font-semibold text-white transition-all duration-200 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full px-6 py-3 rounded-xl font-semibold text-white transition-all duration-200 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed bg-neutral-900 hover:bg-neutral-800"
           style={{ 
-            background: isProcessing ? '#64748b' : 'linear-gradient(135deg, rgba(0,82,155,0.7) 0%, rgba(0,61,115,0.7) 100%)',
-            boxShadow: isProcessing ? 'none' : '0 4px 16px rgba(0, 61, 115, 0.3)',
+            boxShadow: isProcessing ? 'none' : '0 4px 16px rgba(0, 0, 0, 0.1)',
           }}
         >
           <RefreshCw className={`w-5 h-5 ${isProcessing ? 'animate-spin' : ''}`} />
@@ -245,14 +244,14 @@ export default function EmailPage() {
 
       {/* Processing Results */}
       {processingResult && (
-        <div className={`bg-white/80 backdrop-blur-sm rounded-2xl p-6 border shadow-lg ${
-          processingResult.success ? 'border-green-200' : 'border-red-200'
+        <div className={`bg-white rounded-2xl p-6 border shadow-sm ${
+          processingResult.success ? 'border-neutral-900' : 'border-neutral-200'
         }`}>
-          <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center space-x-2">
+          <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center space-x-2">
             {processingResult.success ? (
-              <CheckCircle className="w-5 h-5 text-green-500" />
+              <CheckCircle className="w-5 h-5 text-neutral-900" />
             ) : (
-              <XCircle className="w-5 h-5 text-red-500" />
+              <XCircle className="w-5 h-5 text-neutral-400" />
             )}
             <span>Processing Results</span>
           </h2>
@@ -260,17 +259,17 @@ export default function EmailPage() {
             <p className="text-sm text-slate-700">{processingResult.message}</p>
             {processingResult.processed_count !== undefined && (
               <div className="grid grid-cols-3 gap-4">
-                <div className="p-3 bg-blue-50 rounded-lg">
-                  <p className="text-xs text-blue-600 font-medium">Total Processed</p>
-                  <p className="text-2xl font-bold text-blue-800">{processingResult.processed_count}</p>
+                <div className="p-3 bg-neutral-900 rounded-lg">
+                  <p className="text-xs text-white/70 font-medium">Total Processed</p>
+                  <p className="text-2xl font-bold text-white">{processingResult.processed_count}</p>
                 </div>
-                <div className="p-3 bg-green-50 rounded-lg">
-                  <p className="text-xs text-green-600 font-medium">Successful</p>
-                  <p className="text-2xl font-bold text-green-800">{processingResult.successful_count}</p>
+                <div className="p-3 bg-neutral-100 rounded-lg">
+                  <p className="text-xs text-neutral-500 font-medium">Successful</p>
+                  <p className="text-2xl font-bold text-neutral-900">{processingResult.successful_count}</p>
                 </div>
-                <div className="p-3 bg-red-50 rounded-lg">
-                  <p className="text-xs text-red-600 font-medium">Failed</p>
-                  <p className="text-2xl font-bold text-red-800">{processingResult.failed_count}</p>
+                <div className="p-3 bg-neutral-50 rounded-lg">
+                  <p className="text-xs text-neutral-400 font-medium">Failed</p>
+                  <p className="text-2xl font-bold text-neutral-400">{processingResult.failed_count}</p>
                 </div>
               </div>
             )}
@@ -285,20 +284,20 @@ export default function EmailPage() {
 
       {/* Statistics */}
       {status && (
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">Today's Processing Statistics</h2>
+        <div className="bg-white rounded-2xl p-6 border border-neutral-200 shadow-sm">
+          <h2 className="text-lg font-semibold text-neutral-900 mb-4">Today's Processing Statistics</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div className="p-4 bg-slate-50 rounded-lg">
-              <p className="text-xs text-slate-600 font-medium">Total Processed</p>
-              <p className="text-2xl font-bold text-slate-800">{status.total_processed_today}</p>
+            <div className="p-4 bg-neutral-50 rounded-lg text-center">
+              <p className="text-xs text-neutral-500 font-medium">Total Processed</p>
+              <p className="text-2xl font-bold text-neutral-900">{status.total_processed_today}</p>
             </div>
-            <div className="p-4 bg-green-50 rounded-lg">
-              <p className="text-xs text-green-600 font-medium">Successful</p>
-              <p className="text-2xl font-bold text-green-800">{status.successful_today}</p>
+            <div className="p-4 bg-neutral-900 rounded-lg text-center">
+              <p className="text-xs text-white/70 font-medium">Successful</p>
+              <p className="text-2xl font-bold text-white">{status.successful_today}</p>
             </div>
-            <div className="p-4 bg-red-50 rounded-lg">
-              <p className="text-xs text-red-600 font-medium">Failed</p>
-              <p className="text-2xl font-bold text-red-800">{status.failed_today}</p>
+            <div className="p-4 bg-neutral-100 rounded-lg text-center">
+              <p className="text-xs text-neutral-400 font-medium">Failed</p>
+              <p className="text-2xl font-bold text-neutral-400">{status.failed_today}</p>
             </div>
           </div>
         </div>

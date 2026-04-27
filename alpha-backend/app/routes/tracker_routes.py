@@ -108,6 +108,8 @@ def _touch_updated_at(obj):
 AllowedTrackerReadUser = Depends(require_roles("admin", "manager", "evp", "user", "recruiter"))
 # Write access is restricted to managers/admins only (recruiters/users are read-only).
 AllowedTrackerWriteUser = Depends(require_roles("manager"))
+# Follow-ups: recruiters/users are allowed to create/update/delete.
+AllowedTrackerFollowUpWriteUser = Depends(require_roles("admin", "manager", "evp", "user", "recruiter"))
 AllowedTrackerJobWriteUser = Depends(require_roles("manager"))
 AllowedTrackerOptionWriteUser = Depends(require_roles("manager"))
 AllowedTrackerAdminUser = Depends(require_roles("admin"))
@@ -312,7 +314,6 @@ async def import_selections_xlsx(
             applied_date=applied_date,
             position=_cell(row, "Position") or None,
             client=_cell(row, "Client") or None,
-            location=_cell(row, "Location") or None,
             status=_cell(row, "Status") or "MRF Pending",
             recruiter=_cell(row, "Recruiter") or None,
             account_manager=_cell(row, "Account Manager") or None,
@@ -419,14 +420,16 @@ def list_job_openings(
         TrackerJobOpeningRead(
             id=r.id,
             title=r.title,
+            requirement=getattr(r, "requirement", None),
             department=r.department,
-            location=r.location,
             client=getattr(r, "client", None),
-            work_location=getattr(r, "work_location", None),
             status=r.status,
             hiring_manager=r.hiring_manager,
             recruitment_manager=getattr(r, "recruitment_manager", None),
             req_date=r.req_date,
+            submission_date=getattr(r, "submission_date", None),
+            cvs_submitted_count=getattr(r, "cvs_submitted_count", None),
+            comments=getattr(r, "comments", None),
             created_at=r.created_at,
             updated_at=r.updated_at,
         )
@@ -447,14 +450,16 @@ def create_job_opening(
     JobOpening = _tracker_models(team_resolved)["JobOpening"]
     row = JobOpening(
         title=data.title,
+        requirement=getattr(data, "requirement", None),
         department=data.department,
-        location=data.location,
         client=getattr(data, "client", None),
-        work_location=getattr(data, "work_location", None),
         status=data.status,
         hiring_manager=data.hiring_manager,
         recruitment_manager=getattr(data, "recruitment_manager", None),
         req_date=data.req_date,
+        submission_date=getattr(data, "submission_date", None),
+        cvs_submitted_count=getattr(data, "cvs_submitted_count", None),
+        comments=getattr(data, "comments", None),
     )
     session.add(row)
     session.commit()
@@ -463,14 +468,16 @@ def create_job_opening(
     return TrackerJobOpeningRead(
         id=row.id,
         title=row.title,
+        requirement=getattr(row, "requirement", None),
         department=row.department,
-        location=row.location,
         client=getattr(row, "client", None),
-        work_location=getattr(row, "work_location", None),
         status=row.status,
         hiring_manager=row.hiring_manager,
         recruitment_manager=getattr(row, "recruitment_manager", None),
         req_date=row.req_date,
+        submission_date=getattr(row, "submission_date", None),
+        cvs_submitted_count=getattr(row, "cvs_submitted_count", None),
+        comments=getattr(row, "comments", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -499,14 +506,16 @@ def update_job_opening(
     return TrackerJobOpeningRead(
         id=row.id,
         title=row.title,
+        requirement=getattr(row, "requirement", None),
         department=row.department,
-        location=row.location,
         client=getattr(row, "client", None),
-        work_location=getattr(row, "work_location", None),
         status=row.status,
         hiring_manager=row.hiring_manager,
         recruitment_manager=getattr(row, "recruitment_manager", None),
         req_date=row.req_date,
+        submission_date=getattr(row, "submission_date", None),
+        cvs_submitted_count=getattr(row, "cvs_submitted_count", None),
+        comments=getattr(row, "comments", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -863,7 +872,6 @@ def create_application(
         applied_date=data.applied_date,
         position=data.position,
         client=data.client,
-        location=getattr(data, "location", None),
         status=data.status,
         recruiter=data.recruiter,
         account_manager=data.account_manager,
@@ -884,7 +892,6 @@ def create_application(
         applied_date=row.applied_date,
         position=row.position,
         client=row.client,
-        location=getattr(row, "location", None),
         status=row.status,
         recruiter=row.recruiter,
         account_manager=row.account_manager,
@@ -919,7 +926,6 @@ def list_applications(
             applied_date=r.applied_date,
             position=r.position,
             client=r.client,
-            location=getattr(r, "location", None),
             status=r.status,
             recruiter=r.recruiter,
             account_manager=r.account_manager,
@@ -967,7 +973,7 @@ def list_candidate_rows(
                 a
                 for a in apps
                 if _norm_team(
-                    (getattr(a, "created_by_team_location", None) or getattr(a, "location", None) or "")
+                    (getattr(a, "created_by_team_location", None) or "")
                 )
                 == team_loc
             ]
@@ -1005,7 +1011,6 @@ def list_candidate_rows(
                         applied_date=a.applied_date,
                         position=a.position,
                         client=a.client,
-                        location=getattr(a, "location", None),
                         status=a.status,
                         recruiter=a.recruiter,
                         account_manager=a.account_manager,
@@ -1058,7 +1063,6 @@ def update_application(
         applied_date=row.applied_date,
         position=row.position,
         client=row.client,
-        location=getattr(row, "location", None),
         status=row.status,
         recruiter=row.recruiter,
         account_manager=row.account_manager,
@@ -1116,7 +1120,7 @@ def create_followup(
     data: TrackerFollowUpCreate,
     team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    user: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerFollowUpWriteUser,
 ):
     team_resolved = _resolve_tracker_team(user, team)
     FollowUp = _tracker_models(team_resolved)["FollowUp"]
@@ -1253,6 +1257,12 @@ async def send_followup_reminder_now(
     if not row or row.is_deleted:
         raise HTTPException(status_code=404, detail="Follow-up not found")
 
+    # Never send reminders when the current stage indicates the position is closed.
+    stage_raw = str(getattr(row, "current_stage", "") or "").strip().lower()
+    stage_norm = " ".join(stage_raw.split())
+    if stage_norm in {"positions closed", "position closed"}:
+        raise HTTPException(status_code=400, detail="Reminder not sent because Current Stage is Positions Closed.")
+
     def get_opt(kind: str) -> str:
         r = session.exec(
             select(Option)
@@ -1279,19 +1289,47 @@ async def send_followup_reminder_now(
         enabled = bool(getattr(r, "email_enabled", True))
         return email, enabled
 
+    def _split_emails(v: str) -> list[str]:
+        parts = []
+        for raw in str(v or "").replace(";", ",").split(","):
+            e = raw.strip()
+            if e:
+                parts.append(e)
+        out: list[str] = []
+        seen = set()
+        for e in parts:
+            k = e.lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(e)
+        return out
+
+    def _join_emails(items: list[str]) -> str:
+        return ", ".join([e.strip() for e in items if str(e or "").strip()])
+
     to_override = (to or "").strip()
     cc_override = (cc or "").strip()
 
-    # Prefer per-row person selection; fallback to Manager Settings defaults; allow overrides.
-    am_email, am_enabled = lookup_person_email("account_manager", getattr(row, "account_manager", None))
+    # To: Manager Settings (or override). CC: default CC + selected people (or override).
+    # Account Manager has an ON/OFF toggle controlling whether reminders should be sent for their rows.
+    _am_email, am_enabled = lookup_person_email("account_manager", getattr(row, "account_manager", None))
     if not am_enabled:
         raise HTTPException(status_code=400, detail="Account Manager reminders are OFF for this person.")
-    rm_email, _rm_enabled = lookup_person_email("recruitment_manager", getattr(row, "recruitment_manager", None))
 
-    to_final = to_override or am_email or get_opt("followup_email_to")
-    cc_final = cc_override or rm_email or get_opt("followup_email_cc")
+    to_final = to_override or get_opt("followup_email_to")
     if not to_final:
         raise HTTPException(status_code=400, detail="Missing To emails. Set it in Manager Settings first.")
+
+    if cc_override:
+        cc_final = cc_override
+    else:
+        base_cc = _split_emails(get_opt("followup_email_cc"))
+        rec_email, _rec_enabled = lookup_person_email("recruiter", getattr(row, "recruiter_name", None))
+        am_email, _am_enabled2 = lookup_person_email("account_manager", getattr(row, "account_manager", None))
+        rm_email, _rm_enabled = lookup_person_email("recruitment_manager", getattr(row, "recruitment_manager", None))
+        cc_items = base_cc + _split_emails(rec_email) + _split_emails(am_email) + _split_emails(rm_email)
+        cc_final = _join_emails(cc_items)
 
     payload = TrackerFollowUpRead(
         id=row.id,
@@ -1332,7 +1370,7 @@ def update_followup(
     data: TrackerFollowUpUpdate,
     team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    user: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerFollowUpWriteUser,
 ):
     team_resolved = _resolve_tracker_team(user, team)
     FollowUp = _tracker_models(team_resolved)["FollowUp"]
@@ -1374,7 +1412,7 @@ def delete_followup(
     followup_id: str,
     team: Optional[str] = Query(default=None),
     session: Session = Depends(tracker_session),
-    user: User = AllowedTrackerWriteUser,
+    user: User = AllowedTrackerFollowUpWriteUser,
 ):
     team_resolved = _resolve_tracker_team(user, team)
     FollowUp = _tracker_models(team_resolved)["FollowUp"]
@@ -1409,18 +1447,39 @@ def export_job_openings_xlsx(
     wb = Workbook()
     ws = wb.active
     ws.title = "Requirement Status"
-    ws.append(["Date", "Role", "Client", "Location", "Recruiter", "Recruitment Manager", "Account Manager", "Status"])
-    for r in rows:
-        ws.append([
-            r.req_date.isoformat() if r.req_date else "",
-            r.title or "",
-            (getattr(r, "client", None) or r.location or "") if (getattr(r, "client", None) or r.location) else "",
-            getattr(r, "work_location", None) or "",
-            r.hiring_manager or "",
-            getattr(r, "recruitment_manager", None) or "",
-            r.department or "",
-            r.status or "",
-        ])
+    ws.append(
+        [
+            "S.no",
+            "Requirement",
+            "Role",
+            "Client",
+            "Recruiter",
+            "Recruiter Manager",
+            "Account Manager",
+            "Requirement Date",
+            "Submission Date",
+            "No of CVs Submitted",
+            "Status",
+            "Comments",
+        ]
+    )
+    for i, r in enumerate(rows, start=1):
+        ws.append(
+            [
+                i,
+                getattr(r, "requirement", None) or "",
+                r.title or "",
+                getattr(r, "client", None) or "",
+                r.hiring_manager or "",
+                getattr(r, "recruitment_manager", None) or "",
+                r.department or "",
+                r.req_date.isoformat() if getattr(r, "req_date", None) else "",
+                getattr(r, "submission_date", None).isoformat() if getattr(r, "submission_date", None) else "",
+                getattr(r, "cvs_submitted_count", None) if getattr(r, "cvs_submitted_count", None) is not None else "",
+                r.status or "",
+                getattr(r, "comments", None) or "",
+            ]
+        )
 
     buf = BytesIO()
     wb.save(buf)
@@ -1451,7 +1510,6 @@ def export_candidates_xlsx(
             "Candidate Name",
             "Position",
             "Client",
-            "Location",
             "Status",
             "Recruiter",
             "Recruitment Manager",
@@ -1480,7 +1538,6 @@ def export_candidates_xlsx(
                 cand.name,
                 a.position or "",
                 a.client or "",
-                getattr(a, "location", None) or "",
                 a.status or "",
                 a.recruiter or "",
                 getattr(a, "recruitment_manager", None) or "",

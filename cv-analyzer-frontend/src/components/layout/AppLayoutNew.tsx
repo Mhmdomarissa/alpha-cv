@@ -28,6 +28,7 @@ import {
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
 import MatchingProgressBar from '@/components/ui/MatchingProgressBar';
+import FloatingNav from '@/components/ui/floating-nav';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -42,11 +43,7 @@ interface TabItem {
 }
 
 function roleBadgeClasses(role?: string) {
-  if (role === 'admin') return 'bg-red-50 text-red-700';
-  if (role === 'manager') return 'bg-violet-50 text-violet-700';
-  if (role === 'evp') return 'bg-violet-50 text-violet-700';
-  if (role === 'recruiter') return 'bg-teal-50 text-teal-700';
-  return 'bg-blue-50 text-blue-700';
+  return 'bg-white text-neutral-900 border border-neutral-200 shadow-sm';
 }
 
 const getNavigationTabs = (userRole?: 'admin' | 'user' | 'recruiter' | 'manager' | 'evp'): TabItem[] => {
@@ -117,12 +114,10 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
   const router = useRouter();
   const { currentTab, setCurrentTab, systemHealth, cvs, jds, matchResult, matchingProgress } = useAppStore();
   const { user, logout } = useAuthStore();
-  const navInactiveClass = 'text-gray-700 hover:text-gray-900 hover:bg-gray-200/90';
-  const navActiveClass = 'bg-[#00529b] text-white shadow-sm';
-  const trackerInactiveClass =
-    'text-[#0f766e] hover:text-[#115e59] hover:bg-[#ccfbf1] border border-[#99f6e4] bg-[#f0fdfa]';
-  const trackerActiveClass =
-    'bg-[#0f766e] text-white shadow-sm border border-[#0f766e]';
+  const navInactiveClass = 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100';
+  const navActiveClass = 'bg-gradient-primary text-white shadow-md border-0';
+  const trackerInactiveClass = 'text-neutral-500 hover:text-blue-600 hover:bg-blue-50';
+  const trackerActiveClass = 'bg-gradient-primary text-white shadow-md border-0';
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedMobileOpen, setAdvancedMobileOpen] = useState(false);
@@ -130,6 +125,34 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
 
   const navigationTabs = getNavigationTabs(user?.role);
   const advancedTabs = getAdvancedTabs(user?.role);
+
+  const floatingNavItems = [
+    ...navigationTabs.map((tab) => {
+      const IconComponent = tab.icon;
+      return {
+        id: tab.id,
+        label: tab.label,
+        icon: <IconComponent className="h-[22px] w-[22px]" />,
+        onSelect: () => {
+          if (tab.id === 'tracker') {
+            router.push('/tracker');
+            return;
+          }
+          setCurrentTab(tab.id as any);
+        },
+      };
+    }),
+    ...(advancedTabs.length > 0
+      ? [
+          {
+            id: 'advanced',
+            label: 'Advanced',
+            icon: <Settings className="h-[22px] w-[22px]" />,
+            onSelect: () => setMobileMenuOpen(true),
+          },
+        ]
+      : []),
+  ];
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -191,37 +214,36 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
+    <div className="min-h-screen bg-gray-50 relative">
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200 shadow-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 rounded-lg shadow-sm">
-                  <svg 
-                    width="32" 
-                    height="32" 
-                    viewBox="0 0 200 200" 
-                    fill="none" 
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <g transform="translate(0,200) scale(0.1,-0.1)" fill="#00529b">
-                      <path d="M0 1000 l0 -1000 1000 0 1000 0 0 1000 0 1000 -1000 0 -1000 0 0 -1000z m925 779 c-153 -31 -275 -94 -275 -142 0 -11 -20 -62 -44 -111 -25 -50 -50 -118 -57 -151 -11 -53 -10 -65 6 -99 26 -54 21 -90 -21 -159 -27 -46 -37 -74 -38 -107 l-1 -45 53 -3 52 -3 0 -38 c0 -23 6 -44 15 -51 11 -9 13 -16 5 -24 -16 -16 -12 -44 9 -56 17 -9 19 -18 14 -85 -5 -63 -3 -75 11 -81 31 -12 5 -24 -52 -24 -37 0 -66 6 -81 16 -22 16 -23 22 -18 91 5 66 4 74 -15 84 -16 9 -19 17 -14 44 4 19 2 36 -4 40 -5 3 -10 21 -10 40 0 36 -13 46 -53 38 -69 -13 -74 46 -12 163 25 46 45 91 45 98 0 7 -9 34 -20 58 -17 40 -18 53 -9 104 5 33 30 100 55 150 24 49 44 100 44 111 0 22 42 63 89 87 82 42 230 74 346 74 l70 0 -90 -19z m55 -1181 c27 -29 38 -73 45 -188 5 -72 4 -99 -7 -111 -14 -18 -119 -91 -123 -87 -2 2 2 27 8 56 9 43 8 64 -6 116 -9 36 -17 79 -17 98 -1 40 -25 111 -40 116 -5 2 -10 8 -10 13 0 5 29 9 65 9 53 0 68 -4 85 -22z"/>
-                    </g>
-                  </svg>
+                <div className="w-8 h-8 rounded-lg shadow-sm flex items-center justify-center bg-white border border-gray-100">
+                  <img
+                    src="/alphadatalogo.svg"
+                    alt="Alpha Data Logo"
+                    className="w-6 h-6 object-contain"
+                  />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900">Alpha CV</h1>
+                  <h1 className="text-xl font-bold text-gray-900">Alpha <span className="text-blue-600">CV</span></h1>
                 </div>
               </div>
             </div>
 
-            <nav className="hidden md:flex items-center space-x-1 bg-gray-100 rounded-lg border border-gray-200 p-0.5">
+            <nav className="hidden md:flex items-center space-x-1 bg-gray-100/50 backdrop-blur-sm rounded-lg border border-gray-200/50 p-0.5">
               {navigationTabs.map((tab) => {
                 const isActive = currentTab === tab.id;
                 const isCompleted = getProgress(tab.id);
                 const IconComponent = tab.icon;
                 const isTracker = tab.id === 'tracker';
+                
+                // Use gradient for active state
+                const activeClass = 'bg-gradient-primary text-white shadow-lg border-0';
+                const inactiveClass = 'text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition-all';
+                
                 return (
                   <button
                     key={tab.id}
@@ -232,27 +254,26 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                       }
                       setCurrentTab(tab.id as any);
                     }}
-                    className={`flex items-center space-x-2 rounded-md text-sm font-medium transition-colors px-3 py-2 ${
-                      isTracker
-                        ? (isActive ? trackerActiveClass : trackerInactiveClass)
-                        : (isActive ? navActiveClass : navInactiveClass)
+                    className={`flex items-center space-x-2 rounded-md text-sm font-medium px-3 py-2 ${
+                      isActive ? activeClass : inactiveClass
                     }`}
                   >
-                    <IconComponent className="w-4 h-4" />
+                    <IconComponent className={`w-4 h-4 ${isActive ? 'text-white' : ''}`} />
                     <span>{tab.label}</span>
                     {isTracker ? (
                       <span className={`ml-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide ${
-                        isActive ? 'bg-white/20 text-white' : 'bg-[#99f6e4] text-[#115e59]'
+                        isActive ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'
                       }`}>
                         TRACKER
                       </span>
                     ) : null}
                     {isCompleted && (
-                      <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/80' : 'bg-green-500'}`} />
+                      <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white' : 'bg-blue-500'}`} />
                     )}
                   </button>
                 );
               })}
+
               {advancedTabs.length > 0 && (
                 <div className="relative" ref={advancedRef}>
                   <button
@@ -285,7 +306,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                               setAdvancedOpen(false);
                             }}
                             className={`w-full flex items-center space-x-2 px-4 py-2.5 text-left text-ui font-medium ${
-                              isActive ? 'bg-[#00529b]/10 text-[#00529b]' : 'text-gray-700 hover:bg-gray-100'
+                              isActive ? 'bg-neutral-100 text-neutral-900' : 'text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900'
                             }`}
                           >
                             <IconComponent className="w-4 h-4" />
@@ -303,7 +324,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
               {user && (
                 <div className="hidden sm:flex items-center space-x-2">
                   <div className="flex items-center bg-gray-100 rounded-lg border border-gray-200 space-x-2 px-2 py-1.5">
-                    <div className="w-7 h-7 rounded-full bg-[#00529b] flex items-center justify-center">
+                    <div className="w-7 h-7 rounded-full bg-neutral-900 flex items-center justify-center">
                       <User className="w-4 h-4 text-white" />
                     </div>
                     <div className="flex items-center gap-2">
@@ -339,12 +360,12 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
             {user && (
               <div className="flex items-center justify-between gap-3 pb-4 mb-4 border-b border-gray-200">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-full bg-[#00529b] flex items-center justify-center shrink-0">
+                  <div className="w-9 h-9 rounded-full bg-neutral-900 flex items-center justify-center shrink-0">
                     <User className="w-4 h-4 text-white" />
                   </div>
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-gray-700 truncate">{user.username}</div>
-                    <div className={`text-xs px-2 py-0.5 rounded-full font-medium w-fit ${user.role === 'admin' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
+                    <div className={`text-xs px-2 py-0.5 rounded-full font-medium w-fit bg-neutral-100 text-neutral-900 border border-neutral-200`}>
                       {user.role}
                     </div>
                   </div>
@@ -376,14 +397,14 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                       setMobileMenuOpen(false);
                     }}
                     className={`w-full flex items-center justify-between p-4 rounded-lg text-left font-medium transition-colors ${
-                      isActive ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'
+                      isActive ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-blue-50'
                     }`}
                   >
                     <div className="flex items-center space-x-3">
-                      <IconComponent className="w-5 h-5" />
+                      <IconComponent className={`w-5 h-5 ${isActive ? 'text-white' : 'text-blue-600'}`} />
                       <div>
-                        <div>{tab.label}</div>
-                        <div className={`text-caption ${isActive ? 'text-white/90' : 'text-gray-500'}`}>{getTabStats(tab.id)}</div>
+                        <div className={isActive ? 'text-white' : 'text-gray-900'}>{tab.label}</div>
+                        <div className={`text-caption ${isActive ? 'text-white/80' : 'text-gray-500'}`}>{getTabStats(tab.id)}</div>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -398,7 +419,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                   <button
                     onClick={() => setAdvancedMobileOpen(!advancedMobileOpen)}
                     className={`w-full flex items-center justify-between p-4 rounded-lg text-left font-medium transition-colors ${
-                      currentTab === 'performance' || currentTab === 'email' ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'
+                      currentTab === 'performance' || currentTab === 'email' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-100'
                     }`}
                   >
                     <div className="flex items-center space-x-3">
@@ -432,7 +453,7 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                               setAdvancedMobileOpen(false);
                             }}
                             className={`w-full flex items-center justify-between p-3 rounded-lg text-left font-medium transition-colors ${
-                              isActive ? 'bg-[#00529b] text-white' : 'text-gray-600 hover:bg-gray-100'
+                              isActive ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-100'
                             }`}
                           >
                             <div className="flex items-center space-x-3">
@@ -452,11 +473,18 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
         </div>
       )}
 
-      <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
-        <div className="animate-fade-in">
-          {children}
-        </div>
-      </main>
+      <div className="min-h-screen pt-4 pb-20 bg-gray-50/50">
+        <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8 relative z-10 w-full">
+          <div className="animate-fade-in">
+            {children}
+          </div>
+        </main>
+      </div>
+
+      {/* Smooth mobile nav (UI-only; keeps same routes/tabs) */}
+      <div className="md:hidden">
+        <FloatingNav items={floatingNavItems} activeId={currentTab} />
+      </div>
 
       {/* Single matching overlay: visible on any tab when matching is in progress (Database or Careers) */}
       <MatchingProgressBar

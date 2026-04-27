@@ -85,8 +85,48 @@ def init_tracker_db() -> Optional[bool]:
     _migrate_tracker_option_ad_columns(engine)
     _migrate_tracker_followup_table(engine)
     _migrate_tracker_followup_ad_table(engine)
+    _drop_tracker_location_everywhere(engine)
     _drop_unused_tracker_tables(engine)
     return True
+
+
+def _drop_tracker_location_everywhere(engine) -> None:
+    """Destructive cleanup (requested): remove all Tracker 'location' storage and options.
+
+    This only affects Candidate Tracker tables (not CV/JD/Qdrant/careers).
+    """
+    from sqlalchemy import text
+
+    url = str(engine.url)
+    is_sqlite = url.startswith("sqlite")
+    if is_sqlite:
+        # SQLite: dropping columns is non-trivial; best-effort only.
+        return
+
+    with engine.begin() as conn:
+        # Remove location option kinds (both teams)
+        try:
+            conn.execute(text('DELETE FROM "tracker_option" WHERE kind = \'location\''))
+        except Exception:
+            pass
+        try:
+            conn.execute(text('DELETE FROM "tracker_option_ad" WHERE kind = \'location\''))
+        except Exception:
+            pass
+
+        # Drop columns from requirement/app tables (both teams)
+        for stmt in [
+            'ALTER TABLE "tracker_job_opening" DROP COLUMN IF EXISTS location',
+            'ALTER TABLE "tracker_job_opening" DROP COLUMN IF EXISTS work_location',
+            'ALTER TABLE "tracker_job_opening_ad" DROP COLUMN IF EXISTS location',
+            'ALTER TABLE "tracker_job_opening_ad" DROP COLUMN IF EXISTS work_location',
+            'ALTER TABLE "tracker_application" DROP COLUMN IF EXISTS location',
+            'ALTER TABLE "tracker_application_ad" DROP COLUMN IF EXISTS location',
+        ]:
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                pass
 
 
 def _drop_unused_tracker_tables(engine) -> None:
@@ -124,7 +164,6 @@ def _migrate_tracker_application_ad_columns(engine) -> None:
         "applied_date": "DATE",
         "position": "TEXT",
         "client": "TEXT",
-        "location": "TEXT",
         "recruiter": "TEXT",
         "account_manager": "TEXT",
         "recruitment_manager": "TEXT",
@@ -143,20 +182,8 @@ def _migrate_tracker_application_ad_columns(engine) -> None:
             for col, coltype in desired.items():
                 if col not in existing:
                     conn.execute(text(f"ALTER TABLE tracker_application_ad ADD COLUMN {col} {coltype}"))
-            try:
-                conn.execute(
-                    text(
-                        """
-                        UPDATE tracker_application_ad
-                        SET created_by_team_location = location
-                        WHERE created_by_team_location IS NULL
-                          AND location IS NOT NULL
-                          AND TRIM(location) <> ''
-                        """
-                    )
-                )
-            except Exception:
-                pass
+            # Do not backfill from deprecated location column.
+            pass
         else:
             res = conn.execute(
                 text("SELECT column_name FROM information_schema.columns WHERE table_name='tracker_application_ad'")
@@ -165,20 +192,8 @@ def _migrate_tracker_application_ad_columns(engine) -> None:
             for col, coltype in desired.items():
                 if col not in existing:
                     conn.execute(text(f'ALTER TABLE "tracker_application_ad" ADD COLUMN {col} {coltype}'))
-            try:
-                conn.execute(
-                    text(
-                        """
-                        UPDATE "tracker_application_ad"
-                        SET created_by_team_location = location
-                        WHERE created_by_team_location IS NULL
-                          AND location IS NOT NULL
-                          AND BTRIM(location) <> ''
-                        """
-                    )
-                )
-            except Exception:
-                pass
+            # Do not backfill from deprecated location column.
+            pass
 
 
 def _migrate_tracker_application_columns(engine) -> None:
@@ -189,7 +204,6 @@ def _migrate_tracker_application_columns(engine) -> None:
         "applied_date": "DATE",
         "position": "TEXT",
         "client": "TEXT",
-        "location": "TEXT",
         "recruiter": "TEXT",
         "account_manager": "TEXT",
         "recruitment_manager": "TEXT",
@@ -208,21 +222,6 @@ def _migrate_tracker_application_columns(engine) -> None:
             for col, coltype in desired.items():
                 if col not in existing:
                     conn.execute(text(f"ALTER TABLE tracker_application ADD COLUMN {col} {coltype}"))
-            # Backfill: for existing rows, default created_by_team_location to current location.
-            try:
-                conn.execute(
-                    text(
-                        """
-                        UPDATE tracker_application
-                        SET created_by_team_location = location
-                        WHERE created_by_team_location IS NULL
-                          AND location IS NOT NULL
-                          AND TRIM(location) <> ''
-                        """
-                    )
-                )
-            except Exception:
-                pass
         else:
             res = conn.execute(
                 text("SELECT column_name FROM information_schema.columns WHERE table_name='tracker_application'")
@@ -232,20 +231,7 @@ def _migrate_tracker_application_columns(engine) -> None:
                 if col not in existing:
                     conn.execute(text(f'ALTER TABLE "tracker_application" ADD COLUMN {col} {coltype}'))
             # Backfill: for existing rows, default created_by_team_location to current location.
-            try:
-                conn.execute(
-                    text(
-                        """
-                        UPDATE "tracker_application"
-                        SET created_by_team_location = location
-                        WHERE created_by_team_location IS NULL
-                          AND location IS NOT NULL
-                          AND BTRIM(location) <> ''
-                        """
-                    )
-                )
-            except Exception:
-                pass
+            pass
 
 
 def _migrate_tracker_application_job_opening_nullable(engine) -> None:
@@ -303,8 +289,11 @@ def _migrate_tracker_job_opening_columns(engine) -> None:
     desired = {
         "req_date": "DATE",
         "client": "TEXT",
-        "work_location": "TEXT",
         "recruitment_manager": "TEXT",
+        "requirement": "TEXT",
+        "submission_date": "DATE",
+        "cvs_submitted_count": "INTEGER",
+        "comments": "TEXT",
     }
 
     url = str(engine.url)
@@ -333,8 +322,11 @@ def _migrate_tracker_job_opening_ad_columns(engine) -> None:
     desired = {
         "req_date": "DATE",
         "client": "TEXT",
-        "work_location": "TEXT",
         "recruitment_manager": "TEXT",
+        "requirement": "TEXT",
+        "submission_date": "DATE",
+        "cvs_submitted_count": "INTEGER",
+        "comments": "TEXT",
     }
 
     url = str(engine.url)

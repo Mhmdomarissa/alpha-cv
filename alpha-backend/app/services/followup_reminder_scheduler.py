@@ -88,6 +88,7 @@ def _due_query(FollowUpModel, today: date):
         .where(FollowUpModel.is_deleted == False)  # noqa: E712
         .where(FollowUpModel.next_follow_up_date != None)  # noqa: E711
         .where(FollowUpModel.next_follow_up_date <= today)
+        # DB-level guard for exact match; we also apply a robust Python-level guard below.
         .where(FollowUpModel.current_stage != "Positions Closed")
         .order_by(FollowUpModel.next_follow_up_date.asc(), FollowUpModel.created_at.desc())
     )
@@ -173,13 +174,42 @@ async def _run_followup_reminders_for_team(session: Session, *, team: str, tz_na
     skipped = 0
     rows = session.exec(_due_query(FollowUpModel, today_local)).all()
     for r in rows:
+        # Only send reminders if the current stage is "Feedback Pending".
+        stage_raw = str(getattr(r, "current_stage", "") or "").strip().lower()
+        stage_norm = " ".join(stage_raw.split())
+        if stage_norm != "feedback pending":
+            skipped += 1
+            continue
+
         last_sent_at = _parse_dt(getattr(r, "reminder_last_sent_at", None))
         if _should_skip_as_duplicate(last_sent_at, scheduled_local, tz_name):
             skipped += 1
             continue
 
-        # Resolve To/CC from row selections.
-        to_email, to_enabled = _lookup_person_email(
+        def _opt(kind: str) -> str:
+            return (_get_option_value(session, team=team, kind=kind) or "").strip()
+
+        def _split_emails(v: str | None) -> list[str]:
+            parts = []
+            for raw in str(v or "").replace(";", ",").split(","):
+                e = raw.strip()
+                if e:
+                    parts.append(e)
+            out: list[str] = []
+            seen = set()
+            for e in parts:
+                k = e.lower()
+                if k in seen:
+                    continue
+                seen.add(k)
+                out.append(e)
+            return out
+
+        def _join_emails(items: list[str]) -> str:
+            return ", ".join([e.strip() for e in items if str(e or "").strip()])
+
+        # Respect Account Manager reminder ON/OFF (skip if OFF).
+        _am_email_for_toggle, to_enabled = _lookup_person_email(
             session,
             team=team,
             kind="account_manager",
@@ -188,18 +218,20 @@ async def _run_followup_reminders_for_team(session: Session, *, team: str, tz_na
         if not to_enabled:
             skipped += 1
             continue
-        cc_email, _cc_enabled = _lookup_person_email(
-            session,
-            team=team,
-            kind="recruitment_manager",
-            name=getattr(r, "recruitment_manager", None),
-        )
 
-        to_final = to_email or ""
-        cc_final = cc_email or None
-        if not to_final.strip():
+        # To: Manager Settings. CC: default CC + selected people (Recruiter/AM/RM).
+        to_final = _opt("followup_email_to")
+        if not to_final:
             skipped += 1
             continue
+
+        base_cc = _split_emails(_opt("followup_email_cc"))
+        rec_email, _rec_enabled = _lookup_person_email(session, team=team, kind="recruiter", name=getattr(r, "recruiter_name", None))
+        am_email, _am_enabled2 = _lookup_person_email(session, team=team, kind="account_manager", name=getattr(r, "account_manager", None))
+        rm_email, _rm_enabled = _lookup_person_email(session, team=team, kind="recruitment_manager", name=getattr(r, "recruitment_manager", None))
+        cc_items = base_cc + _split_emails(rec_email) + _split_emails(am_email) + _split_emails(rm_email)
+        cc_final_joined = _join_emails(cc_items)
+        cc_final = cc_final_joined or None
 
         payload = {
             "client_name": r.client_name,

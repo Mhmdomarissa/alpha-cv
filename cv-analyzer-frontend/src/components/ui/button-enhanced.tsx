@@ -4,14 +4,13 @@ import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'ghost' | 'outline' | 'gradient';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'outline';
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   loading?: boolean;
   loadingText?: string;
   icon?: React.ReactNode;
   iconPosition?: 'left' | 'right';
   fullWidth?: boolean;
-  rounded?: boolean;
 }
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -25,7 +24,6 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       icon,
       iconPosition = 'left',
       fullWidth = false,
-      rounded = false,
       children,
       disabled,
       ...props
@@ -35,59 +33,34 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     const isDisabled = disabled || loading;
     
     const baseStyles = cn(
-      'inline-flex items-center justify-center font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 active:scale-95',
+      'inline-flex items-center justify-center font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 active:scale-95 rounded-md',
       'disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100',
-      fullWidth && 'w-full',
-      rounded ? 'rounded-full' : 'rounded-lg'
+      fullWidth && 'w-full'
     );
     
     const variants = {
       primary: cn(
-        'bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-sm',
-        'hover:from-primary-700 hover:to-primary-800 hover:shadow-md',
-        'focus:ring-primary-500',
-        'active:from-primary-800 active:to-primary-900'
+        'bg-gradient-primary text-white shadow-xl shadow-blue-900/10',
+        'hover:opacity-90 hover:shadow-2xl hover:shadow-blue-900/20',
+        'focus:ring-blue-500',
+        'active:bg-blue-800'
       ),
       secondary: cn(
-        'bg-neutral-100 text-neutral-900 border border-neutral-200',
-        'hover:bg-neutral-200 hover:border-neutral-300',
-        'focus:ring-neutral-500',
-        'active:bg-neutral-300'
-      ),
-      success: cn(
-        'bg-gradient-to-r from-green-600 to-green-700 text-white shadow-sm',
-        'hover:from-green-700 hover:to-green-800 hover:shadow-md',
-        'focus:ring-green-500',
-        'active:from-green-800 active:to-green-900'
-      ),
-      warning: cn(
-        'bg-gradient-to-r from-yellow-500 to-yellow-600 text-white shadow-sm',
-        'hover:from-yellow-600 hover:to-yellow-700 hover:shadow-md',
-        'focus:ring-yellow-500',
-        'active:from-yellow-700 active:to-yellow-800'
-      ),
-      error: cn(
-        'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-sm',
-        'hover:from-red-600 hover:to-red-700 hover:shadow-md',
-        'focus:ring-red-500',
-        'active:from-red-700 active:to-red-800'
+        'bg-blue-50 text-blue-700',
+        'hover:bg-blue-100',
+        'focus:ring-blue-400',
+        'active:bg-blue-200'
       ),
       ghost: cn(
-        'text-neutral-700 hover:bg-neutral-100',
-        'focus:ring-neutral-500',
-        'active:bg-neutral-200'
+        'text-gray-700 hover:bg-blue-50 hover:text-blue-600',
+        'focus:ring-blue-400',
+        'active:bg-blue-100'
       ),
       outline: cn(
-        'border border-neutral-300 text-neutral-700 bg-transparent',
-        'hover:bg-neutral-50 hover:border-neutral-400',
-        'focus:ring-neutral-500',
-        'active:bg-neutral-100'
-      ),
-      gradient: cn(
-        'bg-gradient-to-r from-primary-600 via-purple-600 to-green-500 text-white shadow-lg',
-        'hover:shadow-xl hover:scale-105',
-        'focus:ring-primary-500',
-        'active:scale-95'
+        'border border-gray-300 text-gray-900 bg-white',
+        'hover:bg-gray-50 hover:border-blue-400 hover:text-blue-600',
+        'focus:ring-blue-500',
+        'active:bg-blue-50'
       ),
     };
     

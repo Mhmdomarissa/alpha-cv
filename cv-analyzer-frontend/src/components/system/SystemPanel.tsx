@@ -458,8 +458,8 @@ export default function SystemPanel() {
               <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
                 <DialogTrigger asChild>
                   <Button
-                    variant="error"
-                    className="w-full"
+                    variant="outline"
+                    className="w-full bg-red-600 text-white border-red-600 hover:bg-red-700 hover:text-white"
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
                     Clear All Data
@@ -480,7 +480,8 @@ export default function SystemPanel() {
                         Cancel
                       </Button>
                       <Button
-                        variant="error"
+                        variant="outline"
+                        className="bg-red-600 text-white border-red-600 hover:bg-red-700 hover:text-white"
                         onClick={handleClearDatabase}
                         disabled={isClearing}
                       >
