@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 
 class TrackerJobOpeningCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=300)
-    requirement: Optional[str] = Field(None, max_length=200)
     department: Optional[str] = Field(None, max_length=200)
     client: Optional[str] = Field(None, max_length=200)
     status: str = Field("Open", max_length=50)
@@ -22,7 +21,6 @@ class TrackerJobOpeningCreate(BaseModel):
 
 class TrackerJobOpeningUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=300)
-    requirement: Optional[str] = Field(None, max_length=200)
     department: Optional[str] = Field(None, max_length=200)
     client: Optional[str] = Field(None, max_length=200)
     status: Optional[str] = Field(None, max_length=50)
@@ -37,7 +35,6 @@ class TrackerJobOpeningUpdate(BaseModel):
 class TrackerJobOpeningRead(BaseModel):
     id: str
     title: str
-    requirement: Optional[str] = None
     department: Optional[str]
     client: Optional[str] = None
     status: str

@@ -656,6 +656,9 @@ async def list_cvs(
                 "is_job_application": is_job_application,
                 "applied_job_id": applied_job_id or None,
                 "applied_job_title": (job_title_by_id.get(applied_job_id) if applied_job_id else None),
+                "job_application": {
+                    "expected_salary": payload.get("expected_salary"),
+                } if is_job_application else None
             })
 
         enhanced.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
@@ -836,8 +839,20 @@ async def get_cv_details(cv_id: str) -> JSONResponse:
                 "responsibilities": responsibilities,
                 "skills_count": len(skills),
                 "responsibilities_count": len(responsibilities),
-                "contact_info": structured.get("contact_info", {})
+                "contact_info": structured.get("contact_info", {}),
+                "expected_salary": structured_payload.get("expected_salary") or structured.get("expected_salary")
             },
+            "job_application": {
+                "expected_salary": structured_payload.get("expected_salary"),
+                "years_of_experience": structured_payload.get("years_of_experience"),
+                "experience_warning": structured_payload.get("experience_warning"),
+                "applicant_name": structured_payload.get("applicant_name"),
+                "applicant_email": structured_payload.get("applicant_email"),
+                "applicant_phone": structured_payload.get("applicant_phone"),
+                "application_date": structured_payload.get("application_date"),
+                "application_status": structured_payload.get("application_status"),
+                "job_id": structured_payload.get("job_id"),
+            } if is_job_application else None,
             "embeddings_info": {
                 "skills_embeddings": skills_count,
                 "responsibilities_embeddings": resp_count,

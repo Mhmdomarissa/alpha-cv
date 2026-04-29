@@ -420,7 +420,6 @@ def list_job_openings(
         TrackerJobOpeningRead(
             id=r.id,
             title=r.title,
-            requirement=getattr(r, "requirement", None),
             department=r.department,
             client=getattr(r, "client", None),
             status=r.status,
@@ -450,7 +449,6 @@ def create_job_opening(
     JobOpening = _tracker_models(team_resolved)["JobOpening"]
     row = JobOpening(
         title=data.title,
-        requirement=getattr(data, "requirement", None),
         department=data.department,
         client=getattr(data, "client", None),
         status=data.status,
@@ -468,7 +466,6 @@ def create_job_opening(
     return TrackerJobOpeningRead(
         id=row.id,
         title=row.title,
-        requirement=getattr(row, "requirement", None),
         department=row.department,
         client=getattr(row, "client", None),
         status=row.status,
@@ -506,7 +503,6 @@ def update_job_opening(
     return TrackerJobOpeningRead(
         id=row.id,
         title=row.title,
-        requirement=getattr(row, "requirement", None),
         department=row.department,
         client=getattr(row, "client", None),
         status=row.status,

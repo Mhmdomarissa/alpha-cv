@@ -255,90 +255,86 @@ function EditJobOpeningDialog({
           <DialogTitle className="text-primary">Edit Requirement</DialogTitle>
           <DialogDescription>Update fields for this requirement.</DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-          <FieldRow label="Requirement date"><DatePicker value={reqDate} onChange={setReqDate} label="Requirement date" /></FieldRow>
-          <FieldRow label="Submission date"><DatePicker value={submissionDate} onChange={setSubmissionDate} label="Submission date" /></FieldRow>
-          <div className="sm:col-span-2"><FieldRow label="Role"><FormInput value={role} onChange={setRole} placeholder="e.g. DevOps Engineer" /></FieldRow></div>
-          <FieldRow label="Requirement">
-            <ManagedSelect
-              label="Requirement"
-              value={requirement}
-              canManage={false}
-              options={requirementOptions.map((o) => ({ id: o.id, value: o.value }))}
-              onChange={setRequirement}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
-            />
-          </FieldRow>
-          <FieldRow label="Client"><FormInput value={client} onChange={setClient} placeholder="e.g. FinEdge" /></FieldRow>
-          <FieldRow label="No. of CVs submitted">
-            <FormInput
-              value={cvsSubmittedCount}
-              onChange={(v) => setCvsSubmittedCount(v.replace(/[^\d]/g, '').slice(0, 6))}
-              placeholder="e.g. 12"
-            />
-          </FieldRow>
-          <FieldRow label="Status">
-            <ManagedSelect
-              label="Status"
-              value={status}
-              canManage={false}
-              options={jobStatusOptions.map((o) => ({ id: o.id, value: o.value }))}
-              onChange={setStatus}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
-            />
-          </FieldRow>
-          <FieldRow label="Recruiter">
-            <ManagedSelect
-              label="Recruiter"
-              value={recruiter}
-              canManage={false}
-              options={recruiterOptions.map((o) => ({ id: o.id, value: o.value }))}
-              onChange={setRecruiter}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
-            />
-          </FieldRow>
-          <FieldRow label="Recruitment Manager">
-            <ManagedSelect
-              label="Recruitment Manager"
-              value={recruitmentManager}
-              canManage={false}
-              options={recruitmentManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
-              onChange={setRecruitmentManager}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
-            />
-          </FieldRow>
-          <FieldRow label="Account Manager">
-            <ManagedSelect
-              label="Account Manager"
-              value={accountManager}
-              canManage={false}
-              options={accountManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
-              onChange={setAccountManager}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
-            />
-          </FieldRow>
-          <div className="sm:col-span-2">
-            <FieldRow label="Comments">
-              <textarea
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                className="w-full min-h-[90px] resize-y text-[13px] text-gray-900 border border-gray-200 rounded-lg p-3 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                placeholder="Comments..."
+        <div className="overflow-y-auto max-h-[70vh] pr-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <FieldRow label="Requirement date"><DatePicker value={reqDate} onChange={setReqDate} label="Requirement date" /></FieldRow>
+            <FieldRow label="Submission date"><DatePicker value={submissionDate} onChange={setSubmissionDate} label="Submission date" /></FieldRow>
+            <div className="sm:col-span-2"><FieldRow label="Role"><FormInput value={role} onChange={setRole} placeholder="e.g. DevOps Engineer" /></FieldRow></div>
+            <FieldRow label="Client"><FormInput value={client} onChange={setClient} placeholder="e.g. FinEdge" /></FieldRow>
+            <div className="sm:col-span-2 flex gap-4">
+              <div className="w-1/3">
+                <FieldRow label="No. of CVs">
+                  <FormInput
+                    value={cvsSubmittedCount}
+                    onChange={(v) => setCvsSubmittedCount(v.replace(/[^\d]/g, '').slice(0, 6))}
+                    placeholder="e.g. 12"
+                  />
+                </FieldRow>
+              </div>
+              <div className="flex-1">
+                <FieldRow label="Status">
+                  <ManagedSelect
+                    label="Status"
+                    value={status}
+                    canManage={false}
+                    options={jobStatusOptions.map((o) => ({ id: o.id, value: o.value }))}
+                    onChange={setStatus}
+                    onAdd={async () => {}}
+                    onEdit={async () => {}}
+                    onDelete={async () => {}}
+                  />
+                </FieldRow>
+              </div>
+            </div>
+            <FieldRow label="Recruiter">
+              <ManagedSelect
+                label="Recruiter"
+                value={recruiter}
+                canManage={false}
+                options={recruiterOptions.map((o) => ({ id: o.id, value: o.value }))}
+                onChange={setRecruiter}
+                onAdd={async () => {}}
+                onEdit={async () => {}}
+                onDelete={async () => {}}
               />
             </FieldRow>
+            <FieldRow label="Recruitment Manager">
+              <ManagedSelect
+                label="Recruitment Manager"
+                value={recruitmentManager}
+                canManage={false}
+                options={recruitmentManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
+                onChange={setRecruitmentManager}
+                onAdd={async () => {}}
+                onEdit={async () => {}}
+                onDelete={async () => {}}
+              />
+            </FieldRow>
+            <FieldRow label="Account Manager">
+              <ManagedSelect
+                label="Account Manager"
+                value={accountManager}
+                canManage={false}
+                options={accountManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
+                onChange={setAccountManager}
+                onAdd={async () => {}}
+                onEdit={async () => {}}
+                onDelete={async () => {}}
+              />
+            </FieldRow>
+            <div className="sm:col-span-2">
+              <FieldRow label="Comments">
+                <textarea
+                  value={comments}
+                  onChange={(e) => setComments(e.target.value)}
+                  className="w-full min-h-[120px] resize-y text-[13px] text-gray-900 border border-gray-200 rounded-lg p-3 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  placeholder="Comments..."
+                />
+              </FieldRow>
+            </div>
           </div>
         </div>
-        <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
+        <div className="flex justify-end gap-2 pt-4 border-t border-gray-100 bg-white">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
             disabled={!token || !job || !role.trim() || saving}
@@ -572,91 +568,87 @@ function NewJobOpeningDialog({
           <DialogTitle className="text-primary">Create Requirement</DialogTitle>
           <DialogDescription>Add a new requirement row.</DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-          <FieldRow label="Requirement date"><DatePicker value={reqDate} onChange={setReqDate} label="Requirement date" /></FieldRow>
-          <FieldRow label="Submission date"><DatePicker value={submissionDate} onChange={setSubmissionDate} label="Submission date" /></FieldRow>
-          <div className="sm:col-span-2"><FieldRow label="Role"><FormInput value={role} onChange={setRole} placeholder="e.g. DevOps Engineer" /></FieldRow></div>
-          <FieldRow label="Requirement">
-            <ManagedSelect
-              label="Requirement"
-              value={requirement}
-              options={requirementOptions.map((o) => ({ id: o.id, value: o.value }))}
-              canManage={false}
-              onChange={setRequirement}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
-            />
-          </FieldRow>
-          <FieldRow label="Client"><FormInput value={client} onChange={setClient} placeholder="e.g. FinEdge" /></FieldRow>
-          <FieldRow label="No. of CVs submitted">
-            <FormInput
-              value={cvsSubmittedCount}
-              onChange={(v) => setCvsSubmittedCount(v.replace(/[^\d]/g, '').slice(0, 6))}
-              placeholder="e.g. 12"
-            />
-          </FieldRow>
-          <FieldRow label="Status">
-            <ManagedSelect
-              label="Status"
-              value={status}
-              options={jobStatusOptions.map((o) => ({ id: o.id, value: o.value }))}
-              canManage={false}
-              onChange={setStatus}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
-            />
-          </FieldRow>
-          <FieldRow label="Recruiter">
-            <ManagedSelect
-              label="Recruiter"
-              value={recruiter}
-              options={recruiterOptions.map((o) => ({ id: o.id, value: o.value }))}
-              canManage={false}
-              onChange={setRecruiter}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
-            />
-          </FieldRow>
-          <FieldRow label="Recruitment Manager">
-            <ManagedSelect
-              label="Recruitment Manager"
-              value={recruitmentManager}
-              options={recruitmentManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
-              canManage={false}
-              onChange={setRecruitmentManager}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
-            />
-          </FieldRow>
-          <FieldRow label="Account Manager">
-            <ManagedSelect
-              label="Account Manager"
-              value={accountManager}
-              options={accountManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
-              canManage={false}
-              onChange={setAccountManager}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
-            />
-          </FieldRow>
-          <div className="sm:col-span-2">
-            <FieldRow label="Comments">
-              <textarea
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                rows={2}
-                placeholder="Comments..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none"
+        <div className="overflow-y-auto max-h-[70vh] pr-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <FieldRow label="Requirement date"><DatePicker value={reqDate} onChange={setReqDate} label="Requirement date" /></FieldRow>
+            <FieldRow label="Submission date"><DatePicker value={submissionDate} onChange={setSubmissionDate} label="Submission date" /></FieldRow>
+            <div className="sm:col-span-2"><FieldRow label="Role"><FormInput value={role} onChange={setRole} placeholder="e.g. DevOps Engineer" /></FieldRow></div>
+            <FieldRow label="Client"><FormInput value={client} onChange={setClient} placeholder="e.g. FinEdge" /></FieldRow>
+            <div className="sm:col-span-2 flex gap-4">
+              <div className="w-1/4">
+                <FieldRow label="No. of CVs">
+                  <FormInput
+                    value={cvsSubmittedCount}
+                    onChange={(v) => setCvsSubmittedCount(v.replace(/[^\d]/g, '').slice(0, 6))}
+                    placeholder="e.g. 12"
+                  />
+                </FieldRow>
+              </div>
+              <div className="flex-1">
+                <FieldRow label="Status">
+                  <ManagedSelect
+                    label="Status"
+                    value={status}
+                    options={jobStatusOptions.map((o) => ({ id: o.id, value: o.value }))}
+                    canManage={false}
+                    onChange={setStatus}
+                    onAdd={async () => {}}
+                    onEdit={async () => {}}
+                    onDelete={async () => {}}
+                  />
+                </FieldRow>
+              </div>
+            </div>
+            <FieldRow label="Recruiter">
+              <ManagedSelect
+                label="Recruiter"
+                value={recruiter}
+                options={recruiterOptions.map((o) => ({ id: o.id, value: o.value }))}
+                canManage={false}
+                onChange={setRecruiter}
+                onAdd={async () => {}}
+                onEdit={async () => {}}
+                onDelete={async () => {}}
               />
             </FieldRow>
+            <FieldRow label="Recruitment Manager">
+              <ManagedSelect
+                label="Recruitment Manager"
+                value={recruitmentManager}
+                options={recruitmentManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
+                canManage={false}
+                onChange={setRecruitmentManager}
+                onAdd={async () => {}}
+                onEdit={async () => {}}
+                onDelete={async () => {}}
+              />
+            </FieldRow>
+            <FieldRow label="Account Manager">
+              <ManagedSelect
+                label="Account Manager"
+                value={accountManager}
+                options={accountManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
+                canManage={false}
+                onChange={setAccountManager}
+                onAdd={async () => {}}
+                onEdit={async () => {}}
+                onDelete={async () => {}}
+              />
+            </FieldRow>
+            <div className="sm:col-span-2">
+              <FieldRow label="Comments">
+                <textarea
+                  value={comments}
+                  onChange={(e) => setComments(e.target.value)}
+                  rows={4}
+                  placeholder="Comments..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none min-h-[120px]"
+                />
+              </FieldRow>
+            </div>
           </div>
         </div>
-        <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
+        <div className="flex justify-end gap-2 pt-4 border-t border-gray-100 bg-white">
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button disabled={!role.trim() || !token || saving} onClick={async () => {
             if (!token) return; setSaving(true);
@@ -1241,6 +1233,7 @@ export default function TrackerPage() {
   const [jobDateTo, setJobDateTo] = useState('');
   const [candDateFrom, setCandDateFrom] = useState('');
   const [candDateTo, setCandDateTo] = useState('');
+  const [sortOrder, setSortOrder] = useState<'latest' | 'oldest'>('latest');
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
   const [editJob, setEditJob] = useState<TrackerJobOpening | null>(null);
   const [editApp, setEditApp] = useState<{ app: TrackerApplication; cand: TrackerCandidate } | null>(null);
@@ -1541,8 +1534,13 @@ export default function TrackerPage() {
         if (fromD && d < fromD) return false;
         if (toD && d > toD) return false;
         return true;
+      })
+      .sort((a, b) => {
+        const ad = a.app?.applied_date ? new Date(a.app.applied_date).getTime() : 0;
+        const bd = b.app?.applied_date ? new Date(b.app.applied_date).getTime() : 0;
+        return sortOrder === 'latest' ? bd - ad : ad - bd;
       });
-  }, [candidates, appByCandId, filterStatus, search, candDateFrom, candDateTo]);
+  }, [candidates, appByCandId, filterStatus, search, candDateFrom, candDateTo, sortOrder]);
 
   const visibleJobOpenings = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -1564,11 +1562,16 @@ export default function TrackerPage() {
       })
       .filter((j) => {
         if (!fromD && !toD) return true;
-        const d = (j as any).req_date ? new Date(String((j as any).req_date)) : null;
+        const d = (j as any).submission_date ? new Date(String((j as any).submission_date)) : null;
         if (!d || Number.isNaN(d.getTime())) return false;
         if (fromD && d < fromD) return false;
         if (toD && d > toD) return false;
         return true;
+      })
+      .sort((a, b) => {
+        const ad = new Date(a.created_at || 0).getTime();
+        const bd = new Date(b.created_at || 0).getTime();
+        return bd - ad;
       });
   }, [jobOpenings, filterStatus, search, jobDateFrom, jobDateTo]);
 
@@ -1604,10 +1607,9 @@ export default function TrackerPage() {
         return true;
       })
       .sort((a, b) => {
-        const ad = a.next_follow_up_date ? new Date(a.next_follow_up_date).getTime() : Number.POSITIVE_INFINITY;
-        const bd = b.next_follow_up_date ? new Date(b.next_follow_up_date).getTime() : Number.POSITIVE_INFINITY;
-        if (ad !== bd) return ad - bd; // ascending
-        return String(a.client_name || '').localeCompare(String(b.client_name || ''));
+        const ad = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bd = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bd - ad;
       });
   }, [followUps, followupSearch, followupStageFilter, followupNextFrom, followupNextTo]);
 
@@ -1639,14 +1641,18 @@ export default function TrackerPage() {
     let feedbackPending = 0;
     let positionsClosed = 0;
     let overdue = 0;
+    let holdCount = 0;
+    let interviewScheduledCount = 0;
     for (const f of followUps) {
       const st = String(f.current_stage || '').trim();
       const k = _norm(st);
       if (k === 'positions closed' || k === 'position closed') positionsClosed += 1;
       if (k === 'feedback pending' || k === 'interview feedback pending') feedbackPending += 1;
+      if (k === 'hold') holdCount += 1;
+      if (k === 'interview' || (k.includes('interview') && k.includes('scheduled'))) interviewScheduledCount += 1;
       if (isOverdue(f.next_follow_up_date, st) || k === 'overdue follow-ups') overdue += 1;
     }
-    return { feedbackPending, positionsClosed, overdue };
+    return { feedbackPending, positionsClosed, overdue, hold: holdCount, interviewScheduled: interviewScheduledCount };
   }, [followUps]);
 
   const msCounts = useMemo(() => {
@@ -1894,7 +1900,7 @@ export default function TrackerPage() {
                   </div>
                 )}
                 {view === 'followUps' && (
-                  <div className="mt-2 flex items-center gap-2">
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     <div className="w-[140px] h-[62px] rounded-xl border border-neutral-200 bg-neutral-50 flex flex-col justify-center px-3">
                       <div className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Feedback pending</div>
                       <div className="text-[20px] leading-none font-extrabold text-primary font-extrabold tabular-nums">
@@ -1911,6 +1917,18 @@ export default function TrackerPage() {
                       <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Overdue</div>
                       <div className="text-[20px] leading-none font-extrabold text-neutral-400 tabular-nums">
                         {followUpCounts.overdue}
+                      </div>
+                    </div>
+                    <div className="w-[110px] h-[62px] rounded-xl border border-amber-200 bg-amber-50 flex flex-col justify-center px-3">
+                      <div className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Hold</div>
+                      <div className="text-[20px] leading-none font-extrabold text-amber-800 tabular-nums">
+                        {followUpCounts.hold}
+                      </div>
+                    </div>
+                    <div className="w-[150px] h-[62px] rounded-xl border border-blue-200 bg-blue-50 flex flex-col justify-center px-3">
+                      <div className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Interviews</div>
+                      <div className="text-[20px] leading-none font-extrabold text-blue-800 tabular-nums">
+                        {followUpCounts.interviewScheduled}
                       </div>
                     </div>
                   </div>
@@ -2081,6 +2099,17 @@ export default function TrackerPage() {
                   </button>
                 )}
               </div>
+              {view === 'candidateProfiles' && (
+                <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as any)}>
+                  <SelectTrigger className="h-8 w-[100px] text-[12px] bg-white border-gray-200 text-gray-800">
+                    <SelectValue placeholder="Sort" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="latest">Latest</SelectItem>
+                    <SelectItem value="oldest">Oldest</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           ) : null}
         </div>
@@ -2108,7 +2137,6 @@ export default function TrackerPage() {
                     <tr className="bg-gray-50/80 border-b border-gray-200 text-[10px] font-bold uppercase tracking-wider text-gray-400">
                       <th className="px-4 py-3 text-left w-[70px]">S.no</th>
                       {isAllTeamsView ? <th className="px-4 py-3 text-left w-[110px]">Team</th> : null}
-                      <th className="px-4 py-3 text-left w-[180px]">Requirement</th>
                       <th className="px-4 py-3 text-left w-[220px]">Role</th>
                       <th className="px-4 py-3 text-left w-[160px]">Client</th>
                       <th className="px-4 py-3 text-left w-[155px]">Recruiter</th>
@@ -2137,28 +2165,7 @@ export default function TrackerPage() {
                         {isAllTeamsView ? (
                           <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap text-[12px]">{(j as any).__team || '—'}</td>
                         ) : null}
-                        <td className="px-3 py-2">
-                          {canWriteJobs ? (
-                            <ManagedSelect
-                              label="Requirement"
-                              value={String((j as any).requirement || '')}
-                              disabled={!!rowBusy[j.id]}
-                              canManage={false}
-                              options={requirementOptions.map((o) => ({ id: o.id, value: o.value }))}
-                              onChange={async (v) => {
-                                if (!token) return;
-                                setRowBusy((s) => ({ ...s, [j.id]: true }));
-                                try { await trackerApi.updateJobOpening(token, j.id, { requirement: v || null } as any, apiTeam); await refreshAll(); }
-                                finally { setRowBusy((s) => ({ ...s, [j.id]: false })); }
-                              }}
-                              onAdd={noopAsync}
-                              onEdit={noopAsync as any}
-                              onDelete={noopAsync as any}
-                            />
-                          ) : (
-                            <span className="text-[12px] text-gray-700">{String((j as any).requirement || '—')}</span>
-                          )}
-                        </td>
+
                         {/* Role — stored in title */}
                         <td className="px-4 py-2.5 font-semibold text-gray-900">{j.title}</td>
                         <td className="px-4 py-2.5 text-gray-600 text-[12px]">{j.client ? j.client : <span className="text-gray-300">—</span>}</td>
@@ -2248,7 +2255,7 @@ export default function TrackerPage() {
                                   : ''
                               }
                               placeholder="0"
-                              className="w-[130px] h-8 px-2 text-[12px] border border-gray-200 rounded-lg bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                              className="w-[60px] h-8 px-2 text-[12px] border border-gray-200 rounded-lg bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-center"
                               onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
                               onBlur={async (e) => {
                                 if (!token) return;
@@ -3162,7 +3169,6 @@ export default function TrackerPage() {
                       { kind: 'recruiter', label: 'Recruiters', rows: msRecruiters },
                       { kind: 'account_manager', label: 'Account Managers', rows: msAccountManagers },
                       { kind: 'recruitment_manager', label: 'Recruitment Managers', rows: msRecruitmentManagers },
-                      { kind: 'requirement', label: 'Requirements', rows: msRequirements },
                       { kind: 'job_status', label: 'Requirement Status (Status)', rows: msRequirementStatuses },
                       { kind: 'candidate_status', label: 'Selections & Joinings (Status)', rows: msSelectionStatuses },
                       { kind: 'followup_stage', label: 'Follow-ups (Current Stage)', rows: msFollowUpStages },

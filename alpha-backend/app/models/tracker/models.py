@@ -28,8 +28,6 @@ class TrackerJobOpening(TrackerSQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True)
     # "Role" shown in Requirement Status
     title: str = Field(index=True)
-    # "Requirement" dropdown (maintained from Manager Settings)
-    requirement: Optional[str] = Field(default=None, index=True)
     department: Optional[str] = Field(default=None, index=True)
     client: Optional[str] = Field(default=None, index=True)
     status: str = Field(default="Open", index=True)
@@ -141,7 +139,6 @@ class TrackerJobOpeningAD(TrackerSQLModel, table=True):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True)
     title: str = Field(index=True)
-    requirement: Optional[str] = Field(default=None, index=True)
     department: Optional[str] = Field(default=None, index=True)
     client: Optional[str] = Field(default=None, index=True)
     status: str = Field(default="Open", index=True)
