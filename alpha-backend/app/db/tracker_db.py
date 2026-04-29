@@ -113,6 +113,14 @@ def _drop_tracker_location_everywhere(engine) -> None:
             conn.execute(text('DELETE FROM "tracker_option_ad" WHERE kind = \'location\''))
         except Exception:
             pass
+        try:
+            conn.execute(text('DELETE FROM "tracker_option" WHERE kind = \'requirement\''))
+        except Exception:
+            pass
+        try:
+            conn.execute(text('DELETE FROM "tracker_option_ad" WHERE kind = \'requirement\''))
+        except Exception:
+            pass
 
         # Drop columns from requirement/app tables (both teams)
         for stmt in [
@@ -120,6 +128,8 @@ def _drop_tracker_location_everywhere(engine) -> None:
             'ALTER TABLE "tracker_job_opening" DROP COLUMN IF EXISTS work_location',
             'ALTER TABLE "tracker_job_opening_ad" DROP COLUMN IF EXISTS location',
             'ALTER TABLE "tracker_job_opening_ad" DROP COLUMN IF EXISTS work_location',
+            'ALTER TABLE "tracker_job_opening" DROP COLUMN IF EXISTS requirement',
+            'ALTER TABLE "tracker_job_opening_ad" DROP COLUMN IF EXISTS requirement',
             'ALTER TABLE "tracker_application" DROP COLUMN IF EXISTS location',
             'ALTER TABLE "tracker_application_ad" DROP COLUMN IF EXISTS location',
         ]:
@@ -290,7 +300,6 @@ def _migrate_tracker_job_opening_columns(engine) -> None:
         "req_date": "DATE",
         "client": "TEXT",
         "recruitment_manager": "TEXT",
-        "requirement": "TEXT",
         "submission_date": "DATE",
         "cvs_submitted_count": "INTEGER",
         "comments": "TEXT",
@@ -323,7 +332,6 @@ def _migrate_tracker_job_opening_ad_columns(engine) -> None:
         "req_date": "DATE",
         "client": "TEXT",
         "recruitment_manager": "TEXT",
-        "requirement": "TEXT",
         "submission_date": "DATE",
         "cvs_submitted_count": "INTEGER",
         "comments": "TEXT",

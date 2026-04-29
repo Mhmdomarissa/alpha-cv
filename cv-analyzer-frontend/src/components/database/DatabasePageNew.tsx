@@ -50,6 +50,7 @@ function getCVDisplay(cv: CVListItem) {
     skillsCount: cv.skills_count ?? 0,
     category: (cv as CVListItem & { category?: string }).category ?? 'General',
     filename: cv.filename || '',
+    expectedSalary: (cv as any).job_application?.expected_salary ?? (cv as any).expected_salary ?? '—',
   };
 }
 
@@ -921,6 +922,16 @@ export default function DatabasePageNew() {
                                 <div className="w-14 h-14 rounded-xl bg-gradient-primary/10 border border-blue-100 flex items-center justify-center shadow-inner">
                                   <UserIcon className="w-7 h-7 text-[#00529b]" />
                                 </div>
+                                {d.expectedSalary !== '—' && (
+                                  <div className="flex flex-col items-center mt-1">
+                                    <div className="text-[9px] uppercase tracking-tighter text-gray-400 font-bold leading-none mb-0.5">
+                                      Exp. Salary
+                                    </div>
+                                    <div className="text-sm font-black text-emerald-600 whitespace-nowrap">
+                                      {d.expectedSalary}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
 
@@ -1059,6 +1070,16 @@ export default function DatabasePageNew() {
                   <p className="text-xs text-gray-500 mt-1">
                     Category: {detailCV.structured_info?.category ?? 'General'}
                   </p>
+                  {(() => {
+                    const es = detailCV.job_application?.expected_salary || 
+                               detailCV.candidate?.expected_salary || 
+                               detailCV.structured_info?.expected_salary;
+                    return es ? (
+                      <p className="text-xs text-emerald-600 font-semibold mt-1">
+                        Expected Salary: {es}
+                      </p>
+                    ) : null;
+                  })()}
                   <Button
                     variant="primary"
                     size="sm"
