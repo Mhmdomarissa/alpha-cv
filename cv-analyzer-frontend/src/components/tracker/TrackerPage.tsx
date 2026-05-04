@@ -1622,8 +1622,12 @@ export default function TrackerPage() {
       const k = String(s || '').toLowerCase().trim();
       return k === 'hold';
     };
-    const open = jobOpenings.filter((j) => !isClosed(j.status) && !isHold(j.status) && !j.submission_date).length;
-    const submitted = jobOpenings.filter((j) => j.submission_date && !isClosed(j.status)).length;
+    const isSubmitted = (s?: string | null) => {
+      const k = String(s || '').toLowerCase().trim();
+      return k === 'submitted';
+    };
+    const open = jobOpenings.filter((j) => !isClosed(j.status) && !isHold(j.status) && !isSubmitted(j.status)).length;
+    const submitted = jobOpenings.filter((j) => isSubmitted(j.status)).length;
     const hold = jobOpenings.filter((j) => isHold(j.status)).length;
     const closed = jobOpenings.filter((j) => isClosed(j.status)).length;
     return { open, submitted, hold, closed };
