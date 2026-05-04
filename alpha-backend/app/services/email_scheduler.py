@@ -76,22 +76,50 @@ class EmailScheduler:
             return
         
         self.is_running = True
-        logger.info("🚀 Starting email processing scheduler")
+        # Read schedule from ENV, default to 7 AM and 1 PM UAE (3:00 and 9:00 UTC)
+        schedule_raw = os.getenv("EMAIL_SCHEDULE_UTC", "03:00,09:00")
+        try:
+            scheduled_utc_times = []
+            for t_str in schedule_raw.split(","):
+                h, m = map(int, t_str.strip().split(":"))
+                scheduled_utc_times.append((h, m))
+        except Exception as e:
+            logger.error(f"❌ Invalid EMAIL_SCHEDULE_UTC format '{schedule_raw}'. Using default 03:00,09:00. Error: {e}")
+            scheduled_utc_times = [(3, 0), (9, 0)]
+
+        logger.info(f"🚀 Starting email processing scheduler (Scheduled UTC: {scheduled_utc_times})")
         
         try:
-            # Set initial check time
-            self.last_check_time = datetime.utcnow()
+            last_run_date = None
+            last_run_time = None
             
             while self.is_running:
-                try:
-                    await self._process_emails_batch()
-                except Exception as e:
-                    logger.error(f"❌ Error in email processing batch: {e}")
-                    self.processing_stats["last_error"] = str(e)
-                    self._save_stats()
+                now = datetime.utcnow()
+                current_time = (now.hour, now.minute)
+                current_date = now.date()
+
+                # Check if current time matches any scheduled time AND we haven't run for this specific slot today
+                should_run = False
+                for scheduled_time in scheduled_utc_times:
+                    if current_time == scheduled_time:
+                        if last_run_date != current_date or last_run_time != scheduled_time:
+                            should_run = True
+                            last_run_date = current_date
+                            last_run_time = scheduled_time
+                            break
                 
-                # Wait for next check
-                await asyncio.sleep(self.check_interval_minutes * 60)
+                if should_run:
+                    try:
+                        logger.info(f"⏰ Scheduled run triggered at {now.isoformat()} UTC")
+                        await self._process_emails_batch()
+                    except Exception as e:
+                        logger.error(f"❌ Error in email processing batch: {e}")
+                        self.processing_stats["last_error"] = str(e)
+                        self._save_stats()
+                
+                # Check every 30 seconds to ensure we don't miss the minute window 
+                # but also don't spin too fast.
+                await asyncio.sleep(30)
         
         except asyncio.CancelledError:
             logger.info("🛑 Email scheduler cancelled")
