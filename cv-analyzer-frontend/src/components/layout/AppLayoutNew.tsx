@@ -116,8 +116,10 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
   const { user, logout } = useAuthStore();
   const navInactiveClass = 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100';
   const navActiveClass = 'bg-gradient-primary text-white shadow-md border-0';
-  const trackerInactiveClass = 'text-neutral-500 hover:text-blue-600 hover:bg-blue-50';
-  const trackerActiveClass = 'bg-gradient-primary text-white shadow-md border-0';
+  /** Tracker is a separate module (route) — use violet so it reads differently from core app tabs (blue). */
+  const trackerInactiveClass =
+    'text-violet-700 hover:text-violet-900 hover:bg-violet-50 border border-transparent hover:border-violet-200/80';
+  const trackerActiveClass = 'bg-violet-600 text-white shadow-md border-0';
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedMobileOpen, setAdvancedMobileOpen] = useState(false);
@@ -239,11 +241,18 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                 const isCompleted = getProgress(tab.id);
                 const IconComponent = tab.icon;
                 const isTracker = tab.id === 'tracker';
-                
-                // Use gradient for active state
+
                 const activeClass = 'bg-gradient-primary text-white shadow-lg border-0';
                 const inactiveClass = 'text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition-all';
-                
+                const btnClass = isTracker
+                  ? isActive
+                    ? trackerActiveClass
+                    : trackerInactiveClass
+                  : isActive
+                    ? activeClass
+                    : inactiveClass;
+                const iconMuted = isTracker ? (isActive ? 'text-white' : 'text-violet-600') : isActive ? 'text-white' : '';
+
                 return (
                   <button
                     key={tab.id}
@@ -254,21 +263,15 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                       }
                       setCurrentTab(tab.id as any);
                     }}
-                    className={`flex items-center space-x-2 rounded-md text-sm font-medium px-3 py-2 ${
-                      isActive ? activeClass : inactiveClass
-                    }`}
+                    className={`flex items-center space-x-2 rounded-md text-sm font-medium px-3 py-2 transition-all ${btnClass}`}
                   >
-                    <IconComponent className={`w-4 h-4 ${isActive ? 'text-white' : ''}`} />
+                    <IconComponent className={`w-4 h-4 ${iconMuted}`} />
                     <span>{tab.label}</span>
-                    {isTracker ? (
-                      <span className={`ml-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide ${
-                        isActive ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        TRACKER
-                      </span>
-                    ) : null}
-                    {isCompleted && (
+                    {isCompleted && !isTracker && (
                       <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white' : 'bg-blue-500'}`} />
+                    )}
+                    {isCompleted && isTracker && (
+                      <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white' : 'bg-violet-500'}`} />
                     )}
                   </button>
                 );
@@ -327,9 +330,9 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                     <div className="w-7 h-7 rounded-full bg-neutral-900 flex items-center justify-center">
                       <User className="w-4 h-4 text-white" />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-700">{user.username}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${roleBadgeClasses(user.role)}`}>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-700 leading-tight">{user.username}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 leading-tight">
                         {user.role}
                       </span>
                     </div>
@@ -384,6 +387,29 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                 const isActive = currentTab === tab.id;
                 const isCompleted = getProgress(tab.id);
                 const IconComponent = tab.icon;
+                const isTracker = tab.id === 'tracker';
+                const rowClass = isTracker
+                  ? isActive
+                    ? 'bg-violet-600 text-white'
+                    : 'text-violet-900 bg-violet-50/80 border border-violet-200/70 hover:bg-violet-100'
+                  : isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-600 hover:bg-blue-50';
+                const iconClass = isTracker
+                  ? isActive
+                    ? 'text-white'
+                    : 'text-violet-600'
+                  : isActive
+                    ? 'text-white'
+                    : 'text-blue-600';
+                const dotClass = isTracker
+                  ? isActive
+                    ? 'bg-white/80'
+                    : 'bg-violet-500'
+                  : isActive
+                    ? 'bg-white/80'
+                    : 'bg-green-500';
+
                 return (
                   <button
                     key={tab.id}
@@ -396,20 +422,24 @@ export default function AppLayoutNew({ children }: AppLayoutProps) {
                       setCurrentTab(tab.id as any);
                       setMobileMenuOpen(false);
                     }}
-                    className={`w-full flex items-center justify-between p-4 rounded-lg text-left font-medium transition-colors ${
-                      isActive ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-blue-50'
-                    }`}
+                    className={`w-full flex items-center justify-between p-4 rounded-lg text-left font-medium transition-colors ${rowClass}`}
                   >
                     <div className="flex items-center space-x-3">
-                      <IconComponent className={`w-5 h-5 ${isActive ? 'text-white' : 'text-blue-600'}`} />
+                      <IconComponent className={`w-5 h-5 ${iconClass}`} />
                       <div>
-                        <div className={isActive ? 'text-white' : 'text-gray-900'}>{tab.label}</div>
-                        <div className={`text-caption ${isActive ? 'text-white/80' : 'text-gray-500'}`}>{getTabStats(tab.id)}</div>
+                        <div className={isActive ? 'text-white' : isTracker ? 'text-violet-950' : 'text-gray-900'}>{tab.label}</div>
+                        <div
+                          className={`text-caption ${
+                            isActive ? 'text-white/80' : isTracker ? 'text-violet-700/90' : 'text-gray-500'
+                          }`}
+                        >
+                          {getTabStats(tab.id)}
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
-                      {isCompleted && <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/80' : 'bg-green-500'}`} />}
-                      <ChevronRight className="w-4 h-4" />
+                      {isCompleted && <div className={`w-2 h-2 rounded-full ${dotClass}`} />}
+                      <ChevronRight className={`w-4 h-4 ${isActive ? 'text-white' : isTracker ? 'text-violet-600' : ''}`} />
                     </div>
                   </button>
                 );

@@ -533,11 +533,11 @@ export default function DatabasePageNew() {
           <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-gray-200">
               <Users className="w-3.5 h-3.5" />
-              Loaded {cvs.length}{totalCVs != null ? ` of ${totalCVs}` : ''} candidates
+              Total {totalCVs ?? cvs.length} candidates
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-gray-200">
               <FileText className="w-3.5 h-3.5" />
-              Loaded {jds.length}{totalJDs != null ? ` of ${totalJDs}` : ''} JDs
+              Total {totalJDs ?? jds.length} JDs
             </span>
             {(selectedCVs.length > 0 || selectedJD) && (
               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-gray-200">
@@ -677,29 +677,59 @@ export default function DatabasePageNew() {
                 onClick={() => setView('candidates')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${view === 'candidates' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
               >
-                Candidates ({cvs.length})
+                Candidates ({totalCVs ?? cvs.length})
               </button>
               <button
                 type="button"
                 onClick={() => setView('jobs')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${view === 'jobs' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
               >
-                Job descriptions ({jds.length})
+                Job descriptions ({totalJDs ?? jds.length})
               </button>
             </div>
             {view === 'candidates' && (
-              <div className="flex items-center gap-2 flex-wrap sm:ml-auto">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-wrap sm:ml-auto">
+                {/* Top Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1.5 mr-2 pr-2 border-r border-gray-200">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page <= 1}
+                      className="h-9 px-2"
+                    >
+                      Prev
+                    </Button>
+                    <span className="text-xs font-medium text-gray-600 min-w-[60px] text-center">
+                      Page {page} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleNextPage}
+                      disabled={
+                        page >= totalPages &&
+                        !(activeTotalCount != null && activeLoadedCount < activeTotalCount)
+                      }
+                      className="h-9 px-2"
+                    >
+                      Next
+                    </Button>
+                  </div>
+                )}
+
                 <select
                   value={notesFilter}
                   onChange={(e) => { setNotesFilter(e.target.value as 'all' | 'with_notes' | 'without_notes'); setPage(1); }}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[neutral-900] focus:border-[neutral-900]"
+                  className="px-3 h-9 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[neutral-900] focus:border-[neutral-900]"
                   title="Filter by notes"
                 >
                   <option value="all">All candidates</option>
                   <option value="with_notes">With notes</option>
                   <option value="without_notes">Without notes</option>
                 </select>
-                <Button variant="outline" size="sm" onClick={selectAllInFolder}>
+                <Button variant="outline" size="sm" onClick={selectAllInFolder} className="h-9">
                   {allOnPageSelected ? 'Deselect all on this page' : 'Select all on this page'}
                 </Button>
               </div>
@@ -997,32 +1027,49 @@ export default function DatabasePageNew() {
                 {(totalPages > 1 || (activeTotalCount != null && activeLoadedCount < activeTotalCount)) && (
                   <div className="flex flex-col gap-2 px-4 py-3 border-t border-gray-200">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm text-gray-600">
-                        Showing {pagingStart}–{pagingEnd} of {totalItemsForPaging}
-                      </p>
-                      {totalPages > 1 && (
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            disabled={page <= 1}
-                          >
-                            Previous
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleNextPage}
-                            disabled={
-                              page >= totalPages &&
-                              !(activeTotalCount != null && activeLoadedCount < activeTotalCount)
-                            }
-                          >
-                            Next
-                          </Button>
-                        </div>
-                      )}
+                {totalPages > 1 && (
+                  <div className="p-4 border-t border-gray-100 bg-gray-50/50">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <div className="flex items-center gap-4">
+                        <p className="text-sm text-gray-600">
+                          Showing {pagingStart}–{pagingEnd} of {totalItemsForPaging}
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={selectAllInFolder}
+                          className="h-8 text-xs"
+                        >
+                          {allOnPageSelected ? 'Deselect all on this page' : 'Select all on this page'}
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={page <= 1}
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-xs font-medium text-gray-600 min-w-[80px] text-center">
+                          Page {page} of {totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleNextPage}
+                          disabled={
+                            page >= totalPages &&
+                            !(activeTotalCount != null && activeLoadedCount < activeTotalCount)
+                          }
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                     </div>
                   </div>
                 )}

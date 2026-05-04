@@ -1622,10 +1622,11 @@ export default function TrackerPage() {
       const k = String(s || '').toLowerCase().trim();
       return k === 'hold';
     };
-    const open = jobOpenings.filter((j) => !isClosed(j.status) && !isHold(j.status)).length;
+    const open = jobOpenings.filter((j) => !isClosed(j.status) && !isHold(j.status) && !j.submission_date).length;
+    const submitted = jobOpenings.filter((j) => j.submission_date && !isClosed(j.status)).length;
     const hold = jobOpenings.filter((j) => isHold(j.status)).length;
     const closed = jobOpenings.filter((j) => isClosed(j.status)).length;
-    return { open, hold, closed };
+    return { open, submitted, hold, closed };
   }, [jobOpenings]);
 
   const selectionCounts = useMemo(() => {
@@ -1859,6 +1860,12 @@ export default function TrackerPage() {
                       <div className="text-[10px] font-bold text-white uppercase tracking-wider">Open</div>
                       <div className="text-[20px] leading-none font-extrabold text-white tabular-nums">
                         {requirementCounts.open}
+                      </div>
+                    </div>
+                    <div className="w-[92px] h-[62px] rounded-xl border border-emerald-200 bg-emerald-50 flex flex-col justify-center px-3">
+                      <div className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Submitted</div>
+                      <div className="text-[20px] leading-none font-extrabold text-emerald-800 tabular-nums">
+                        {requirementCounts.submitted}
                       </div>
                     </div>
                     <div className="w-[92px] h-[62px] rounded-xl border border-amber-200 bg-amber-50 flex flex-col justify-center px-3">

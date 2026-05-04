@@ -495,6 +495,34 @@ def update_job_opening(
         raise HTTPException(status_code=404, detail="Job opening not found")
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(row, k, v)
+    
+    # Auto-create follow-up if submission_date is set or updated
+    if data.submission_date:
+        FollowUp = _tracker_models(team_resolved)["FollowUp"]
+        # Check if follow-up already exists for this job opening (using position and client as proxy)
+        existing_fu = session.exec(
+            select(FollowUp)
+            .where(FollowUp.position == row.title)
+            .where(FollowUp.client_name == (row.client or ""))
+            .where(FollowUp.is_deleted == False)
+        ).first()
+        
+        if not existing_fu:
+            from datetime import timedelta
+            next_date = data.submission_date + timedelta(days=1)
+            new_fu = FollowUp(
+                client_name=row.client or "Unknown",
+                position=row.title,
+                recruiter_name=row.hiring_manager,
+                account_manager=row.department, # department is used for Account Manager in UI
+                recruitment_manager=row.recruitment_manager,
+                cv_submitted_date=data.submission_date,
+                current_stage="Feedback Pending",
+                last_follow_up_date=data.submission_date,
+                next_follow_up_date=next_date,
+            )
+            session.add(new_fu)
+
     _touch_updated_at(row)
     session.add(row)
     session.commit()
