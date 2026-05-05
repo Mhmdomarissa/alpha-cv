@@ -460,6 +460,26 @@ def create_job_opening(
         comments=getattr(data, "comments", None),
     )
     session.add(row)
+    
+    # Auto-create follow-up if submission_date is provided on creation
+    if getattr(data, "submission_date", None):
+        FollowUp = _tracker_models(team_resolved)["FollowUp"]
+        from datetime import timedelta
+        next_date = data.submission_date + timedelta(days=1)
+        new_fu = FollowUp(
+            client_name=row.client or "Unknown",
+            position=row.title,
+            recruiter_name=row.hiring_manager,
+            account_manager=row.department, # department is used for Account Manager in UI
+            recruitment_manager=row.recruitment_manager,
+            cv_submitted_date=data.submission_date,
+            current_stage="Feedback Pending",
+            last_follow_up_date=next_date,
+            follow_up_date=next_date,
+            next_follow_up_date=next_date,
+        )
+        session.add(new_fu)
+
     session.commit()
     session.refresh(row)
     _tracker_cache_bust()
@@ -518,7 +538,8 @@ def update_job_opening(
                 recruitment_manager=row.recruitment_manager,
                 cv_submitted_date=data.submission_date,
                 current_stage="Feedback Pending",
-                last_follow_up_date=data.submission_date,
+                last_follow_up_date=next_date,
+                follow_up_date=next_date,
                 next_follow_up_date=next_date,
             )
             session.add(new_fu)
@@ -1474,7 +1495,6 @@ def export_job_openings_xlsx(
     ws.append(
         [
             "S.no",
-            "Requirement",
             "Role",
             "Client",
             "Recruiter",
@@ -1491,7 +1511,6 @@ def export_job_openings_xlsx(
         ws.append(
             [
                 i,
-                getattr(r, "requirement", None) or "",
                 r.title or "",
                 getattr(r, "client", None) or "",
                 r.hiring_manager or "",
@@ -1536,8 +1555,8 @@ def export_candidates_xlsx(
             "Client",
             "Status",
             "Recruiter",
-            "Recruitment Manager",
             "Account Manager",
+            "Recruitment Manager",
             "Comment",
         ]
     )
@@ -1564,8 +1583,8 @@ def export_candidates_xlsx(
                 a.client or "",
                 a.status or "",
                 a.recruiter or "",
-                getattr(a, "recruitment_manager", None) or "",
                 a.account_manager or "",
+                getattr(a, "recruitment_manager", None) or "",
                 a.comment or "",
             ]
         )
@@ -1606,11 +1625,13 @@ def export_followups_xlsx(
             "Client Name",
             "Position",
             "Recruiter Name",
+            "Account Manager",
             "Recruitment Manager",
             "CV Submitted Date",
             "Current Stage",
             "Follow Up Date",
             "Next Follow-up Date",
+            "Last Reminder Sent",
             "Interview Date",
             "Client Feedback",
             "Interview Feedback",
@@ -1623,11 +1644,13 @@ def export_followups_xlsx(
                 r.client_name or "",
                 r.position or "",
                 r.recruiter_name or "",
+                r.account_manager or "",
                 getattr(r, "recruitment_manager", None) or "",
                 r.cv_submitted_date.isoformat() if r.cv_submitted_date else "",
                 r.current_stage or "",
                 r.last_follow_up_date.isoformat() if r.last_follow_up_date else "",
                 r.next_follow_up_date.isoformat() if r.next_follow_up_date else "",
+                r.reminder_last_sent_at.isoformat() if getattr(r, "reminder_last_sent_at", None) else "",
                 r.interview_date.isoformat() if r.interview_date else "",
                 r.client_feedback or "",
                 r.interview_feedback or "",

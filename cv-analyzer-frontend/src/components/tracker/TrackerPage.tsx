@@ -279,9 +279,9 @@ function EditJobOpeningDialog({
                     canManage={false}
                     options={jobStatusOptions.map((o) => ({ id: o.id, value: o.value }))}
                     onChange={setStatus}
-                    onAdd={async () => {}}
-                    onEdit={async () => {}}
-                    onDelete={async () => {}}
+                    onAdd={async () => { }}
+                    onEdit={async () => { }}
+                    onDelete={async () => { }}
                   />
                 </FieldRow>
               </div>
@@ -293,9 +293,9 @@ function EditJobOpeningDialog({
                 canManage={false}
                 options={recruiterOptions.map((o) => ({ id: o.id, value: o.value }))}
                 onChange={setRecruiter}
-                onAdd={async () => {}}
-                onEdit={async () => {}}
-                onDelete={async () => {}}
+                onAdd={async () => { }}
+                onEdit={async () => { }}
+                onDelete={async () => { }}
               />
             </FieldRow>
             <FieldRow label="Recruitment Manager">
@@ -305,9 +305,9 @@ function EditJobOpeningDialog({
                 canManage={false}
                 options={recruitmentManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
                 onChange={setRecruitmentManager}
-                onAdd={async () => {}}
-                onEdit={async () => {}}
-                onDelete={async () => {}}
+                onAdd={async () => { }}
+                onEdit={async () => { }}
+                onDelete={async () => { }}
               />
             </FieldRow>
             <FieldRow label="Account Manager">
@@ -317,9 +317,9 @@ function EditJobOpeningDialog({
                 canManage={false}
                 options={accountManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
                 onChange={setAccountManager}
-                onAdd={async () => {}}
-                onEdit={async () => {}}
-                onDelete={async () => {}}
+                onAdd={async () => { }}
+                onEdit={async () => { }}
+                onDelete={async () => { }}
               />
             </FieldRow>
             <div className="sm:col-span-2">
@@ -432,9 +432,9 @@ function EditApplicationDialog({
               options={statusOptions.map((o) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setStatus}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <FieldRow label="Recruiter">
@@ -444,9 +444,9 @@ function EditApplicationDialog({
               options={recruiterOptions.map((o) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setRecruiter}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <FieldRow label="Account Manager">
@@ -456,9 +456,9 @@ function EditApplicationDialog({
               options={accountManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setAccountManager}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <div className="sm:col-span-2">
@@ -592,9 +592,9 @@ function NewJobOpeningDialog({
                     options={jobStatusOptions.map((o) => ({ id: o.id, value: o.value }))}
                     canManage={false}
                     onChange={setStatus}
-                    onAdd={async () => {}}
-                    onEdit={async () => {}}
-                    onDelete={async () => {}}
+                    onAdd={async () => { }}
+                    onEdit={async () => { }}
+                    onDelete={async () => { }}
                   />
                 </FieldRow>
               </div>
@@ -606,9 +606,9 @@ function NewJobOpeningDialog({
                 options={recruiterOptions.map((o) => ({ id: o.id, value: o.value }))}
                 canManage={false}
                 onChange={setRecruiter}
-                onAdd={async () => {}}
-                onEdit={async () => {}}
-                onDelete={async () => {}}
+                onAdd={async () => { }}
+                onEdit={async () => { }}
+                onDelete={async () => { }}
               />
             </FieldRow>
             <FieldRow label="Recruitment Manager">
@@ -618,9 +618,9 @@ function NewJobOpeningDialog({
                 options={recruitmentManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
                 canManage={false}
                 onChange={setRecruitmentManager}
-                onAdd={async () => {}}
-                onEdit={async () => {}}
-                onDelete={async () => {}}
+                onAdd={async () => { }}
+                onEdit={async () => { }}
+                onDelete={async () => { }}
               />
             </FieldRow>
             <FieldRow label="Account Manager">
@@ -630,9 +630,9 @@ function NewJobOpeningDialog({
                 options={accountManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
                 canManage={false}
                 onChange={setAccountManager}
-                onAdd={async () => {}}
-                onEdit={async () => {}}
-                onDelete={async () => {}}
+                onAdd={async () => { }}
+                onEdit={async () => { }}
+                onDelete={async () => { }}
               />
             </FieldRow>
             <div className="sm:col-span-2">
@@ -751,9 +751,9 @@ function NewCandidateDialog({
               options={statusOptions.map((o) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setStatus}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <FieldRow label="Recruiter">
@@ -763,9 +763,9 @@ function NewCandidateDialog({
               options={recruiterOptions.map((o) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setRecruiter}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <FieldRow label="Account Manager">
@@ -775,9 +775,9 @@ function NewCandidateDialog({
               options={accountManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setAccountManager}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <FieldRow label="Recruitment Manager">
@@ -787,9 +787,9 @@ function NewCandidateDialog({
               options={recruitmentManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setRecruitmentManager}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <div className="sm:col-span-2">
@@ -903,9 +903,9 @@ function FollowUpDialog({
               options={recruiterOptions.map((o) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setRecruiterName}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <FieldRow label="Recruitment Manager">
@@ -915,9 +915,9 @@ function FollowUpDialog({
               options={recruitmentManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setRecruitmentManager}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <FieldRow label="Account Manager">
@@ -927,9 +927,9 @@ function FollowUpDialog({
               options={accountManagerOptions.map((o) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setAccountManager}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <FieldRow label="Current Stage">
@@ -939,9 +939,9 @@ function FollowUpDialog({
               options={stageOptions.map((o: any) => ({ id: o.id, value: o.value }))}
               canManage={false}
               onChange={setCurrentStage}
-              onAdd={async () => {}}
-              onEdit={async () => {}}
-              onDelete={async () => {}}
+              onAdd={async () => { }}
+              onEdit={async () => { }}
+              onDelete={async () => { }}
             />
           </FieldRow>
           <FieldRow label="CV Submitted Date">
@@ -1177,7 +1177,7 @@ export default function TrackerPage() {
   const canManageJobOptions = canWriteJobs;
   const canManageCandidateOptions = canWriteCandidates;
 
-  const noopAsync = useCallback(async () => {}, []);
+  const noopAsync = useCallback(async () => { }, []);
 
   const [textPeek, setTextPeek] = useState<null | {
     title: string;
@@ -1354,44 +1354,44 @@ export default function TrackerPage() {
 
       const [candStatuses, jobStatuses, recruiters, ams, rms, reqs, fuStages] = isAllTeamsView
         ? await Promise.all([
-            Promise.all([
-              trackerApi.listOptions(token, 'candidate_status', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
-              trackerApi.listOptions(token, 'candidate_status', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
-            ]).then(([a, b]) => mergeByValue(a, b, 'candidate_status')),
-            Promise.all([
-              trackerApi.listOptions(token, 'job_status', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
-              trackerApi.listOptions(token, 'job_status', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
-            ]).then(([a, b]) => mergeByValue(a, b, 'job_status')),
-            Promise.all([
-              trackerApi.listOptions(token, 'recruiter', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
-              trackerApi.listOptions(token, 'recruiter', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
-            ]).then(([a, b]) => mergeByValue(a, b, 'recruiter')),
-            Promise.all([
-              trackerApi.listOptions(token, 'account_manager', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
-              trackerApi.listOptions(token, 'account_manager', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
-            ]).then(([a, b]) => mergeByValue(a, b, 'account_manager')),
-            Promise.all([
-              trackerApi.listOptions(token, 'recruitment_manager', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
-              trackerApi.listOptions(token, 'recruitment_manager', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
-            ]).then(([a, b]) => mergeByValue(a, b, 'recruitment_manager')),
-            Promise.all([
-              trackerApi.listOptions(token, 'requirement', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
-              trackerApi.listOptions(token, 'requirement', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
-            ]).then(([a, b]) => mergeByValue(a, b, 'requirement')),
-            Promise.all([
-              trackerApi.listOptions(token, 'followup_stage', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
-              trackerApi.listOptions(token, 'followup_stage', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
-            ]).then(([a, b]) => mergeByValue(a, b, 'followup_stage')),
-          ])
+          Promise.all([
+            trackerApi.listOptions(token, 'candidate_status', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
+            trackerApi.listOptions(token, 'candidate_status', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
+          ]).then(([a, b]) => mergeByValue(a, b, 'candidate_status')),
+          Promise.all([
+            trackerApi.listOptions(token, 'job_status', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
+            trackerApi.listOptions(token, 'job_status', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
+          ]).then(([a, b]) => mergeByValue(a, b, 'job_status')),
+          Promise.all([
+            trackerApi.listOptions(token, 'recruiter', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
+            trackerApi.listOptions(token, 'recruiter', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
+          ]).then(([a, b]) => mergeByValue(a, b, 'recruiter')),
+          Promise.all([
+            trackerApi.listOptions(token, 'account_manager', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
+            trackerApi.listOptions(token, 'account_manager', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
+          ]).then(([a, b]) => mergeByValue(a, b, 'account_manager')),
+          Promise.all([
+            trackerApi.listOptions(token, 'recruitment_manager', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
+            trackerApi.listOptions(token, 'recruitment_manager', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
+          ]).then(([a, b]) => mergeByValue(a, b, 'recruitment_manager')),
+          Promise.all([
+            trackerApi.listOptions(token, 'requirement', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
+            trackerApi.listOptions(token, 'requirement', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
+          ]).then(([a, b]) => mergeByValue(a, b, 'requirement')),
+          Promise.all([
+            trackerApi.listOptions(token, 'followup_stage', { team: 'dubai' }).catch(() => [] as TrackerOption[]),
+            trackerApi.listOptions(token, 'followup_stage', { team: 'abudhabi' }).catch(() => [] as TrackerOption[]),
+          ]).then(([a, b]) => mergeByValue(a, b, 'followup_stage')),
+        ])
         : await Promise.all([
-            trackerApi.listOptions(token, 'candidate_status', { team: apiTeam }).catch(() => [] as TrackerOption[]),
-            trackerApi.listOptions(token, 'job_status', { team: apiTeam }).catch(() => [] as TrackerOption[]),
-            trackerApi.listOptions(token, 'recruiter', { team: apiTeam }).catch(() => [] as TrackerOption[]),
-            trackerApi.listOptions(token, 'account_manager', { team: apiTeam }).catch(() => [] as TrackerOption[]),
-            trackerApi.listOptions(token, 'recruitment_manager', { team: apiTeam }).catch(() => [] as TrackerOption[]),
-            trackerApi.listOptions(token, 'requirement', { team: apiTeam }).catch(() => [] as TrackerOption[]),
-            trackerApi.listOptions(token, 'followup_stage', { team: apiTeam }).catch(() => [] as TrackerOption[]),
-          ]);
+          trackerApi.listOptions(token, 'candidate_status', { team: apiTeam }).catch(() => [] as TrackerOption[]),
+          trackerApi.listOptions(token, 'job_status', { team: apiTeam }).catch(() => [] as TrackerOption[]),
+          trackerApi.listOptions(token, 'recruiter', { team: apiTeam }).catch(() => [] as TrackerOption[]),
+          trackerApi.listOptions(token, 'account_manager', { team: apiTeam }).catch(() => [] as TrackerOption[]),
+          trackerApi.listOptions(token, 'recruitment_manager', { team: apiTeam }).catch(() => [] as TrackerOption[]),
+          trackerApi.listOptions(token, 'requirement', { team: apiTeam }).catch(() => [] as TrackerOption[]),
+          trackerApi.listOptions(token, 'followup_stage', { team: apiTeam }).catch(() => [] as TrackerOption[]),
+        ]);
       setCandidateStatusOptions(candStatuses);
       setJobStatusOptions(jobStatuses);
       setRecruiterOptions(recruiters);
@@ -1761,16 +1761,14 @@ export default function TrackerPage() {
               setCandDateFrom('');
               setCandDateTo('');
             }}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all text-[13px] ${
-              view === id ? 'bg-white text-primary shadow-sm font-semibold' : 'text-white/80 hover:bg-white/10 hover:text-white'
-            }`}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all text-[13px] ${view === id ? 'bg-white text-primary shadow-sm font-semibold' : 'text-white/80 hover:bg-white/10 hover:text-white'
+              }`}
           >
             <Icon className="w-4 h-4 shrink-0" />
             {sidebarOpen && <span className="flex-1 truncate">{label}</span>}
             {sidebarOpen && (
-              <span className={`text-[11px] rounded-full px-1.5 py-0.5 font-bold tabular-nums ${
-                view === id ? 'bg-primary/10 text-primary' : 'bg-white/15 text-white/90'
-              }`}>
+              <span className={`text-[11px] rounded-full px-1.5 py-0.5 font-bold tabular-nums ${view === id ? 'bg-primary/10 text-primary' : 'bg-white/15 text-white/90'
+                }`}>
                 {count}
               </span>
             )}
@@ -1794,9 +1792,8 @@ export default function TrackerPage() {
     <div className="h-screen flex overflow-hidden bg-transparent">
       {/* Desktop sidebar — narrower */}
       <aside
-        className={`hidden md:flex flex-col shrink-0 bg-gradient-primary transition-all duration-200 ease-in-out overflow-hidden ${
-          sidebarOpen ? 'w-52' : 'w-[52px]'
-        }`}
+        className={`hidden md:flex flex-col shrink-0 bg-gradient-primary transition-all duration-200 ease-in-out overflow-hidden ${sidebarOpen ? 'w-52' : 'w-[52px]'
+          }`}
       >
         {SidebarContent}
       </aside>
@@ -1852,14 +1849,20 @@ export default function TrackerPage() {
             <div className="flex items-center gap-3">
               <div>
                 <p className="text-[13px] text-gray-400 font-medium">
-                  {view === 'jobOpenings'
-                    ? `${jobOpenings.length} requirement${jobOpenings.length !== 1 ? 's' : ''}`
-                    : view === 'candidateProfiles'
-                      ? `${candidateRows.length} candidate${candidateRows.length !== 1 ? 's' : ''}`
-                      : `${followUps.length} follow-up${followUps.length !== 1 ? 's' : ''}`}
+                  {view === 'candidateProfiles'
+                    ? `${candidateRows.length} candidate${candidateRows.length !== 1 ? 's' : ''}`
+                    : view === 'followUps'
+                      ? `${followUps.length} follow-up${followUps.length !== 1 ? 's' : ''}`
+                      : null}
                 </p>
                 {view === 'jobOpenings' && (
-                  <div className="mt-2 flex items-center gap-2">
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <div className="w-[100px] h-[62px] rounded-xl border border-gray-200 bg-gray-50 flex flex-col justify-center px-3">
+                      <div className="text-[10px] font-bold text-gray-600 uppercase tracking-wider">Total</div>
+                      <div className="text-[20px] leading-none font-extrabold text-gray-900 tabular-nums">
+                        {jobOpenings.length}
+                      </div>
+                    </div>
                     <div className="w-[92px] h-[62px] rounded-xl border border-transparent bg-gradient-primary shadow-lg shadow-blue-900/20 flex flex-col justify-center px-3">
                       <div className="text-[10px] font-bold text-white uppercase tracking-wider">Open</div>
                       <div className="text-[20px] leading-none font-extrabold text-white tabular-nums">
@@ -2099,16 +2102,16 @@ export default function TrackerPage() {
                 />
                 {((view === 'jobOpenings' && (jobDateFrom || jobDateTo)) ||
                   (view === 'candidateProfiles' && (candDateFrom || candDateTo))) && (
-                  <button
-                    onClick={() => {
-                      if (view === 'jobOpenings') { setJobDateFrom(''); setJobDateTo(''); }
-                      else { setCandDateFrom(''); setCandDateTo(''); }
-                    }}
-                    className="h-8 px-2 text-[11px] text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg bg-white"
-                  >
-                    Clear
-                  </button>
-                )}
+                    <button
+                      onClick={() => {
+                        if (view === 'jobOpenings') { setJobDateFrom(''); setJobDateTo(''); }
+                        else { setCandDateFrom(''); setCandDateTo(''); }
+                      }}
+                      className="h-8 px-2 text-[11px] text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg bg-white"
+                    >
+                      Clear
+                    </button>
+                  )}
               </div>
               {view === 'candidateProfiles' && (
                 <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as any)}>
@@ -2127,9 +2130,8 @@ export default function TrackerPage() {
 
         {/* Content area — scrollable */}
         <div
-          className={`flex-1 overflow-auto p-4 transition-opacity duration-150 ${
-            loading && (jobOpenings.length > 0 || candidates.length > 0) ? 'opacity-60' : 'opacity-100'
-          }`}
+          className={`flex-1 overflow-auto p-4 transition-opacity duration-150 ${loading && (jobOpenings.length > 0 || candidates.length > 0) ? 'opacity-60' : 'opacity-100'
+            }`}
         >
           {error && (
             <div className="mb-3 flex items-center gap-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-[13px]">
@@ -2392,7 +2394,31 @@ export default function TrackerPage() {
                         {isAllTeamsView ? (
                           <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap text-[12px]">{(cand as any).__team || '—'}</td>
                         ) : null}
-                        <td className="px-4 py-2.5 font-semibold text-gray-900 whitespace-nowrap">{cand.name}</td>
+                        <td className="px-3 py-2">
+                          {canWriteCandidates ? (
+                            <input
+                              key={`name-${cand.id}:${String(cand.updated_at || '')}`}
+                              defaultValue={cand.name || ''}
+                              placeholder="Name"
+                              className="w-full min-w-[120px] h-8 px-2 text-[12px] font-semibold text-gray-900 border border-transparent hover:border-gray-200 focus:border-primary rounded-lg bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                              onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
+                              onBlur={async (e) => {
+                                if (!token) return;
+                                const val = e.currentTarget.value.trim();
+                                if (!val || val === cand.name) return;
+                                setRowBusy((s) => ({ ...s, [cand.id]: true }));
+                                try {
+                                  await trackerApi.updateCandidate(token, cand.id, { name: val }, apiTeam);
+                                  await refreshAll();
+                                } finally {
+                                  setRowBusy((s) => ({ ...s, [cand.id]: false }));
+                                }
+                              }}
+                            />
+                          ) : (
+                            <span className="px-1 font-semibold text-gray-900 whitespace-nowrap">{cand.name}</span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-gray-600 text-[12px]">{app?.position || <span className="text-gray-300">—</span>}</td>
                         <td className="px-4 py-2.5 text-gray-600 text-[12px]">{app?.client || <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 py-2">
@@ -2539,22 +2565,22 @@ export default function TrackerPage() {
                                   canEdit: !!canWriteCandidates,
                                   onSave: canWriteCandidates
                                     ? async (nextText: string) => {
-                                        if (!token) return;
-                                        setRowBusy((s) => ({ ...s, [cand.id]: true }));
-                                        try {
-                                          const resolvedApp =
-                                            app ??
-                                            (await trackerApi.createApplication(
-                                              token,
-                                              { candidate_id: cand.id, status: 'MRF Pending' },
-                                              apiTeam
-                                            ));
-                                          await trackerApi.updateApplication(token, resolvedApp.id, { comment: nextText || null }, apiTeam);
-                                          await refreshAll();
-                                        } finally {
-                                          setRowBusy((s) => ({ ...s, [cand.id]: false }));
-                                        }
+                                      if (!token) return;
+                                      setRowBusy((s) => ({ ...s, [cand.id]: true }));
+                                      try {
+                                        const resolvedApp =
+                                          app ??
+                                          (await trackerApi.createApplication(
+                                            token,
+                                            { candidate_id: cand.id, status: 'MRF Pending' },
+                                            apiTeam
+                                          ));
+                                        await trackerApi.updateApplication(token, resolvedApp.id, { comment: nextText || null }, apiTeam);
+                                        await refreshAll();
+                                      } finally {
+                                        setRowBusy((s) => ({ ...s, [cand.id]: false }));
                                       }
+                                    }
                                     : undefined,
                                 });
                               }}
@@ -2722,9 +2748,8 @@ export default function TrackerPage() {
                       return (
                         <tr
                           key={r.id}
-                          className={`transition-colors group ${
-                            overdue ? 'bg-red-50 hover:bg-red-50' : 'hover:bg-blue-50/20'
-                          }`}
+                          className={`transition-colors group ${overdue ? 'bg-red-50 hover:bg-red-50' : 'hover:bg-blue-50/20'
+                            }`}
                         >
                           <td className="px-4 py-2.5 font-semibold text-gray-900">{r.client_name}</td>
                           {isAllTeamsView ? (
@@ -3254,11 +3279,10 @@ export default function TrackerPage() {
                                     {sec.kind === 'account_manager' ? (
                                       <td className="px-3 py-2">
                                         <button
-                                          className={`px-2 py-1 rounded-md border text-[11px] font-semibold ${
-                                            (r.email_enabled ?? true)
+                                          className={`px-2 py-1 rounded-md border text-[11px] font-semibold ${(r.email_enabled ?? true)
                                               ? 'border-green-200 text-green-700 hover:bg-green-50'
                                               : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                                          }`}
+                                            }`}
                                           title="Toggle sending reminders for this Account Manager"
                                           onClick={async (e) => {
                                             e.preventDefault();
@@ -3351,9 +3375,9 @@ export default function TrackerPage() {
                                 apiTeam,
                                 msAddOpen === 'recruiter' || msAddOpen === 'account_manager' || msAddOpen === 'recruitment_manager'
                                   ? {
-                                      email: msEmailDraft.trim() || null,
-                                      email_enabled: msAddOpen === 'account_manager' ? msEmailEnabledDraft : true,
-                                    }
+                                    email: msEmailDraft.trim() || null,
+                                    email_enabled: msAddOpen === 'account_manager' ? msEmailEnabledDraft : true,
+                                  }
                                   : undefined
                               );
                               setMsAddOpen(null);
