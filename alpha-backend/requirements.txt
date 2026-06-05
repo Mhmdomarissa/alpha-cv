@@ -1,5 +1,6 @@
 setuptools>=65.0.0
-fastapi==0.115.4
+fastapi>=0.115.5
+starlette>=1.0.1
 uvicorn==0.32.0
 python-multipart==0.0.12
 qdrant-client==1.12.1

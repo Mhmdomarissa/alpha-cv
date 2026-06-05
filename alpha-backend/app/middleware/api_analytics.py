@@ -40,7 +40,7 @@ class APIAnalyticsMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         """Track API calls without impacting performance"""
         start_time = time.time()
-        endpoint_key = f"{request.method} {request.url.path}"
+        endpoint_key = f"{request.method} {request.scope.get('path', request.url.path)}"
         
         # Call the actual endpoint
         response = await call_next(request)

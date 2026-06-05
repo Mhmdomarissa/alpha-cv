@@ -304,7 +304,7 @@ async def add_security_headers(request, call_next):
     response = await call_next(request)
     
     # Check if request is HTTPS (including via ALB forwarding)
-    is_https = (request.url.scheme == "https" or 
+    is_https = (request.scope.get("scheme", request.url.scheme) == "https" or 
                 request.headers.get("X-Forwarded-Proto") == "https")
     
     # Add security headers for HTTPS requests

@@ -325,7 +325,7 @@ rate_limiter = ProductionRateLimiter()
 async def rate_limit_middleware(request: Request, call_next):
     """Enhanced rate limiting middleware with smart bypasses for admins"""
     client_ip = rate_limiter.get_client_ip(request)
-    path = request.url.path
+    path = request.scope.get("path", request.url.path)
     method = request.method
     
     # === SMART BYPASS LOGIC ===
